@@ -60,6 +60,11 @@ func (r *Receiver) applyAssets(p *model.ReportPayload) {
 	// 实例清单每轮都上报，Apply 内部按自然键幂等、且只在值真变化时写变更记录，
 	// 因此这里可以放心地每轮提交。
 	instances := make([]instancePlan, 0, 8)
+	// 本轮出现的**中间件集群**（键 = 类型|集群名）。只收有权威集群名的实例：
+	// ES 的 cluster_name / MongoDB 的 setName / MySQL GR 的组名。
+	// 其余类型报的是 Agent 本地别名（各采集器填的 cfg.Name），跨 Agent 可能同名不同集群——
+	// 拿它建集群等于把两批机器并成一个，宁可不建。
+	clusters := map[string]clusterPlan{}
 	for _, ob := range instanceObservations(p) {
 		if strings.TrimSpace(ob.Addr) == "" {
 			continue
@@ -74,6 +79,10 @@ func (r *Receiver) applyAssets(p *model.ReportPayload) {
 		putIfNotEmpty(attrs, "image", ob.Image)
 		// 主从关系也落成属性：关系图回答"有这条边"，台账要能回答"这条边为什么存在"。
 		putIfNotEmpty(attrs, "replicaOf", ob.ReplicaOf)
+		// 集群名同样落成属性。这一条不只是"顺手"：集群资产**对受限用户不可见**
+		// （它跨主机、没有单一归属节点，只能落空串），所以"这个实例属于哪个集群"这条信息
+		// 必须在实例上留一份，否则受限用户什么都看不到。
+		putIfNotEmpty(attrs, "cluster", ob.ClusterName)
 		// 地址里的主机部分：宿主判定不成立时，它是唯一能解释"为什么没有 runs_on 边"的线索
 		// （否则用户只能看到"这个实例没挂到任何机器上"，无从判断）。
 		if host, ok := instanceHost(ob.Addr); ok {
@@ -81,6 +90,12 @@ func (r *Receiver) applyAssets(p *model.ReportPayload) {
 		}
 		if ob.HasUp {
 			attrs["up"] = strconv.FormatBool(ob.Up)
+		}
+		clusterRef := asset.Ref{}
+		if name := strings.TrimSpace(ob.ClusterName); name != "" {
+			key := asset.MiddlewareClusterNaturalKey(ob.Type, name)
+			clusterRef = asset.Ref{TypeKey: asset.TypeMiddlewareCluster, NaturalKey: key}
+			clusters[ob.Type+"|"+name] = clusterPlan{ref: clusterRef, kind: ob.Type, name: name}
 		}
 		instance, _, err := r.assets.Apply(asset.Observation{
 			TypeKey: asset.TypeMiddlewareInst, NaturalKey: ob.Type + ":" + ob.Addr,
@@ -91,19 +106,50 @@ func (r *Receiver) applyAssets(p *model.ReportPayload) {
 			continue
 		}
 		instances = append(instances, instancePlan{
-			ref:       asset.Ref{TypeKey: instance.TypeKey, NaturalKey: instance.NaturalKey},
-			kind:      ob.Type,
-			addr:      ob.Addr,
-			replicaOf: ob.ReplicaOf,
+			ref:        asset.Ref{TypeKey: instance.TypeKey, NaturalKey: instance.NaturalKey},
+			kind:       ob.Type,
+			addr:       ob.Addr,
+			replicaOf:  ob.ReplicaOf,
+			clusterRef: clusterRef,
 		})
 	}
+
+	// 集群资产先落：member_of 要求两端都已存在（与"先工作负载、后 Pod"同一约束）。
+	for _, cp := range clusters {
+		if _, _, err := r.assets.Apply(asset.Observation{
+			TypeKey: asset.TypeMiddlewareCluster, NaturalKey: cp.ref.NaturalKey,
+			Name: cp.name,
+			// **归属节点落空串**：集群跨主机，没有单一归属节点。取上报主机会在多个 Agent
+			// 之间来回覆盖（受限用户看到的归属会抖动，比没有更糟）；空串 = 仅全局范围可见，
+			// 与"Pod 落在未注册节点上"同一取向。代价与补偿见设计件 §4.3 与实例上的 cluster 属性。
+			Node:   "",
+			Source: asset.SourceDiscovery, Actor: "agent",
+			Attrs: map[string]string{"type": cp.kind},
+		}); err != nil {
+			slog.Warn("写入中间件集群资产失败", "cluster", cp.name, "kind", cp.kind, "err", err)
+		}
+	}
+
 	for _, it := range instances {
 		r.linkInstance(it, hostRef, p)
+		if it.clusterRef.NaturalKey != "" {
+			if err := r.assets.LinkDiscovered(it.ref, it.clusterRef, asset.LinkMemberOf); err != nil {
+				slog.Warn("建立实例 → 集群关联失败",
+					"instance", it.addr, "cluster", it.clusterRef.NaturalKey, "err", err)
+			}
+		}
 	}
 
 	// K8s 容器/工作负载清单。与上面同一套原则（只以 discovery 提交、幂等、失败只记日志），
 	// 但多一条**顺序约束**，见其函数注释。
 	r.applyContainerInventory(p)
+}
+
+// clusterPlan 是一条待落的中间件集群资产——从本轮实例清单里抽出来的。
+type clusterPlan struct {
+	ref  asset.Ref
+	kind string // 实例类型前缀（elasticsearch / mongodb / mysql）
+	name string // 集群名（来自被采集方，不是 Agent 本地别名）
 }
 
 // instancePlan 是一条待维护关系的实例（先落资产、再建边，顺序见 applyAssets）。
@@ -112,6 +158,8 @@ type instancePlan struct {
 	kind      string // 实例类型前缀（redis / mysql / …），用来拼主库的自然键
 	addr      string
 	replicaOf string
+	// clusterRef 是本实例所属集群的资产引用（ClusterName 为空时为零值 → 不建边）。
+	clusterRef asset.Ref
 }
 
 // linkInstance 维护一条实例资产的两组关系：宿主（runs_on）与主从依赖（depends_on）。
@@ -505,6 +553,9 @@ type assetObs struct {
 	// 采集侧保证它与 Instance 同形（同一套地址归一化），因此可以直接拼自然键：
 	// 主库资产存在时精确命中，不存在时不建边（不造占位）。
 	ReplicaOf string
+	// ClusterName 是**权威的集群标识**：ES 的 cluster_name、MongoDB 的 setName、
+	// MySQL GR 的组名。只有这三类有；其余类型留空 → 不建集群（不拿 Agent 本地别名冒充身份）。
+	ClusterName string
 }
 
 func collectObs[T any](items []T, pick func(T) assetObs) []assetObs {
@@ -524,7 +575,8 @@ func instanceObservations(p *model.ReportPayload) []assetObs {
 	})...)
 	out = append(out, collectObs(p.MySQLInstances, func(i model.MySQLInstance) assetObs {
 		return assetObs{Type: "mysql", Addr: i.Instance, Name: i.Name, Group: i.Group, Role: i.Role,
-			Topology: i.Topology, Version: i.Version, Up: i.Up, HasUp: true, ReplicaOf: i.ReplicaOf}
+			Topology: i.Topology, Version: i.Version, Up: i.Up, HasUp: true, ReplicaOf: i.ReplicaOf,
+			ClusterName: i.ClusterName}
 	})...)
 	out = append(out, collectObs(p.PostgresInstances, func(i model.PostgresInstance) assetObs {
 		return assetObs{Type: "postgres", Addr: i.Instance, Name: i.Name, Group: i.Group, Role: i.Role,
@@ -552,7 +604,8 @@ func instanceObservations(p *model.ReportPayload) []assetObs {
 	})...)
 	out = append(out, collectObs(p.MongoDBInstances, func(i model.MongoDBInstance) assetObs {
 		return assetObs{Type: "mongodb", Addr: i.Instance, Name: i.Name, Group: i.Group, Role: i.Role,
-			Topology: i.Topology, Version: i.Version, Up: i.Up, HasUp: true}
+			Topology: i.Topology, Version: i.Version, Up: i.Up, HasUp: true,
+			ClusterName: i.ClusterName}
 	})...)
 	out = append(out, collectObs(p.FastDFSInstances, func(i model.FastDFSInstance) assetObs {
 		return assetObs{Type: "fastdfs", Addr: i.Instance, Name: i.Name, Group: i.Group, Role: i.Role,
@@ -563,7 +616,7 @@ func instanceObservations(p *model.ReportPayload) []assetObs {
 	})...)
 	out = append(out, collectObs(p.ElasticsearchInstances, func(i model.ElasticsearchInstance) assetObs {
 		return assetObs{Type: "elasticsearch", Addr: i.Instance, Name: i.Name, Group: i.Group,
-			Role: i.Status, Version: i.Version}
+			Role: i.Status, Version: i.Version, ClusterName: i.ClusterName}
 	})...)
 	out = append(out, collectObs(p.ClickHouseInstances, func(i model.ClickHouseInstance) assetObs {
 		return assetObs{Type: "clickhouse", Addr: i.Instance, Name: i.Name, Group: i.Group, Version: i.Version}

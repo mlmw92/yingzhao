@@ -94,6 +94,12 @@ const (
 	// 与 Pod/Workload 不同，它**不是短命对象**（见 EphemeralTypes）：Service 停止上报就是真失联，
 	// 应当计入台账首页与健康度摘要——这正是它与那两个类型相反的取舍。
 	TypeService = "service"
+	// TypeMiddlewareCluster 是中间件集群，自然键 = <类型>:<集群名>（如 elasticsearch:prod-logs）。
+	//
+	// **集群名必须来自被采集方**（ES 的 cluster_name / MongoDB 的 setName / MySQL GR 的组名），
+	// 不能用 Agent 本地别名（各采集器填的 cfg.Name）——后者跨 Agent 可能同名却指两个不同的集群，
+	// 拿它当身份等于把两批机器合并成一个集群。
+	TypeMiddlewareCluster = "middleware-cluster"
 )
 
 // EphemeralTypes 是**运行时短命对象**的资产类型：它们天生高 churn（滚动更新、Job、扩缩容），
@@ -130,6 +136,7 @@ func BuiltinTypes() []AssetType {
 		{Key: TypePod, Title: "容器（Pod）", Builtin: true},
 		{Key: TypeWorkload, Title: "工作负载", Builtin: true},
 		{Key: TypeService, Title: "K8s 服务", Builtin: true},
+		{Key: TypeMiddlewareCluster, Title: "中间件集群", Builtin: true},
 	}
 }
 
@@ -343,6 +350,14 @@ func WorkloadNaturalKey(cluster, namespace, kind, name string) string {
 // ServiceNaturalKey 同 PodNaturalKey，kind 固定为 service。
 func ServiceNaturalKey(cluster, namespace, name string) string {
 	return podKeyPrefix(cluster, namespace) + "service/" + strings.TrimSpace(name)
+}
+
+// MiddlewareClusterNaturalKey 拼中间件集群的自然键：<类型>:<集群名>。
+//
+// 与实例键 <类型>:<地址> 同形但不同命名空间（集群名不会长得像地址；真撞上属于人为构造，不做特判）。
+// kind 用实例的类型前缀（elasticsearch / mongodb / mysql），与实例键同一套词汇。
+func MiddlewareClusterNaturalKey(kind, name string) string {
+	return strings.TrimSpace(kind) + ":" + strings.TrimSpace(name)
 }
 
 func podKeyPrefix(cluster, namespace string) string {
@@ -659,13 +674,13 @@ type LinkOverview struct {
 // 与以单个资产为中心的邻域不是一回事：那里是"从一个点逐跳摊开"，这里先按条件选出**边**、
 // 再把边的两端取成节点。四个维度之间是"且"，每个维度内部是"或"（与列表页的筛选语义一致）。
 type TopologyFilter struct {
-	Kinds     []LinkKind
-	Sources   []Source
-	Types     []string // 资产类型：**两端任一**命中即选中这条边
-	Nodes     []string // 归属节点：同样是两端任一命中
-	Scope     ChangeScope
-	MaxEdges  int
-	MaxNodes  int
+	Kinds    []LinkKind
+	Sources  []Source
+	Types    []string // 资产类型：**两端任一**命中即选中这条边
+	Nodes    []string // 归属节点：同样是两端任一命中
+	Scope    ChangeScope
+	MaxEdges int
+	MaxNodes int
 }
 
 // TopologyGraph 是按筛选取到的子图。
