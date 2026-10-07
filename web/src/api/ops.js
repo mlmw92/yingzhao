@@ -51,3 +51,27 @@ export const uploadOpsFile = (formData, onProgress) => http.upload('/api/v1/ops/
 
 // 已上传的待分发文件（供复用，不必为同一次分发重复上传）。
 export const listOpsFiles = () => http.get('/api/v1/ops/files')
+
+// dangerFindings 按服务端下发的规则清单，找出这次参数里命中的危险项。
+//
+// **为什么前端也判一次**：确认框要在**提交前**把危险理由列出来，否则"提醒"就没有意义了
+// （提交后才提示，动作已经下发）。权威判定始终在服务端（`approvalGate` 那一次，它会拦/留痕），
+// 前端这层若与服务端不一致，失败方向是良性的：前端漏报 → 服务端照样管；前端多报 → 多一句提示。
+//
+// **清单只有一份**：哪些目录/单元算危险由服务端下发（`dangerRules`），前端不自己维护名单——
+// 两端各写一份名单必然漂移。这里只有"精确匹配 / 路径前缀匹配"这点简单逻辑。
+export function dangerFindings(rules, kind, params) {
+  const out = []
+  for (const r of rules || []) {
+    if (r.kind !== kind) continue
+    const v = ((params || {})[r.param] || '').trim()
+    if (!v) continue
+    const hit = (r.values || []).some((want) => {
+      if (r.exact) return v === want
+      const dir = want.replace(/\/+$/, '')
+      return v === dir || v.startsWith(dir + '/')
+    })
+    if (hit) out.push({ rule: r.rule, param: r.param, value: v, reason: r.reason })
+  }
+  return out
+}

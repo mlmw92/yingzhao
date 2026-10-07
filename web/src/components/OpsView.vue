@@ -445,7 +445,7 @@ import {
 import BatchBar from './BatchBar.vue'
 import KpiCard from './KpiCard.vue'
 import PageHeader from './common/PageHeader.vue'
-import { cancelOpsTasks, createOpsBatch, createOpsTask, deleteOpsTask, listOpsActions, listOpsTasks, uploadOpsFile } from '../api/ops'
+import { cancelOpsTasks, createOpsBatch, createOpsTask, dangerFindings, deleteOpsTask, listOpsActions, listOpsTasks, uploadOpsFile } from '../api/ops'
 import http from '../api/http'
 import { useAuth } from '../composables/useAuth'
 
@@ -498,6 +498,8 @@ const filter = ref({ node: '', state: '', batchId: '' })
 const dispatchVisible = ref(false)
 const submitting = ref(false)
 const actions = ref([])
+// 危险参数规则（服务端下发，清单只有一份）：用于在**提交前**把理由列进确认框。
+const dangerRules = ref([])
 const support = ref({}) // node → 该节点放行的动作（批量：一次查全部选中节点）
 const capsLoaded = ref(false)
 const form = reactive({ nodes: [], kind: '', params: {}, reason: '' })
@@ -677,6 +679,7 @@ async function loadCatalog() {
   try {
     const res = await listOpsActions('')
     actions.value = res.actions || []
+    dangerRules.value = res.dangerRules || []
   } catch (e) {
     ElMessage.error(e.message || '加载动作目录失败')
   }
@@ -736,8 +739,18 @@ async function submitDispatch() {
   if (covered < form.nodes.length) {
     lines.push(`其中只有 ${covered} 台放行了该动作，其余会被跳过（逐台给出原因）`)
   }
+  // 危险参数（落点①）：把命中的理由**逐条**列出来。
+  // 这是本批用户能直接看见的收益——写 /etc/passwd 与写 /opt/app/conf 的确认框不再长一个样。
+  // 判定以服务端为准（它会拦/留痕）；这里用同一份清单做同样的简单匹配，漏报不会放过风险。
+  const danger = dangerFindings(dangerRules.value, a.kind, params)
+  for (const d of danger) {
+    lines.push(`【危险】${d.param} = ${d.value}：${d.reason}`)
+  }
+  if (danger.length) {
+    lines.push('审批开启时该动作需要另一位同事批准；无论开关，这次下发都会留下审计记录')
+  }
   try {
-    await ElMessageBox.confirm(lines.join('；'), '确认下发操作', {
+    await ElMessageBox.confirm(lines.join('；'), danger.length ? '确认下发（含危险参数）' : '确认下发操作', {
       type: a.readOnly ? 'info' : 'warning', confirmButtonText: '下发', cancelButtonText: '取消',
     })
   } catch (e) {

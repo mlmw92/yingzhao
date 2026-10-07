@@ -456,6 +456,9 @@ const categoryOptions = [
   { value: 'fim', label: '文件完整性' },
   { value: 'process_anomaly', label: '异常进程' },
   { value: 'sudo_audit', label: 'sudo 提权审计' },
+  // 高危命令是**事后发现**：由服务端从 sudo 命令文本里派生（不是 Agent 采的原始事件）。
+  // 单列一类而不是混进 sudo 流水：sudo 审计量大且大多正常，混在一起等于把信号淹掉。
+  { value: 'high_risk_cmd', label: '高危命令' },
   { value: 'cat_ban', label: 'fail2ban 封禁' },
 ]
 
@@ -492,6 +495,7 @@ function catLabel(c) {
     fim: '文件完整性',
     process_anomaly: '异常进程',
     sudo_audit: 'sudo 审计',
+    high_risk_cmd: '高危命令',
     cat_ban: 'fail2ban 封禁',
   }
   return m[c] || c
