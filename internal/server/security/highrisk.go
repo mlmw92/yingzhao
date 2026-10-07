@@ -37,6 +37,16 @@ type commandRule struct {
 	reason  string
 }
 
+// cmdPrefix 匹配"命令名之前的那个边界"，并且**允许一个绝对路径前缀**。
+//
+// 为什么必须允许：sudo 日志记的是**完整路径**——真实日志里是
+// `COMMAND=/usr/bin/sed …`、`/bin/rm -rf /`，而不是裸命令名。
+// 第一版只写 `\brm\b` 这类形态，于是**真实日志里几乎一条都命中不了**
+// （e2e 当场抓到：注入 `/bin/rm -rf /` 后没有事件，而裸 `rm -rf /` 的用例是绿的）。
+//
+// 边界字符集包含 `=`：`COMMAND=/bin/rm` 这种形态里命令前是 `=`。
+const cmdPrefix = `(^|[\s;&|=])(/[^\s;&|]*/)?`
+
 // commandRules 是全部规则。
 //
 // 每条都要能一眼看出"为什么这条一定危险"；写不出理由的形态（例如单独一个 passwd）
@@ -44,37 +54,38 @@ type commandRule struct {
 var commandRules = []commandRule{
 	{
 		rule:   "rm-rf-root",
-		re:     regexp.MustCompile(`(^|[\s;&|])rm\s+(-[a-zA-Z]+\s+)*-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+/(\s|$|\*)`),
+		re:     regexp.MustCompile(cmdPrefix + `rm\s+(-[a-zA-Z]+\s+)*-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+/(\s|$|\*)`),
 		reason: "递归强制删除根目录",
 	},
 	{
 		rule:   "rm-rf-root-flags-split",
-		re:     regexp.MustCompile(`(^|[\s;&|])rm\s+.*-[a-zA-Z]*r[a-zA-Z]*\s+.*-[a-zA-Z]*f[a-zA-Z]*\s+/(\s|$|\*)`),
+		re:     regexp.MustCompile(cmdPrefix + `rm\s+.*-[a-zA-Z]*r[a-zA-Z]*\s+.*-[a-zA-Z]*f[a-zA-Z]*\s+/(\s|$|\*)`),
 		reason: "递归强制删除根目录（参数分开写）",
 	},
 	{
 		rule:   "dd-of-device",
-		re:     regexp.MustCompile(`\bdd\b[^|;&]*\bof=/dev/`),
+		re:     regexp.MustCompile(cmdPrefix + `dd\b[^|;&]*\bof=/dev/`),
 		reason: "直接向块设备写入（可能毁掉磁盘或分区表）",
 	},
 	{
 		rule:   "mkfs",
-		re:     regexp.MustCompile(`(^|[\s;&|])mkfs(\.[a-z0-9]+)?\s`),
+		re:     regexp.MustCompile(cmdPrefix + `mkfs(\.[a-z0-9]+)?\s`),
 		reason: "格式化文件系统",
 	},
 	{
 		rule:   "chmod-777-root",
-		re:     regexp.MustCompile(`\bchmod\b[^|;&]*\s(-R\s+)?0?777\s+/(\s|$)`),
+		re:     regexp.MustCompile(cmdPrefix + `chmod\b[^|;&]*\s(-R\s+)?0?777\s+/(\s|$)`),
 		reason: "把根目录权限改成所有人可写",
 	},
 	{
 		rule:   "chown-recursive-root",
-		re:     regexp.MustCompile(`\bchown\b[^|;&]*\s-R\b[^|;&]*\s/(\s|$)`),
+		re:     regexp.MustCompile(cmdPrefix + `chown\b[^|;&]*\s-R\b[^|;&]*\s/(\s|$)`),
 		reason: "递归改掉根目录的属主",
 	},
 	{
 		rule:   "pipe-download-to-shell",
-		re:     regexp.MustCompile(`\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|da)?sh\b`),
+		// 管道右侧同样要给路径留位置：真实形态是 `| /bin/sh`，不是 `| sh`。
+		re:     regexp.MustCompile(cmdPrefix + `(curl|wget)\b[^|]*\|\s*(sudo\s+)?(/[^\s;&|]*/)?(ba|z|da)?sh\b`),
 		reason: "把下载来的内容直接交给 shell 执行（内容不可审计）",
 	},
 	{
@@ -84,28 +95,30 @@ var commandRules = []commandRule{
 	},
 	{
 		rule:   "flush-firewall",
-		re:     regexp.MustCompile(`\biptables\s+-F\b|\bnft\s+flush\s+ruleset\b`),
+		re:     regexp.MustCompile(cmdPrefix + `iptables\s+-F\b` + `|` + cmdPrefix + `nft\s+flush\s+ruleset\b`),
 		reason: "清空防火墙规则（等于临时摘掉所有防护）",
 	},
 	{
 		rule:   "clear-history",
+		// history 是 shell 内建，不会是路径形态，因此不用 cmdPrefix。
 		re:     regexp.MustCompile(`(^|[\s;&|])history\s+-c\b|>\s*~?/?\.bash_history\b`),
 		reason: "清除命令历史（抹掉痕迹）",
 	},
 	{
 		rule:   "stop-remote-access",
-		re:     regexp.MustCompile(`\bsystemctl\s+(stop|disable|mask)\s+(sshd|ssh|monitor-agent)\.service\b`),
+		re:     regexp.MustCompile(cmdPrefix + `systemctl\s+(stop|disable|mask)\s+(sshd|ssh|monitor-agent)\.service\b`),
 		reason: "停掉远程登录或平台 Agent（断掉自己的后路）",
 	},
 	{
 		rule:   "kill-init",
-		re:     regexp.MustCompile(`(^|[\s;&|])kill\s+-9\s+1(\s|$)`),
+		re:     regexp.MustCompile(cmdPrefix + `kill\s+-9\s+1(\s|$)`),
 		reason: "杀死 PID 1（会拖垮整个系统）",
 	},
 	{
 		rule:   "account-change",
 		// 只收"改别人"的形态：裸 `passwd`（改自己口令）太常见，收进来会把这一类淹掉。
-		re:     regexp.MustCompile(`(^|[\s;&|])(useradd|userdel|usermod|chpasswd|visudo)\s|(^|[\s;&|])passwd\s+\S+`),
+		re: regexp.MustCompile(cmdPrefix + `(useradd|userdel|usermod|chpasswd|visudo)\s` +
+			`|` + cmdPrefix + `passwd\s+\S+`),
 		reason: "新增/删除账户或改他人口令",
 	},
 }
