@@ -45,6 +45,9 @@ const routes = [
       { path: 'inspect', name: 'inspect', component: () => import('../components/asset/InspectView.vue'), meta: { perm: 'inspect:read' } },
       // 节点操作（下行通道）：看任务列表与动作目录需 ops:read；下发是独立的 ops:exec（高风险，页面内门控）
       { path: 'ops', name: 'ops', component: () => import('../components/OpsView.vue'), meta: { perm: 'ops:read' } },
+      // 审批中心（双人复核）：看审批单需 approval:read；批准另有 approval:approve、
+      // 改设置另有 approval:manage（只给超管），都在页面内门控。
+      { path: 'approvals', name: 'approvals', component: () => import('../components/ApprovalView.vue'), meta: { perm: 'approval:read' } },
       // 采集项模板管理（读为 middleware:read；写操作由后端 middleware:write 校验，前端按钮同权限门控）
 
       { path: 'alerts', name: 'alerts', component: () => import('../components/AlertsView.vue'), meta: { perm: 'alerts:read' } },

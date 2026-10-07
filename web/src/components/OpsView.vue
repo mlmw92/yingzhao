@@ -746,6 +746,16 @@ async function submitDispatch() {
   submitting.value = true
   try {
     const res = await createOpsBatch({ nodes: form.nodes, kind: a.kind, params, reason: form.reason })
+    // 审批开启时，写类动作返回 **202 + pending**，而不是 201 已下发。
+    // 这两种结果的文案必须分开：把"进了审批"说成"已下发"，操作者会以为指令已经在跑了，
+    // 而它其实还停在等别人点一下——这正是双人复核要防的误判。
+    if (res && res.pending) {
+      const ap = res.approval || {}
+      ElMessage.success(`已提交审批（${ap.id || '-'}）：动作**尚未下发**，需另一位具备相应权限的同事批准后执行`)
+      dispatchVisible.value = false
+      await reload()
+      return
+    }
     const b = res.batch || {}
     batchResult.value = {
       ...b,
@@ -1130,8 +1140,13 @@ async function rerunOne(row) {
     return
   }
   try {
-    await dispatchRow(row, `重新执行 ${row.id}`)
-    ElMessage.success('已重新下发')
+    const res = await dispatchRow(row, `重新执行 ${row.id}`)
+    // 重跑一条写动作同样会进审批（202 + pending）：文案不能与"已下发"混用
+    if (res && res.pending) {
+      ElMessage.success(`已提交审批（${(res.approval || {}).id || '-'}）：尚未下发，需另一位同事批准`)
+    } else {
+      ElMessage.success('已重新下发')
+    }
     resultVisible.value = false
     await reload()
   } catch (e) {
@@ -1152,9 +1167,11 @@ async function rerunSelected() {
     return
   }
   const failed = []
+  let pendingCount = 0
   for (const row of rows) {
     try {
-      await dispatchRow(row, `重新执行 ${row.id}`)
+      const res = await dispatchRow(row, `重新执行 ${row.id}`)
+      if (res && res.pending) pendingCount++
     } catch (e) {
       failed.push(`${row.node}：${e.message || '失败'}`)
     }
@@ -1164,6 +1181,10 @@ async function rerunSelected() {
     ElMessage.warning(`已重新下发 ${okCount} 条；${failed.length} 条失败（${failed.slice(0, 2).join('；')}${failed.length > 2 ? ' …' : ''}）`)
   } else {
     ElMessage.success(`已重新下发 ${okCount} 条`)
+  }
+  // 进了审批的那几条要单独说：它们**没有下发**，混在"已重新下发"里等于报了个假结果
+  if (pendingCount > 0) {
+    ElMessage.warning(`其中 ${pendingCount} 条已提交审批（尚未下发，需他人批准）`)
   }
   clearSelection()
   await reload()

@@ -197,6 +197,9 @@ const groups = [
       // 下行操作：读看任务与动作目录需 ops:read；**下发**另有 ops:exec（高风险，页面内门控）。
       // 能不能真的执行还取决于目标机器自己的 guards.ops——权限只是四道护栏之一。
       { key: 'ops', to: '/ops', label: '节点操作', icon: Tools, perm: 'ops:read' },
+      // 审批中心：高风险动作的第二个人在这里点。看单子需 approval:read；
+      // 能不能批由服务端再判一次（approval:approve + 动作本身的权限点）。
+      { key: 'approvals', to: '/approvals', label: '审批中心', icon: Document, perm: 'approval:read' },
     ],
   },
   {
