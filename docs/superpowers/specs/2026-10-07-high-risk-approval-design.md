@@ -178,6 +178,13 @@ approval:
 
 ## 6. 实机验证计划（dev-server）
 
+脚本：`dist/approval-e2e.py`（`core` 跑核对、`cleanup` 只收尾）。
+
+**写动作选 `file.push`**：dev-server 的 `agent.yaml` 放行了 `guards.ops.file.write`
+（`/tmp/nebula-filepush`），因此批准后能真的建出 ops 任务并落到 `executed`；
+若用 `svc.restart`，会被该机器自己的本机护栏挡下，只能验到"批准后执行失败"，
+验不了"批准后自动执行"这条（而那正是本能力的核心行为）。
+
 判据里前三条**直接取自验证矩阵用例 7-07**：
 
 1. **不可自批（决定性）**：申请人自己调 approve → 拒绝（403/409），且**动作从未下发**；
