@@ -224,6 +224,8 @@ func (c *MongoDBCollector) collectDirect(parent context.Context, cfg model.Mongo
 		default:
 			inst.Role = "STANDALONE"
 		}
+		// 副本集名就是集群身份：standalone 与 mongos（isdbgrid）都没有它 → 留空 → 不建集群。
+		inst.ClusterName = setName
 		base["role"] = inst.Role
 
 		// 副本集状态（仅 replica set 有意义）

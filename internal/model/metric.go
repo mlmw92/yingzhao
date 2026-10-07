@@ -191,15 +191,18 @@ type MySQLInstanceConfig struct {
 
 // MySQLInstance 是上报给 Server 的 MySQL 实例元信息。
 type MySQLInstance struct {
-	Instance  string `json:"instance"` // host:port
-	Name      string `json:"name"`     // 实例别名
-	Node      string `json:"node"`     // 采集 Agent 节点名
-	Role      string `json:"role"`     // master|slave
-	Topology  string `json:"topology"` // standalone|replication|cluster
-	Group     string `json:"group"`    // 分组名
-	ReplicaOf string `json:"replicaOf,omitempty"`
-	Version   string `json:"version"` // MySQL 版本
-	Up        bool   `json:"up"`
+	Instance string `json:"instance"` // host:port
+	Name     string `json:"name"`     // 实例别名
+	Node     string `json:"node"`     // 采集 Agent 节点名
+	Role     string `json:"role"`     // master|slave
+	Topology string `json:"topology"` // standalone|replication|cluster
+	Group    string `json:"group"`    // 分组名
+	// ClusterName 是组复制组名（@@group_replication_group_name）——集群身份用它。
+	// 未启用 GR（或非 cluster 拓扑）时为空 → 不建集群。
+	ClusterName string `json:"clusterName,omitempty"`
+	ReplicaOf   string `json:"replicaOf,omitempty"`
+	Version     string `json:"version"` // MySQL 版本
+	Up          bool   `json:"up"`
 }
 
 // ---- PostgreSQL ----
@@ -246,12 +249,15 @@ type MongoDBInstanceConfig struct {
 
 // MongoDBInstance 是上报给 Server 的 MongoDB 实例元信息（不含密码）。
 type MongoDBInstance struct {
-	Instance      string  `json:"instance"`             // host:port
-	Name          string  `json:"name"`                 // 实例别名
-	Node          string  `json:"node"`                 // 采集 Agent 节点名
-	Role          string  `json:"role"`                 // PRIMARY|SECONDARY|ARBITER|OTHER
-	Topology      string  `json:"topology"`             // standalone|replicaset|sharded
-	Group         string  `json:"group"`                // 副本集名称（replicaset 用 cfg.Name）
+	Instance string `json:"instance"` // host:port
+	Name     string `json:"name"`     // 实例别名
+	Node     string `json:"node"`     // 采集 Agent 节点名
+	Role     string `json:"role"`     // PRIMARY|SECONDARY|ARBITER|OTHER
+	Topology string `json:"topology"` // standalone|replicaset|sharded
+	Group    string `json:"group"`    // 副本集名称（replicaset 用 cfg.Name）
+	// ClusterName 是**真实的副本集名**（来自 hello.setName）——集群身份用它。
+	// Group 是 Agent 本地别名（replicaset 时退化成 cfg.Name），跨 Agent 可能同名不同集群，不能当身份。
+	ClusterName   string  `json:"clusterName,omitempty"`
 	Version       string  `json:"version"`              // MongoDB 版本
 	Up            bool    `json:"up"`                   // 实例是否可达
 	Uptime        float64 `json:"uptime"`               // 运行时长（秒）

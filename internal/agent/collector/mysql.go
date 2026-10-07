@@ -240,15 +240,18 @@ func (c *MySQLCollector) collectDirect(ctx context.Context, cfg model.MySQLInsta
 	}
 
 	mi := model.MySQLInstance{
-		Instance:  realAddr,
-		Name:      cfg.Name,
-		Node:      c.node,
-		Role:      role,
-		Topology:  cfg.Topology,
-		Group:     cfg.Name,
-		ReplicaOf: replicaOf,
-		Version:   vars["version"],
-		Up:        true,
+		Instance: realAddr,
+		Name:     cfg.Name,
+		Node:     c.node,
+		Role:     role,
+		Topology: cfg.Topology,
+		Group:    cfg.Name,
+		// 集群身份来自组复制组名，**不是** cfg.Name（那是本地别名，跨 Agent 可能同名不同集群）。
+		// 非 cluster 拓扑时 gr 是零值 → 这里为空 → 不建集群。
+		ClusterName: gr.GroupName,
+		ReplicaOf:   replicaOf,
+		Version:     vars["version"],
+		Up:          true,
 	}
 	return out, mi
 }
@@ -339,6 +342,12 @@ func queryGroupReplicationRole(ctx context.Context, db *sql.DB) string {
 type grInfo struct {
 	// SinglePrimaryMode 为单主模式时为 true，多主模式为 false，nil 表示未知（未启用 GR 或无权限）。
 	SinglePrimaryMode *bool
+	// GroupName 是组复制组名（`@@group_replication_group_name`，一个 UUID）。
+	//
+	// 它是**权威的集群标识**：同组的成员报同一个值，与 Agent 本地别名（cfg.Name）无关——
+	// 后者跨 Agent 可能同名却指两个不同的集群，所以不能拿来当身份。
+	// 未启用 GR 时为空 → 不建集群（宁缺勿错）。
+	GroupName string
 	// View 是本节点在 replication_group_members 中看到的成员集合：MEMBER_HOST -> MEMBER_STATE。
 	View map[string]string
 }
@@ -347,6 +356,12 @@ type grInfo struct {
 // 非 GR 实例（插件未装/权限不足）各项为空，调用方不应上报相关指标。
 func queryGroupReplicationInfo(ctx context.Context, db *sql.DB) grInfo {
 	var info grInfo
+
+	// 组名：**集群身份**用它，不用 Agent 本地别名。未启用 GR 时该变量不存在，查询报错即留空。
+	var groupName string
+	if err := db.QueryRowContext(ctx, `SELECT @@group_replication_group_name`).Scan(&groupName); err == nil {
+		info.GroupName = strings.TrimSpace(groupName)
+	}
 
 	// 单主/多主模式：插件未加载时该变量不存在，查询报错即视为未知。
 	var mode string
