@@ -159,3 +159,41 @@
 ## 7. 待评审
 
 D1~D10 若都按建议，则按 §6.1 的三笔开工；有异议的挑出来。
+
+## 8. 实施记录（2026-10-07，Server 与 Agent 1.30.48）
+
+D1~D10 按建议执行，**但 D1 的范围在实施中按代码事实收窄了一格**（见下）。
+
+**① Agent 采集**：`model/metric.go` 给 `MongoDBInstance` / `MySQLInstance` 补 `ClusterName`
+（ES 的 `ElasticsearchInstance.ClusterName` 早就有，不用改）；`mongo.go` 把已经读到的 `hello.setName`
+落到 `ClusterName`（standalone 与 mongos 都为空 → 不建集群）；`mysql.go` 的 `grInfo` 补 `GroupName`，
+在 `queryGroupReplicationInfo` 里多查一条 `SELECT @@group_replication_group_name`，非 cluster 拓扑时
+`gr` 是零值 → 天然为空。
+
+**⚠️ Kafka 本批不做**（D1 的收窄）：`sarama v1.43` 的 `ClusterAdmin.DescribeCluster()` 返回的是
+**brokers + controllerID**（`admin.go:299`），**没有集群 ID**——集群 ID 只在 `MetadataResponse` 里
+（`metadata_response_test.go` 可证），要拿它得对某个已连接的 broker 手发 `GetMetadata` 并**指定协议版本**
+（v3+ 才有该字段）。而这台机器**没有 Kafka 实例可验**，等于要上线一段无法验证的取数代码。
+按本项目一贯的"宁缺勿错"，**不做**：等有真实 Kafka 可验时再补，届时 `ClusterName` 字段一并加回。
+
+**② Server 建资产与边**：`asset/model.go` 新增 `TypeMiddlewareCluster`（内置类型「中间件集群」）、
+`MiddlewareClusterNaturalKey(kind, name)` = `<类型>:<集群名>`，**不进 `EphemeralTypes`**（成员全消失是
+真失联）；`receiver/assets.go` 的 `applyAssets` 里：从本轮实例清单里抽出有 `ClusterName` 的集群集合
+（`clusterPlan`）→ **先落集群资产**（归属节点落**空串**，D4）→ 落实例（属性里多一个 `cluster`）→
+建 `member_of` 边（复用 `instancePlan.clusterRef`，与 `linkInstance` 同一轮）。
+
+**③ 前端与文档**：`AssetListView.vue` 的 `PEER_TYPE_LABELS` 与 `AssetTopologyView.vue` 的
+`TYPE_TITLES` 补 `middleware-cluster`；`AssetListView.vue:577` 那句补上 `member_of` 的第二个来源
+（容器 → 工作负载、**实例 → 集群**）。
+
+**测试**：`go test ./...` 全绿；新增 2 条（`receiver/mw_cluster_test.go`）：**只有权威集群名才建集群**
+（MySQL GR 两个成员 → 一份资产两条边；Mongo 副本集 → 一份；**单机 Mongo、redis 的本地别名都不建**，
+这是本批最该被挡住的事）、幂等（连报两轮边数不变）、归属节点落空串、实例上带 `cluster` 属性且
+`group`（本地别名）**保持原样**、集群类型不进短命对象。前端**未新增用例**（只加了两处标签映射与一句文案，
+上一批那条"关系总览里新类型显示中文名"的用例覆盖的是同一处机制）。
+
+**未覆盖（不得视为通过）**：**Elasticsearch 与 Kafka 本机都没有实例**——ES 的链路只有用例与映射覆盖，
+Kafka 直接不做；集群资产对受限用户不可见（D4 的已知代价，靠实例上的 `cluster` 属性补偿）；
+同一实例属于多个集群（D8 不处理）；浏览器实点。
+
+**待办**：出包（**Server 与 Agent 同升**）后在 dev-server 按 §6.2 跑实机核对——第一段"不猜"是重点。
