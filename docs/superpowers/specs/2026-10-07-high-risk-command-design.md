@@ -167,3 +167,46 @@ func ScanCommand(cmd string) []CommandFinding
 ## 7. 待评审
 
 D1~D8 若都按建议，则按 §5 的三笔开工；有异议的挑出来（最可能被质疑的是 **D3 不硬拦** 与 **D1 不做 SSH 侧**）。
+
+## 8. 实施记录（2026-10-07，Server 1.30.51）
+
+三笔都已落地，D1~D8 全部按建议执行（**只动 Server 与前端**，未碰 Agent）。
+
+**① 危险判定**：新增 `internal/model/danger.go`（`PersistenceDirs` / `SensitiveFiles` / `CriticalUnits`
+三份清单 + `DangerRules` + `DangerFindings`）。**Agent 侧 `guardcheck.go` 的目录清单已收敛到这一处**
+（`var persistenceDirs = model.PersistenceDirs`）——两端各写一份必然漂移，而漂移的表现是
+"Agent 认为是持久化目录、Server 不认为"这种自相矛盾。清单**只收必然危险的项**：普通业务服务
+（`nginx` / `mysql`）与普通路径（`/opt/app/...`）刻意不在内，否则每次重启都弹警告、最后没人看警告。
+
+**② 接入审批与审计**：`approvalGate` 增加参数级判定——**不需要改签名**，因为 `approval.Request`
+里本来就带着归一化后的 `Params`。行为：命中危险参数时**无论审批开关都先写一条 `danger-param` 审计**
+（审批关闭时它是唯一留痕），且在**审批开启**时**绕过 `requireFor` 直接进审批**；
+审批关闭时**不硬拦**（仍 201）。前端 `OpsView` 的确认框把命中的理由**逐条**列出，
+标题也改成「确认下发（含危险参数）」。危险规则随动作目录接口下发（`dangerRules`），
+**清单只有一份**，前端只做"精确/前缀"这点简单匹配。
+
+**③ sudo 事后发现**：新增 `internal/server/security/highrisk.go`（13 条规则 + `ScanCommand`），
+在 `security.Store.Ingest` **单一收口**接入（任何来路的 sudo 事件都会过一遍），命中即派生一条
+`high_risk_cmd` 事件（`SeverityCritical`，`Detail` 带**命令原文**与规则）。**去重**按
+`节点 + 规则 + 命令摘要 + 10 分钟窗口`——不去重则一条 `while true; do sudo rm -rf /; done`
+会把事件列表刷满，而这类事件的全部价值就是"出现时值得马上看一眼"。
+
+**实施中的两处要点**：
+
+1. **规则必须把清单值一起下发给前端**。第一版 `DangerRules()` 只给了 `rule/kind/param/reason`，
+   前端拿到也没法匹配——确认框就永远不提示。清单不是秘密（它是策略不是凭据），
+   带出去换来的是"清单只有一份"，这比前端自己维护一份会漂移的名单好得多。
+2. **严重级别用 `critical` 而不是 `warning`**：这一类的定位就是"值得马上看一眼"，
+   落在 warning 里会和常规 sudo 流水混在一起，等于没有信号。
+
+**测试**：后端 `go test ./...` 全绿；新增 `internal/model` **9 条**（各规则命中、**普通路径/普通单元
+不误报**、多规则同时命中、规则自洽）、`internal/server/api` **4 条**（**审批关闭时危险参数仍 201
+但留下 `danger-param` 审计**、**审批开启且 `requireFor` 不含该动作时危险参数仍进审批 202 + 对照组
+普通参数 201**、普通参数不留危险审计、动作目录下发规则清单）、`internal/server/security` **6 条**
+（13 条规则命中表、**不误报**表、只对 sudo 事件派生、事件形状、**同命令去重 + 出窗再报 + 跨节点独立**、
+原始 sudo 事件仍保留）。前端 `npm test` **26 文件 152 项**全绿（新增 `api/ops.test.js` 5 条），
+`npm run build` 通过。
+
+**未覆盖边界（不得视为通过）**：浏览器实点（确认框文案）；SSH 侧命令（D1 明确不做）；
+组合护栏结论上报（D7，需改 Agent 上报体，列为后续小步）；清单在其它发行版上的完备性
+（是"必然危险"的子集，不是全集）；规则的**实际拦截效果**依赖真实 sudo 日志，实机只能造几条来验。
