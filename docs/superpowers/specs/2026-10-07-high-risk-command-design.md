@@ -148,6 +148,13 @@ func ScanCommand(cmd string) []CommandFinding
 
 ## 6. 实机验证计划（dev-server）
 
+脚本：`dist/highrisk-e2e.py`（`core` 跑核对、`cleanup` 只收尾）。
+
+**sudo 侧怎么造日志**：用 `logger -p authpriv.notice -t sudo '<标记>: alice : TTY=pts/0 ; PWD=/root ; USER=root ; COMMAND=/bin/rm -rf /'`
+注入——格式必须与 sudo 真实写法一致（采集正则要求 `sudo: <user> : … USER=… ; COMMAND=…`），
+且要用 `authpriv` 设施才会落到 `/var/log/auth.log`（`logger` 默认进 `user.*`，那是 syslog 不是 auth.log）。
+收尾用 `sed -i` 删掉带标记的行。
+
 1. **危险参数 + 审批关闭（决定性）**：提交 `file.push` 写 `/etc/systemd/system/x.service`
    → 仍**直接下发（201）**（不硬拦），但审计里出现 `danger-param`，且理由点明"该目录会被系统自己执行"；
 2. **危险参数 + 审批开启（决定性）**：把 `requireFor` 配成**不含该动作**的清单（例如只留 `["defense"]`），
