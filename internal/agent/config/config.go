@@ -72,6 +72,12 @@ type Config struct {
 	// 为什么让机器能关掉它：在磁盘上暂存数据用的是**这台机器的**资源，
 	// 与 guards 同一条原则——机器自己决定要不要接受这件事。
 	SpoolMaxMB *int `yaml:"spoolMaxMB"`
+	// SpoolServerBodyLimitMB 是**Agent 以为的** Server 上报体上限（MB），用来算单轮补传预算。
+	// 留空取 DefaultSpoolServerBodyLimitMB（与 Server 的默认上限一致）。
+	//
+	// 为什么要配：Agent 探测不到 Server 的实际上限，而补传预算必须按它算——写死会在
+	// Server 调大/调小之后失配。配小了只是排空慢一点；配大了有 413 自愈兜底（会自动降档）。
+	SpoolServerBodyLimitMB *int `yaml:"spoolServerBodyLimitMB"`
 
 	// Guards 是本机护栏：机器自己决定允不允许平台下发操作动作（见 internal/agent/ops）。
 	Guards GuardsConfig `yaml:"guards"`
@@ -265,6 +271,9 @@ const (
 	// 超出后丢**最老**的一批（见 internal/agent/reporter/spool.go）——留最近的数据排障时更有用，
 	// 且"缓冲满了"这件事本身会以告警级别的日志体现出来，不会静默。
 	DefaultSpoolMaxMB = 8
+	// DefaultSpoolServerBodyLimitMB 是"Server 上报体上限"的默认值（MB）。
+	// 与 Server 侧默认一致：日志上限 4 MiB（receiver/logs.go）× 4 = 16 MiB（receiver.go 的 MaxBytesReader）。
+	DefaultSpoolServerBodyLimitMB = 16
 )
 
 // SpoolMaxBytes 返回磁盘缓冲上限的字节数（<=0 表示关闭缓冲）。
@@ -273,6 +282,14 @@ func (c *Config) SpoolMaxBytes() int64 {
 		return int64(DefaultSpoolMaxMB) << 20
 	}
 	return int64(*c.SpoolMaxMB) << 20
+}
+
+// SpoolServerBodyLimitBytes 返回 Server 上报体上限的字节数（补传预算按它算）。
+func (c *Config) SpoolServerBodyLimitBytes() int64 {
+	if c.SpoolServerBodyLimitMB == nil {
+		return int64(DefaultSpoolServerBodyLimitMB) << 20
+	}
+	return int64(*c.SpoolServerBodyLimitMB) << 20
 }
 
 // normalizeSpool 补齐磁盘缓冲的默认值。

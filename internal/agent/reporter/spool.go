@@ -3,9 +3,11 @@ package reporter
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,25 +34,56 @@ type Spool struct {
 	offsetPath string
 	// maxBytes 是未确认数据的上限；<=0 表示关闭缓冲（此时所有方法都是空操作）。
 	maxBytes int64
+	// serverBodyLimit 是 Agent 以为的 Server 上报体上限（字节），预算由它推出来。
+	serverBodyLimit int64
 
 	mu     sync.Mutex
 	offset int64 // 数据文件里已被确认（可以丢弃）的前缀字节数
 	size   int64 // 数据文件总字节数
+	// learnedCeiling 是撞过 413 之后学到的小上限（0 = 还没撞过）。
+	// 它只会下降，不会因为"估算看着够"而回升——自愈的结果不该被下一次估算顶回去。
+	learnedCeiling int64
+	// drainedBytes / drainedPoints 是累计补传量，供自监控指标回答"排到哪了"。
+	drainedBytes  int64
+	drainedPoints int64
 }
 
-// maxSpoolDrainBytes 是单轮补传并入的字节上限。
+// 补传预算的绝对上下限。
 //
-// 必须有限制：Server 对上报体有 16 MiB 上限（日志上限的 4 倍），一次把几 MB 的补传
-// 塞进去可能让**每一条**上报都超限而永远失败——那样缓冲就再也排不空了。
-// 512 KiB 约合 3000 个指标点，按 15 秒一轮算，满 8 MiB 的缓冲几分钟内即可排空。
-const maxSpoolDrainBytes = 512 << 10
+// **必须有限制**：Server 对上报体有上限（默认 16 MiB），一次把几 MB 的补传塞进去可能让
+// **每一条**上报都超限而永远失败——那样缓冲就再也排不空了。这条约束没有变，
+// 变的是"预算不再写死"：
+//
+//   - 上限 8 MiB：单轮请求体不至于过大（Server 默认上限的一半）；
+//   - 下限 256 KiB：估算失准时宁可慢，也不能失败（比原先固定的 512 KiB 更保守）。
+//
+// 真正的预算按"Server 上限 − 上一轮实际载荷 − 余量"算出来（见 drainBudget），
+// 所以正常环境下 8 MiB 的积压**一轮就能排空**；估算错了还有 413 自愈兜底（见 noteFailure）。
+const (
+	spoolDrainCeiling = 8 << 20
+	spoolDrainFloor   = 256 << 10
+)
+
+// 估算本轮载荷里"非指标部分"（HostInfo / 实例清单 / 监听端口 / 回执）的字节数。
+// 它们不参与补传，但同样占请求体，算预算时必须从可用空间里扣掉。
+// 刻意取偏大值：估大了只是补传慢一点，估小了才会撞 413。
+const spoolNonMetricAllowance = 256 << 10
+
+// 单个指标点在 JSON 里的近似字节数（含标签）。同样刻意取偏大值（真实约 150-250 字节）。
+const spoolMetricBytesEstimate = 256
 
 // OpenSpool 打开（必要时创建）磁盘缓冲。path 为空或 maxBytes<=0 时返回 nil（表示关闭）。
-func OpenSpool(path string, maxBytes int64) (*Spool, error) {
+//
+// serverBodyLimit 是 Server 的上报体上限（字节，来自配置）。Agent 探测不到它，
+// 所以由配置传入；<=0 时按 Server 的默认值 16 MiB 处理。
+func OpenSpool(path string, maxBytes, serverBodyLimit int64) (*Spool, error) {
 	if strings.TrimSpace(path) == "" || maxBytes <= 0 {
 		return nil, nil
 	}
-	s := &Spool{path: path, offsetPath: path + ".offset", maxBytes: maxBytes}
+	if serverBodyLimit <= 0 {
+		serverBodyLimit = 16 << 20 // 与 Server 的默认上限一致（日志上限的 4 倍）
+	}
+	s := &Spool{path: path, offsetPath: path + ".offset", maxBytes: maxBytes, serverBodyLimit: serverBodyLimit}
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("创建缓冲目录失败: %w", err)
@@ -200,8 +233,8 @@ func (s *Spool) Send(p model.ReportPayload, send func(model.ReportPayload) (Repo
 	if !s.Enabled() {
 		return send(p)
 	}
-	backfill, consumed := s.Drain(maxSpoolDrainBytes)
 	live := p.Metrics
+	backfill, consumed := s.Drain(s.drainBudget(len(live)))
 	if len(backfill) > 0 {
 		// 老点放前面只为读请求体时直观；时序库按时间戳索引，与顺序无关。
 		merged := make([]model.Metric, 0, len(backfill)+len(live))
@@ -212,10 +245,99 @@ func (s *Spool) Send(p model.ReportPayload, send func(model.ReportPayload) (Repo
 	resp, err := send(p)
 	if err != nil {
 		s.Append(live)
+		s.noteFailure(err)
 		return resp, err
 	}
 	s.Ack(consumed)
+	s.noteDrained(consumed, len(backfill))
 	return resp, nil
+}
+
+// drainBudget 算出本轮可以并入多少补传字节。
+//
+// 预算 = Server 上限的一半 − 本轮载荷估算（非指标部分 + 指标点数 × 单点估算），
+// 夹在 [下限, 上限] 内，且不超过撞 413 后学到的小上限。
+//
+// 为什么留一半：请求体里还有 JSON 结构开销与标签重复，而且**本轮可能比上一轮更大**
+// （新增实例、长标签）。估算刻意保守——估大了只是慢，估小了有 413 兜底。
+func (s *Spool) drainBudget(livePoints int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	live := int64(spoolNonMetricAllowance) + int64(livePoints)*spoolMetricBytesEstimate
+	budget := s.serverBodyLimit/2 - live
+	if budget > spoolDrainCeiling {
+		budget = spoolDrainCeiling
+	}
+	if budget < spoolDrainFloor {
+		budget = spoolDrainFloor
+	}
+	if s.learnedCeiling > 0 && budget > s.learnedCeiling {
+		budget = s.learnedCeiling
+	}
+	return int(budget)
+}
+
+// noteFailure 处理发送失败：只有 413 需要动预算（其它失败与"这一轮塞了多少"无关）。
+//
+// 这是安全网：动态预算一旦估错（Server 的实际上限比 Agent 以为的小），没有它就会重演
+// 当初把上限钉死在 512 KiB 要防的那个坑——每一条都超限、缓冲永远排不空。
+func (s *Spool) noteFailure(err error) {
+	var se *HTTPStatusError
+	if !errors.As(err, &se) || se.Code != http.StatusRequestEntityTooLarge {
+		return
+	}
+	s.mu.Lock()
+	next := s.learnedCeiling
+	if next <= 0 {
+		next = spoolDrainCeiling
+	}
+	next /= 2
+	if next < spoolDrainFloor {
+		next = spoolDrainFloor
+	}
+	s.learnedCeiling = next
+	s.mu.Unlock()
+	slog.Warn("Server 拒绝了过大的上报体（413），补传预算降到下一档——请核对两端的体积上限配置",
+		"nextBudgetKB", next>>10)
+}
+
+// noteDrained 累计补传量，并记一行过程日志（"补传多少 / 还剩多少"）。
+//
+// 为什么值得记：断网恢复后，运维此前只能盯着 agent_spool_bytes 这条曲线猜"排到哪了"。
+func (s *Spool) noteDrained(consumed int64, points int) {
+	if consumed <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.drainedBytes += consumed
+	s.drainedPoints += int64(points)
+	remaining := s.size - s.offset
+	s.mu.Unlock()
+	if remaining > 0 {
+		slog.Info("已补传缓冲数据",
+			"drainedKB", consumed>>10, "points", points, "remainingKB", remaining>>10)
+		return
+	}
+	slog.Info("磁盘缓冲已排空", "drainedKB", consumed>>10, "points", points)
+}
+
+// DrainedBytes / DrainedPoints 返回累计补传量（供自监控指标使用）。
+func (s *Spool) DrainedBytes() int64 {
+	if !s.Enabled() {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.drainedBytes
+}
+
+func (s *Spool) DrainedPoints() int64 {
+	if !s.Enabled() {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.drainedPoints
 }
 
 /* ---- 文件读写与整理（下述 *Locked 方法要求调用方持有 s.mu）---- */

@@ -12,7 +12,7 @@ import (
 func newSpool(t *testing.T, name string, maxBytes int64) (*Spool, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
-	s, err := OpenSpool(path, maxBytes)
+	s, err := OpenSpool(path, maxBytes, 0)
 	if err != nil {
 		t.Fatalf("打开缓冲失败: %v", err)
 	}
@@ -44,17 +44,17 @@ func TestSpool_AppendDrainAck(t *testing.T) {
 		t.Fatal("落盘后深度应大于 0")
 	}
 
-	got, consumed := s.Drain(maxSpoolDrainBytes)
+	got, consumed := s.Drain(spoolDrainCeiling)
 	if len(got) != 3 || consumed == 0 {
 		t.Fatalf("应取回 3 个点，实际 %d（consumed=%d）", len(got), consumed)
 	}
 	// 取出不等于删除：没确认之前必须还在，否则发送失败就丢了
-	if again, _ := s.Drain(maxSpoolDrainBytes); len(again) != 3 {
+	if again, _ := s.Drain(spoolDrainCeiling); len(again) != 3 {
 		t.Fatalf("未确认前应能重复取出，实际 %d", len(again))
 	}
 
 	s.Ack(consumed)
-	if rest, _ := s.Drain(maxSpoolDrainBytes); len(rest) != 0 {
+	if rest, _ := s.Drain(spoolDrainCeiling); len(rest) != 0 {
 		t.Fatalf("确认后不应还有数据，实际 %d", len(rest))
 	}
 	if s.Depth() != 0 {
@@ -111,7 +111,7 @@ func TestSpool_SendOnFailureSpoolsOnlyLive(t *testing.T) {
 	}
 	_, _ = s.Send(model.ReportPayload{Node: "web-01", Metrics: batch("live", 1)}, send)
 
-	got, consumed := s.Drain(maxSpoolDrainBytes)
+	got, consumed := s.Drain(spoolDrainCeiling)
 	n := names(got)
 	if n["old"] != 1 || n["live"] != 1 {
 		t.Fatalf("缓冲里应各有一份 old 与 live，实际 %v", n)
@@ -127,11 +127,11 @@ func TestSpool_SurvivesReopen(t *testing.T) {
 	s.Append(batch("cpu_usage", 2))
 	s.Append(batch("mem_used_percent", 2))
 
-	again, err := OpenSpool(path, 1<<20)
+	again, err := OpenSpool(path, 1<<20, 0)
 	if err != nil {
 		t.Fatalf("重新打开失败: %v", err)
 	}
-	got, _ := again.Drain(maxSpoolDrainBytes)
+	got, _ := again.Drain(spoolDrainCeiling)
 	n := names(got)
 	if n["cpu_usage"] != 2 || n["mem_used_percent"] != 2 {
 		t.Fatalf("重启后应能取回全部数据，实际 %v", n)
@@ -163,7 +163,7 @@ func TestSpool_CompactOnReopen(t *testing.T) {
 		t.Fatalf("前缀未过半时文件里应还留着已确认的数据（实测 %d，一批 %d）", before.Size(), unit)
 	}
 
-	again, err := OpenSpool(path, 1<<20)
+	again, err := OpenSpool(path, 1<<20, 0)
 	if err != nil {
 		t.Fatalf("重新打开失败: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestSpool_CompactOnReopen(t *testing.T) {
 
 func mustDrain(t *testing.T, s *Spool) []model.Metric {
 	t.Helper()
-	got, _ := s.Drain(maxSpoolDrainBytes)
+	got, _ := s.Drain(spoolDrainCeiling)
 	return got
 }
 
@@ -199,7 +199,7 @@ func TestSpool_TrimDropsOldest(t *testing.T) {
 	if d := s2.Depth(); d > unit+unit/2 {
 		t.Fatalf("深度不应超过上限：%d > %d", d, unit+unit/2)
 	}
-	got, _ := s2.Drain(maxSpoolDrainBytes)
+	got, _ := s2.Drain(spoolDrainCeiling)
 	n := names(got)
 	if n["a"] != 0 {
 		t.Fatalf("最老的一批应被丢弃，实际 %v", n)
@@ -218,7 +218,7 @@ func TestSpool_FileSizeStaysBoundedDuringLongOutage(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "spool.jsonl")
 	const limit = 64 << 10
-	s, err := OpenSpool(path, limit)
+	s, err := OpenSpool(path, limit, 0)
 	if err != nil {
 		t.Fatalf("打开缓冲失败: %v", err)
 	}
@@ -272,12 +272,12 @@ func TestSpool_SkipsCorruptLine(t *testing.T) {
 	}
 	f.Close()
 
-	got, consumed := s.Drain(maxSpoolDrainBytes)
+	got, consumed := s.Drain(spoolDrainCeiling)
 	if names(got)["good"] != 1 {
 		t.Fatalf("应能取回好行，实际 %v", names(got))
 	}
 	s.Ack(consumed)
-	if rest, _ := s.Drain(maxSpoolDrainBytes); len(rest) != 0 {
+	if rest, _ := s.Drain(spoolDrainCeiling); len(rest) != 0 {
 		t.Fatalf("坏行被跳过并确认后不应残留，实际 %d 个点", len(rest))
 	}
 }
@@ -301,7 +301,7 @@ func TestSpool_DrainRespectsByteCap(t *testing.T) {
 
 // 关闭（maxBytes<=0 或未打开）时所有方法都是空操作，且 Send 直接透传。
 func TestSpool_Disabled(t *testing.T) {
-	s, err := OpenSpool(filepath.Join(t.TempDir(), "x.jsonl"), 0)
+	s, err := OpenSpool(filepath.Join(t.TempDir(), "x.jsonl"), 0, 0)
 	if err != nil {
 		t.Fatalf("关闭状态不应报错: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestSpool_Disabled(t *testing.T) {
 		t.Fatal("maxBytes=0 应视为关闭")
 	}
 	s.Append(batch("a", 1))
-	if got, consumed := s.Drain(maxSpoolDrainBytes); len(got) != 0 || consumed != 0 {
+	if got, consumed := s.Drain(spoolDrainCeiling); len(got) != 0 || consumed != 0 {
 		t.Fatal("关闭时取出应为空")
 	}
 	if s.Depth() != 0 {

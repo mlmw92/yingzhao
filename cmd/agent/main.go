@@ -194,7 +194,7 @@ func main() {
 	// 上报磁盘缓冲：Server 不可达时把**时序点**暂存在本机，恢复后随下一次上报补传
 	// （只覆盖采集模式的主上报路径；代理模式的 5 个自监控计数器不在此列）。
 	// 打不开只记一条并继续跑——受影响的是"断网期间不丢数据"，不该拦住 Agent 工作。
-	spool, serr := reporter.OpenSpool(cfg.SpoolFile, cfg.SpoolMaxBytes())
+	spool, serr := reporter.OpenSpool(cfg.SpoolFile, cfg.SpoolMaxBytes(), cfg.SpoolServerBodyLimitBytes())
 	if serr != nil {
 		slog.Warn("上报磁盘缓冲不可用，断网期间的数据将不再补传", "path", cfg.SpoolFile, "err", serr)
 		spool = nil
@@ -463,10 +463,17 @@ func collectAndReport(ctx context.Context, coll *collector.Collector, rep *repor
 	// 注意它只在**上报成功时**才送得出去，因此它反映的是"上一次上报之后积了多少"；
 	// 断网期间"积了多少"由节点在线状态体现（那才是主告警），两者分工不同。
 	if spool.Enabled() {
-		payload.Metrics = append(payload.Metrics, model.Metric{
-			Node: cfg.Node, Name: "agent_spool_bytes",
-			Value: float64(spool.Depth()), Timestamp: model.NowMillis(),
-		})
+		now := model.NowMillis()
+		payload.Metrics = append(payload.Metrics,
+			model.Metric{Node: cfg.Node, Name: "agent_spool_bytes",
+				Value: float64(spool.Depth()), Timestamp: now},
+			// 累计补传量：与"还剩多少"（depth）配对，回答"排到哪了"。
+			// 它同样只在**上报成功时**送得出去，所以反映的是"上一次上报之前累计补了多少"。
+			model.Metric{Node: cfg.Node, Name: "agent_spool_drained_bytes_total",
+				Value: float64(spool.DrainedBytes()), Timestamp: now},
+			model.Metric{Node: cfg.Node, Name: "agent_spool_drained_points_total",
+				Value: float64(spool.DrainedPoints()), Timestamp: now},
+		)
 	}
 	// 送出与缓冲的配合见 reporter.Spool.Send：成功则确认已补传的那一段，
 	// 失败则把本轮指标落盘——断网期间的数据就不再丢了。

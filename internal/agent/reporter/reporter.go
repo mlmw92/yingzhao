@@ -46,6 +46,17 @@ func New(serverURL, node, group, secret string, labels map[string]string) *Repor
 	}
 }
 
+// HTTPStatusError 是"上报被 Server 以某个状态码拒绝"的错误。
+//
+// 为什么要类型化：磁盘缓冲要靠 **413** 判断"这一轮补传塞太多了"并自动把预算降下来
+// （见 reporter.Spool 的自愈逻辑）。此前错误是 fmt.Errorf 拼出来的字符串，调用方只能
+// 靠字符串匹配猜状态码——那种代码在改一次错误文案之后就会静默失效。
+type HTTPStatusError struct {
+	Code int
+}
+
+func (e *HTTPStatusError) Error() string { return fmt.Sprintf("上报返回 %d", e.Code) }
+
 // ReportFull 上报完整 payload（含主机信息），返回 Server 响应（可能含待执行指令）。
 func (r *Reporter) ReportFull(p model.ReportPayload) (ReportResponse, error) {
 	return r.sendWithRetry(p)
@@ -103,7 +114,7 @@ func (r *Reporter) sendWithRetry(p model.ReportPayload) (ReportResponse, error) 
 			return resp, nil
 		}
 		httpResp.Body.Close()
-		lastErr = fmt.Errorf("上报返回 %d", httpResp.StatusCode)
+		lastErr = &HTTPStatusError{Code: httpResp.StatusCode}
 		// 4xx 不重试
 		if httpResp.StatusCode/100 == 4 {
 			return ReportResponse{}, lastErr
