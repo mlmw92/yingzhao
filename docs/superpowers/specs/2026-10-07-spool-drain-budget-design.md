@@ -143,3 +143,37 @@ budget = clamp(serverBodyLimit × safetyRatio − liveEstimate, minBudget, maxBu
 ## 7. 待评审
 
 D1~D8 若都按建议，则按 §6.1 的两笔开工；有异议的挑出来。
+
+## 8. 实施记录（2026-10-07，Agent 1.30.49）
+
+两笔都已落地（D1~D8 全部按建议）：
+
+**① 预算与自愈**：`internal/agent/reporter/spool.go` 把固定的 `maxSpoolDrainBytes`（512 KiB）
+换成 `spoolDrainCeiling`（8 MiB）/ `spoolDrainFloor`（256 KiB）与 `drainBudget(livePoints)`
+（= `serverBodyLimit/2 − 非指标部分估算 − 点数 × 单点估算`，再夹紧、再受 413 学到的小上限约束）；
+`OpenSpool` 多收一个 `serverBodyLimit` 参数；`noteFailure` 只在 **413** 时把学到的小上限**减半**
+（下限兜底、记 warn）；`reporter.go` 新增**带状态码的错误类型** `HTTPStatusError`
+（此前是 `fmt.Errorf` 拼字符串，靠它判 413 会在改一次文案后静默失效）；
+`config.go` 新增 `spoolServerBodyLimitMB`（默认 16，与 Server 默认一致）并接进 `cmd/agent/main.go`。
+
+**② 可见性**：新增 `DrainedBytes()` / `DrainedPoints()` 两个累计量，`cmd/agent/main.go` 把它们
+连同原有的 `agent_spool_bytes` 一起作为自监控指标上报；`noteDrained` 每轮记一行
+`已补传缓冲数据 drainedKB=… points=… remainingKB=…`，排空那一刻另记 `磁盘缓冲已排空`。
+配置手册（`docs/configuration-cookbook.md` §五）补上了新字段与它的两条边界（配小只是慢、配大有兜底）。
+
+**测试**：`go test ./...` 全绿。新增 3 条（`spool_budget_test.go`）：预算的四种边界
+（默认 / 上限更大时顶到上限 / 上限小时夹到下限 / 载荷估算超过上限时不出现负预算）、
+413 逐次减半直到下限**且学到的小上限不会回升**（同时验证**非 413 的失败不动预算**）、
+以及**决定性的一条**：同样积压下新预算一轮排掉的量**远多于旧的 512 KiB**，且**请求体不超 Server 上限**
+（补传预算的全部意义就是这两条同时成立）。既有 `spool_test.go` 随接口更新（常量名与 `OpenSpool` 第三参数）。
+
+**实施中自己踩的坑**：新用例第一版把"预算"期望成正好等于上限——实际是
+`上限/2 − 载荷估算`，默认 16 MiB 环境下是 8 MiB **减掉** 256 KiB + 点数×256（不会顶到上限）；
+另一版又让 8 MiB 积压去断言"一轮排空"，而预算只有约 7.6 MiB——**"一轮排空"只在积压 ≤ 预算时成立**。
+两处都是我的期望写错，代码没错；改成"上限更大时才顶到上限"与"灌 3 MiB 验一轮排空"后全绿。
+
+**未覆盖（不得视为通过）**：413 自愈的**真实触发**（要真让 Server 拒一次大请求——本机 Server 上限
+16 MiB，除非临时改小并重启，列为可选）；多 Agent 并发上报时 Server 的总体压力；
+浏览器实点（本批无前端）。
+
+**待办**：出包（**只需升 Agent**，Server 未改动）后在 dev-server 按 §6.2 跑实机核对。

@@ -530,6 +530,9 @@ Agent 每 15 秒（`interval`）上报一轮指标。**Server 重启、网络抖
 # /etc/monitor-agent/agent.yaml
 spoolFile: /var/lib/monitor-agent/report_spool.jsonl   # 留空取默认
 spoolMaxMB: 32                                          # 上限（MB）；显式写 0 = 关闭缓冲
+spoolServerBodyLimitMB: 16                              # Agent 以为的 Server 上报体上限（MB），用来算单轮补传预算；
+                                                        # 留空取 16（与 Server 默认一致）。配小了只是排空慢一点，
+                                                        # 配大了有 413 自愈兜底（Server 拒绝时自动降档）
 ```
 
 **上限该给多少，别凭感觉** —— 它完全取决于这台机器上报多少指标。2026-10-04 实测：
