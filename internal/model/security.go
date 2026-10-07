@@ -17,6 +17,13 @@ const (
 	SecurityCatSudoAudit = "sudo_audit"
 	// SecurityCatBan fail2ban 封禁/解封动作事件（由 nebula 专属 action 审计文件增量采集）。
 	SecurityCatBan = "cat_ban"
+	// SecurityCatHighRiskCmd 高危命令（**事后发现**）。
+	//
+	// 与其它类别不同，它不是 Agent 采集出来的原始事件，而是 **Server 端从已采集的 sudo 命令文本里
+	// 派生**出来的（`security/highrisk.go` 的 ScanCommand）。刻意单设一类而不是复用 sudo_audit：
+	// sudo_audit 是"谁提权做了什么"的流水，量大且大多数正常；这一类是"其中少数几条值得马上看"，
+	// 混在一起就等于把信号淹没在流水里。
+	SecurityCatHighRiskCmd = "high_risk_cmd"
 )
 
 // SecurityEvent 单条安全事件，由 Agent 采集并随上报体提交，Server 端持久化与告警。

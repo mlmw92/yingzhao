@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/nebula/monitor/internal/agent/config"
+	"github.com/nebula/monitor/internal/model"
 )
 
 // 本文件处理一件事：**把「两个护栏配在一起就等于任意代码执行」这个隐性依赖显式化**。
@@ -43,17 +44,12 @@ func (r GuardRisk) Describe() string {
 		"」——写入即持久化，不需要重启任何服务"
 }
 
-// persistenceDirs 是「系统自己会执行其内容」的目录。
+// persistenceDirs 是「系统自己会执行其内容」的目录，已**收敛到** `model.PersistenceDirs`。
 //
-// 只列目录不列单个文件：护栏本身就是**目录前缀**语义，用单个文件（如 /etc/ld.so.preload）
-// 去比对前缀会得到毫无意义的结论。因此这里选的都是"往里放文件就会被执行"的目录。
-var persistenceDirs = []string{
-	"/etc/systemd/system", "/usr/lib/systemd/system", "/lib/systemd/system",
-	"/etc/init.d", "/etc/cron.d", "/etc/cron.hourly", "/etc/cron.daily",
-	"/etc/cron.weekly", "/etc/cron.monthly", "/var/spool/cron",
-	"/etc/profile.d", "/etc/ld.so.conf.d", "/etc/sudoers.d",
-	"/root/.ssh", // authorized_keys：加一把钥匙等于给自己开一个免密入口
-}
+// 收敛的理由：Server 侧的"危险参数"判定（`model.DangerFindings`）要用**同一份**清单——
+// 两端各写一份，迟早会出现"Agent 认为是持久化目录、Server 不认为"这种自相矛盾。
+// 正则在 `model/ops.go` 已经是这个先例（两端共用一份）。
+var persistenceDirs = model.PersistenceDirs
 
 // CheckGuardRisks 检查本机护栏的组合是否等价于任意代码执行，返回风险清单（空 = 没命中）。
 //

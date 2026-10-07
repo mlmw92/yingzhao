@@ -61,7 +61,18 @@ func (a *API) needsApproval(entry, opsKind string, readOnly bool) bool {
 // 返回 202 而不是 201 是**正确性的一部分**：界面据此说"已提交审批"而不是"已下发"。
 // 把"进了审批"显示成"已下发"，操作者会以为指令已经在跑了——那正是双人复核要防的误判。
 func (a *API) approvalGate(w http.ResponseWriter, r *http.Request, entry, opsKind string, readOnly bool, req *approval.Request) bool {
-	if !a.needsApproval(entry, opsKind, readOnly) {
+	// 危险参数（落点①）：判定只看 kind + 归一化后的参数值，与审批开关**无关地**先留痕——
+	// 事后要能回答"谁在什么时候往系统会自执行的目录里写过东西"，哪怕当时审批是关的。
+	danger := model.DangerFindings(opsKind, req.Params)
+	if len(danger) > 0 {
+		a.recordDangerAudit(r, req, danger)
+	}
+
+	// 审批开启时，危险参数**无条件**进审批（不看它是否落在 requireFor 里）；
+	// 审批关闭时**不硬拦**——单管理员部署下硬拦等于把功能锁死，而且硬拦的结果是运维
+	// 改用别的手段（登机器手改），风险反而看不见。此时代价由"审计留痕 + 前端强提示"承担。
+	force := len(danger) > 0 && a.approvalConfig().Enabled
+	if !a.needsApproval(entry, opsKind, readOnly) && !force {
 		return false
 	}
 	req.Kind = entry
@@ -69,12 +80,45 @@ func (a *API) approvalGate(w http.ResponseWriter, r *http.Request, entry, opsKin
 		req.OpsKind = opsKind
 	}
 	saved := a.submitApproval(r, req)
-	writeJSON(w, http.StatusAccepted, map[string]interface{}{
+	resp := map[string]interface{}{
 		"pending":  true,
 		"approval": a.approvalView(r, saved),
 		"message":  "已提交审批：本动作**尚未下发**，需另一位具备相应权限的同事批准后才会执行",
-	})
+	}
+	if len(danger) > 0 {
+		resp["danger"] = danger
+		resp["message"] = "已提交审批：该动作命中了危险参数（" + danger[0].Reason + "），本动作**尚未下发**"
+	}
+	writeJSON(w, http.StatusAccepted, resp)
 	return true
+}
+
+// recordDangerAudit 为命中危险参数的动作写一条审计。
+//
+// 这条审计与"是否进审批"无关：审批关闭时它就是**唯一**的留痕，审批开启时它与审批链互为补充
+// （审批回答"谁批的"，这条回答"当时写的是哪个危险路径"）。
+func (a *API) recordDangerAudit(r *http.Request, req *approval.Request, danger []model.DangerFinding) {
+	if a.audit == nil {
+		return
+	}
+	parts := make([]string, 0, len(danger))
+	for _, d := range danger {
+		parts = append(parts, fmt.Sprintf("%s=%s（%s：%s）", d.Param, d.Value, d.Rule, d.Reason))
+	}
+	_ = a.audit.Record(audit.Event{
+		User:      AuthenticatedUser(r),
+		Method:    r.Method,
+		Path:      r.URL.Path,
+		Status:    http.StatusAccepted,
+		RemoteIP:  audit.ClientIP(r),
+		Succeeded: true,
+		RequestID: RequestID(r),
+		Category:  "ops",
+		Action:    "danger-param",
+		Detail:    fmt.Sprintf("危险参数：%s @ %s —— %s", req.Title, targetsText(req), strings.Join(parts, "；")),
+	})
+	slog.Warn("下发动作命中危险参数", "kind", req.Kind, "targets", strings.Join(req.Targets(), ","),
+		"user", AuthenticatedUser(r), "danger", strings.Join(parts, "；"))
 }
 
 // submitApproval 登记一条待审批单（补齐申请人、来源 IP、有效期）并写审计。

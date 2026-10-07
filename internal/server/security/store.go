@@ -122,6 +122,19 @@ func (s *Store) Ingest(node string, events []model.SecurityEvent, baseline *mode
 		}
 		seen[e.ID] = struct{}{}
 		s.events = append(s.events, e)
+
+		// 落点②：从 sudo 命令文本里**事后发现**高危命令（派生成 high_risk_cmd 事件）。
+		//
+		// 放在 Ingest 是刻意的**单一收口**：任何来路的 sudo 事件都会过一遍，
+		// 将来多一条上报路径（或换个采集来源）也不会漏掉分析。
+		// 派生事件同样走 seen 去重，其 ID 里带命令摘要与时间窗（见 highRiskEventID）。
+		for _, d := range deriveHighRisk(e) {
+			if _, dup := seen[d.ID]; dup {
+				continue
+			}
+			seen[d.ID] = struct{}{}
+			s.events = append(s.events, d)
+		}
 	}
 	// 裁剪到最大容量（保留最新）
 	if len(s.events) > MaxEvents {

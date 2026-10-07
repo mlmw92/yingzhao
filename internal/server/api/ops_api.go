@@ -81,6 +81,10 @@ func (a *API) handleOpsActions(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"actions":     ops.Catalog(),
 		"permissions": map[string]string{"read": ops.PermRead, "exec": ops.PermExec},
+		// 危险参数规则：界面在**提交前**就能给出提示（"写这些目录 / 重启这些单元会被判为危险"）。
+		// 清单只有一份（`model.DangerRules`），下发给前端；权威判定始终在服务端那一次
+		// （approvalGate），前端只是把同一份清单用同样的简单匹配跑一遍。
+		"dangerRules": model.DangerRules(),
 	}
 	if node := strings.TrimSpace(r.URL.Query().Get("node")); node != "" {
 		if _, ok := a.requireOpsNode(w, r, node); !ok {
