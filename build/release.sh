@@ -473,22 +473,66 @@ c_info "生成 SHA256SUMS (upgrade)"
 
 # 4.5) manifest 自校验：保证 manifest.json 声明的每个 source 在包内真实存在
 c_info "校验 manifest.json 与包内容一致"
-if command -v jq >/dev/null 2>&1; then
+
+# 取 manifest 里声明的全部 source（换行分隔）。优先 jq，退化到 python3/python/py。
+#
+# 为什么不能只看 `command -v jq`：那只说明**文件在 PATH 上**，说明不了它能用。
+# 本机就有一个坏掉的 jq（`jq --version` 无输出、`jq -r` 静默返回空）——
+# 于是 while 循环一次都不执行、ok 一直是 1，脚本照样打印"manifest 自校验通过"，
+# 而 1.30.46 那次实际是靠人工用 PowerShell 逐条核的。
+# **校验器坏了却报通过，比不校验更危险**（会让人以为验过了）。
+# 所以这里一律**以"真的解出结果"为准**，而不是以"命令存在"为准：
+#   逐个候选试，第一个能产出非空清单的胜出；都不行才算失败。
+# （连 python 也要这么试：本机的 `python3` 同样存在但跑不出东西——`command -v python3`
+#     成功、`python3 -c 'print(1)'` 却是空的，只有 `python` 能用。）
+manifest_sources() {
+  local out="" cand=""
+  if command -v jq >/dev/null 2>&1 && jq --version >/dev/null 2>&1; then
+    # 末尾的 `|| true`：本脚本是 set -euo pipefail，若 jq 中途失败，
+    # 裸赋值会让整个脚本在这里中止，而不是走到下面的 fallback。
+    out="$(jq -r '.components[]?.source' "$1" 2>/dev/null || true)"
+    if [[ -n "${out//[[:space:]]/}" ]]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+  fi
+  for cand in python3 python py; do
+    command -v "$cand" >/dev/null 2>&1 || continue
+    out="$("$cand" -c 'import json,sys
+for c in json.load(open(sys.argv[1])).get("components", []):
+    print(c.get("source", ""))' "$1" 2>/dev/null || true)"
+    if [[ -n "${out//[[:space:]]/}" ]]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if sources="$(manifest_sources "$STAGE_UPGRADE/manifest.json")"; then
   ok=1
+  n=0
   while IFS= read -r src; do
+    # 剥掉行尾的 CR：Windows 上 python 的 print() 会输出 \r\n，
+    # 不剥的话路径变成 "web\r"、`-e` 判定为不存在，于是**明明齐全却报"缺文件"**
+    # （这是我自己加 fallback 时引入的，被测试当场抓到）。
+    src="${src%$'\r'}"
     if [[ -z "$src" ]]; then continue; fi
+    n=$((n + 1))
     if [[ ! -e "$STAGE_UPGRADE/$src" ]]; then
       echo "::error::manifest 声明的文件不存在: $src" >&2
       ok=0
     fi
-  done < <(jq -r '.components[].source' "$STAGE_UPGRADE/manifest.json")
+  done <<< "$sources"
   if (( ok == 0 )); then
     echo "::error::manifest 自校验失败，请检查 bin/server、bin/agent、web 是否齐全" >&2
     exit 1
   fi
-  c_ok "manifest 自校验通过"
+  # 报出组件数：只说"通过"的话，分不清"真核了 8 个"还是"循环压根没跑"
+  c_ok "manifest 自校验通过（核对了 $n 个组件）"
 else
-  c_warn "未安装 jq，跳过 manifest 自校验（建议安装 jq 以保证 manifest 与包内容一致）"
+  c_warn "无法解析 manifest.json 的组件清单（jq 不可用或已损坏，且没有可用的 python）——**已跳过**自校验"
+  c_warn "跳过 ≠ 通过：请手工确认 manifest.json 的 components[].source 都在包内"
 fi
 
 # 5) 打包
