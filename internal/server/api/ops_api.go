@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/nebula/monitor/internal/model"
+	"github.com/nebula/monitor/internal/server/approval"
 	"github.com/nebula/monitor/internal/server/audit"
 	"github.com/nebula/monitor/internal/server/ops"
 )
@@ -185,6 +186,21 @@ func (a *API) handleOpsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 双人复核：写类动作在开启审批后**不再直接下发**，而是登记成待审批单并返回 202。
+	//
+	// 位置刻意在参数校验之后、创建任务之前：先让 `ops.Validate` 过一遍，
+	// 否则会把"参数本来就写错"的请求推给审批人——他批准的是一个注定失败的动作，
+	// 而真正的错误要等执行时才暴露，等于浪费一次人审。
+	// 校验失败时不在这里报错（交给下面的 Create 统一报），避免同一件事有两套错误文案。
+	if action, params, err := ops.Validate(body.Kind, body.Params); err == nil && !action.ReadOnly {
+		if a.approvalGate(w, r, approval.EntryOpsWrite, body.Kind, action.ReadOnly, &approval.Request{
+			Node: nd.Hostname, Params: params, Reason: body.Reason,
+			Title: fmt.Sprintf("%s @ %s", action.Title, nd.Hostname),
+		}) {
+			return
+		}
+	}
+
 	operator := AuthenticatedUser(r)
 	operatorIP := audit.ClientIP(r)
 	task, err := a.ops.Create(nd.Hostname, body.Kind, body.Params, operator, operatorIP, body.Reason)
@@ -317,6 +333,22 @@ func (a *API) handleOpsCreateBatch(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 		return
+	}
+
+	// 双人复核：批量同样要拦——只拦单条、放过批量，等于给审批留了一条 200 台的旁路。
+	// 审批单只覆盖**通过前置检查的节点**（eligible）：把"本来就不能下发"的节点也塞进审批，
+	// 会让审批人以为自己在批准一批更大的动作；跳过的数量记在 Extra 里如实告诉双方。
+	if action, params, err := ops.Validate(body.Kind, body.Params); err == nil && !action.ReadOnly {
+		extra := map[string]string{"nodes": fmt.Sprintf("%d", len(eligible))}
+		if len(problems) > 0 {
+			extra["skipped"] = fmt.Sprintf("%d", len(problems))
+		}
+		if a.approvalGate(w, r, approval.EntryOpsWrite, body.Kind, action.ReadOnly, &approval.Request{
+			Node: eligible[0], Nodes: eligible, Params: params, Reason: body.Reason, Extra: extra,
+			Title: fmt.Sprintf("%s @ %d 个节点", action.Title, len(eligible)),
+		}) {
+			return
+		}
 	}
 
 	result, err := a.ops.CreateBatch(eligible, body.Kind, body.Params, operator, operatorIP, body.Reason)

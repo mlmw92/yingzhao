@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nebula/monitor/internal/model"
+	"github.com/nebula/monitor/internal/server/approval"
 	"github.com/nebula/monitor/internal/server/audit"
 	"github.com/nebula/monitor/internal/server/security"
 )
@@ -118,6 +119,20 @@ func (a *API) handleDefenseAction(w http.ResponseWriter, r *http.Request) {
 			"needAgentUpgrade": true,
 		})
 		return
+	}
+
+	// 双人复核：封禁/解封会改变目标机器状态，开启审批后不再直接下发。
+	//
+	// `status` 是**只读查询**，刻意不拦——给排障查询加审批，结果是大家绕开审批走别的入口，
+	// 反而更糟（设计件 D1）。这也是为什么这里按动作分叉，而不是整个入口一刀切。
+	if action != model.DefenseActionStatus {
+		if a.approvalGate(w, r, approval.EntryDefense, "", true, &approval.Request{
+			Node:  nodeName,
+			Extra: map[string]string{"action": action},
+			Title: fmt.Sprintf("入侵防御处置 %s @ %s", action, nodeName),
+		}) {
+			return
+		}
 	}
 
 	// 提取操作人真实来源 IP（仅 RemoteAddr/可信代理，不信任自定义转发头）

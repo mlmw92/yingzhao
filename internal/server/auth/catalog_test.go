@@ -75,6 +75,10 @@ var superAdminOnlyKeys = map[string]bool{
 	// 系统升级会替换 Server 二进制（换来的是"升完起不来"这类不可自愈的故障），
 	// 刻意只给超级管理员：它不是日常运维动作，而是"改平台自身"的动作。
 	"system:upgrade": true,
+	// 改审批设置等于**开关这条护栏本身**（关掉之后高风险动作又变成一个人点一下就下发）。
+	// 与 users:manage / roles:manage 同类：能改护栏的人不该是护栏要拦的那些人。
+	// 注意 approval:read / approve 是给出去的（运维管理员、安全管理员），只有 manage 不下放。
+	"approval:manage": true,
 }
 
 // TestEveryCatalogKeyIsGrantedBySomeRole 目录里的每个权限点都必须至少被一个**非超级管理员**的

@@ -383,6 +383,14 @@ func PermissionCatalog() []permDomain {
 		// 与 middleware:read 分开，是因为它读的是**集群内部对象**（工作负载、事件里带镜像与节点名
 		// 等运行细节），与"看指标曲线"不是一个信息面；下发容器动作仍走 ops:exec。
 		{Domain: "容器", Items: []Permission{{"container:read", "查看容器与工作负载"}}},
+		// 审批（高风险操作双人复核）：读看审批单；批指放行别人的高风险动作——
+		// **批准还需要该动作本身的权限点**（在 handler 里校验），因此这里的"批准"不等于"能执行"；
+		// 改配置单设权限点：关掉审批等于关掉这条护栏，必须只有少数人能改、且每次改动都留痕。
+		{Domain: "审批", Items: []Permission{
+			{"approval:read", "查看审批单"},
+			{"approval:approve", "批准或驳回"},
+			{"approval:manage", "修改审批设置"},
+		}},
 		// 日志内容可能含密码/个人信息/业务数据，因此单独设权限点：不默认给只读角色，按需授予
 		{Domain: "集中日志", Items: []Permission{{"logs:read", "查看集中日志"}}},
 		{Domain: "Agent", Items: []Permission{{"agent:read", "查看"}, {"agent:upgrade", "升级"}}},
@@ -438,6 +446,9 @@ func BuiltinRoles() []Role {
 				"container:read",
 				"report:read", "report:export", "metrics:export", "agent:read", "agent:upgrade",
 				"alerts:read", "roles:read", "system:config",
+				// 审批：运维是提交高风险动作的人，也是**最可能成为第二个人**的角色。
+				// 只给 read + approve，不给 manage——关掉审批这条护栏是另一回事。
+				"approval:read", "approval:approve",
 			},
 		},
 		{
@@ -459,6 +470,9 @@ func BuiltinRoles() []Role {
 			Permissions: []string{
 				"dashboard:read", "security:read", "security:write", "security:export", "agent:read",
 				"agent:secret:read", "audit:read", "audit:export", "roles:read",
+				// 审批：安全管理员是处置下发的另一半把关人（批准一次封禁/解封还需 security:write，
+				// 这个角色本来就有）。仍然**不给** manage。
+				"approval:read", "approval:approve",
 			},
 		},
 		{

@@ -21,6 +21,7 @@ import (
 	"github.com/nebula/monitor/internal/server/analysis"
 	"github.com/nebula/monitor/internal/server/api"
 	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/nebula/monitor/internal/server/approval"
 	"github.com/nebula/monitor/internal/server/audit"
 	"github.com/nebula/monitor/internal/server/auth"
 	"github.com/nebula/monitor/internal/server/config"
@@ -387,6 +388,13 @@ func main() {
 	rest.SetDashboardManager(dashMgr)
 	// 下行操作通道：与 receiver 共用同一个 service 实例（见上面 opsSvc 的说明）
 	rest.SetOpsService(opsSvc)
+	// 高风险操作双人复核：审批单与配置都与下行操作同处一个数据目录（同为"要能人工查看、
+	// 且不能丢"的小体量状态）。配置**默认关闭**——单管理员部署下开启会让任何动作都执行不了，
+	// 开启必须是管理员在界面上显式做的决定。
+	rest.SetApproval(
+		approval.NewStore(filepath.Join(opsDataDir, "approvals.json")),
+		approval.NewConfigStore(filepath.Join(opsDataDir, "approval.json")),
+	)
 	rest.SetAnalyzer(analyzer)
 	rest.SetPipelineStore(pipelineStore)
 	rest.SetSelfMon(mon)

@@ -3,10 +3,24 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+
+	"github.com/nebula/monitor/internal/server/approval"
+	"github.com/nebula/monitor/internal/server/upgrade"
+	"github.com/nebula/monitor/internal/version"
 )
 
 // 升级包最大 500 MB
 const upgradeMaxBytes = 500 << 20
+
+// archiveVersions 把归档条目折成版本号清单（审批单里只给人看版本，不塞整条记录）。
+func archiveVersions(entries []upgrade.ArchiveEntry) []string {
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, e.Version)
+	}
+	return out
+}
 
 // handleSystemUpgradeUpload 接收 multipart 上传的 upgrade tar.gz。
 // 表单字段：
@@ -42,6 +56,19 @@ func (a *API) handleSystemUpgradeApply(w http.ResponseWriter, r *http.Request) {
 	operator := r.URL.Query().Get("operator")
 	if operator == "" {
 		operator = "web"
+	}
+	// 双人复核：升级会重启服务、替换二进制，属于最不可逆的一类动作。
+	// 审批单里带上"当前版本 + 已归档的版本清单"：审批人要能看出自己在批准什么，
+	// 只写一句"应用系统升级"等于让他盲签。
+	if a.approvalGate(w, r, approval.EntrySystemUpgrade, "", true, &approval.Request{
+		Extra: map[string]string{
+			"current": version.Version,
+			"archive": strings.Join(archiveVersions(a.upgrader.Archive()), ","),
+			"apply":   "true",
+		},
+		Title: "应用系统升级（当前 " + version.Version + "）",
+	}) {
+		return
 	}
 	task, err := a.upgrader.Apply(operator)
 	if err != nil {
@@ -98,6 +125,16 @@ func (a *API) handleSystemUpgradeRollbackTo(w http.ResponseWriter, r *http.Reque
 	}
 	if body.Operator == "" {
 		body.Operator = "web"
+	}
+	// 双人复核：回滚同样不可逆（会把正在运行的版本换掉）。Extra 里的 version 也让执行侧
+	// 能区分"升级"与"回滚"——两者共用同一个入口标识（system:upgrade）。
+	if a.approvalGate(w, r, approval.EntrySystemUpgrade, "", true, &approval.Request{
+		Extra: map[string]string{
+			"version": body.Version, "rollback": "true", "current": version.Version,
+		},
+		Title: "回退系统到 " + body.Version,
+	}) {
+		return
 	}
 	task, err := a.upgrader.RollbackTo(body.Version, body.Operator)
 	if err != nil {

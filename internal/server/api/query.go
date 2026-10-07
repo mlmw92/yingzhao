@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/nebula/monitor/internal/model"
 	"github.com/nebula/monitor/internal/server/alert"
 	"github.com/nebula/monitor/internal/server/analysis"
+	"github.com/nebula/monitor/internal/server/approval"
 	"github.com/nebula/monitor/internal/server/audit"
 	"github.com/nebula/monitor/internal/server/auth"
 	"github.com/nebula/monitor/internal/server/config"
@@ -111,6 +113,10 @@ type API struct {
 	audit          *audit.Store           // 管理操作审计存储（可空）
 	defenseStore   *security.DefenseStore // 受控 fail2ban 入侵防御任务存储（可空，关闭防护能力）
 	ops            *ops.Service           // 统一下行操作通道（可空；用 SetOpsService 注入）
+	// 高风险操作双人复核（可空；用 SetApproval 注入）。未注入时**不拦截任何动作**，
+	// 与"默认关闭"同义——审批是可选护栏，缺了它平台照常工作。
+	approval    *approval.Store
+	approvalCfg *approval.ConfigStore
 	authStore      *auth.Store            // 多用户角色权限存储（可空：未启用登录认证时为 nil）
 	analysis       *analysis.Analyzer     // 只读智能分析服务（可空）
 	pipeline       *alert.PipelineStore   // 告警事件管道：relabel/enrich/消息模板（可空）
@@ -347,6 +353,18 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	// 列举只读，供界面复用已上传的文件而不必重复上传。
 	mux.HandleFunc("POST /api/v1/ops/files", a.permit(a.handleOpsFileUpload, "ops:exec"))
 	mux.HandleFunc("GET /api/v1/ops/files", a.permit(a.handleOpsFiles, "ops:read"))
+
+	// 高风险操作双人复核（审批单）。
+	// 读与批分开：批准是"给别人放行"，与"自己能做"是两件事——批准还需**该动作本身的权限点**，
+	// 在 handler 里校验（见 canApprove），路由层只能表达前者。
+	// 改配置单设 approval:manage：关掉审批等于关掉这条护栏，必须留痕、也必须只有少数人有。
+	mux.HandleFunc("GET /api/v1/approvals", a.permit(a.handleApprovalList, "approval:read"))
+	mux.HandleFunc("GET /api/v1/approvals/config", a.permit(a.handleApprovalConfig, "approval:read"))
+	mux.HandleFunc("PUT /api/v1/approvals/config", a.permit(a.handleApprovalConfigSave, "approval:manage"))
+	mux.HandleFunc("GET /api/v1/approvals/{id}", a.permit(a.handleApprovalGet, "approval:read"))
+	mux.HandleFunc("POST /api/v1/approvals/{id}/approve", a.permit(a.handleApprovalApprove, "approval:approve"))
+	mux.HandleFunc("POST /api/v1/approvals/{id}/reject", a.permit(a.handleApprovalReject, "approval:approve"))
+	mux.HandleFunc("POST /api/v1/approvals/{id}/cancel", a.permit(a.handleApprovalCancel, "approval:read"))
 
 	// 容器管理面（只读）。集群清单与中间件的 /middleware/k8s/instances 同源（都来自
 	// instancereg 的 K8sInstance 上报），但**不合并**：容器管理面的权限点是 container:read，
@@ -797,6 +815,16 @@ func (a *API) handleNodeUpgrade(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server CDN 中没有该架构的 agent 二进制，请先在系统升级页上传并应用包含 agent 的升级包", http.StatusBadRequest)
 		return
 	}
+	// 双人复核：Agent 升级会替换目标机器上以 root 运行的程序，属不可逆动作。
+	// 放在这里而不是入口：CDN 里没有对应架构的二进制时应当**当场报错**（上面已处理），
+	// 而不是让审批人批准一个必然失败的升级。
+	if a.approvalGate(w, r, approval.EntryAgentUpgrade, "", true, &approval.Request{
+		Node:  name,
+		Extra: map[string]string{"arch": node.Arch, "targetSHA": targetSHA},
+		Title: "升级 Agent @ " + name,
+	}) {
+		return
+	}
 	a.nodeMgr.RequestUpgrade(name, targetSHA, version.Version)
 	slog.Info("收到 Agent 升级请求", "node", name, "arch", node.Arch, "targetSHA", targetSHA, "targetVersion", version.Version)
 	writeJSON(w, 200, map[string]string{
@@ -827,6 +855,16 @@ func (a *API) handleNodesUpgrade(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// 双人复核：批量升级同样要拦（否则"单台要批、200 台不用"就是一条旁路）。
+	// 审批单覆盖**请求里列出的全部节点**：逐个节点是否有 CDN 二进制要到执行时才定，
+	// 那是节点侧的事实，不该在提交时就替审批人做取舍。
+	if a.approvalGate(w, r, approval.EntryAgentUpgrade, "", true, &approval.Request{
+		Node: req.Names[0], Nodes: req.Names,
+		Title: fmt.Sprintf("批量升级 Agent @ %d 个节点", len(req.Names)),
+	}) {
+		return
+	}
+
 	details := make([]map[string]string, 0, len(req.Names))
 	queued, skipped := 0, 0
 	for _, name := range req.Names {
