@@ -628,7 +628,41 @@
           <div class="attr-editor">
             <div v-for="(row, i) in editAttrs" :key="i" class="attr-row">
               <el-input v-model="row.key" placeholder="属性名" style="width: 42%" />
-              <el-input v-model="row.value" placeholder="值" style="width: 42%" />
+              <!-- 值按该字段的字典渲染：enum 下拉 / 日期选择 / 布尔开关 / 数字输入。
+                   字典没配的字段仍是自由文本（今天的形态）；服务端始终是权威校验。 -->
+              <el-select
+                v-if="attrKindOf(row.key) === 'enum'"
+                v-model="row.value"
+                placeholder="选择取值"
+                style="width: 42%"
+              >
+                <el-option
+                  v-for="opt in attrEnumOf(row.key)"
+                  :key="opt.value"
+                  :label="opt.label || opt.value"
+                  :value="opt.value"
+                />
+              </el-select>
+              <el-date-picker
+                v-else-if="attrKindOf(row.key) === 'date'"
+                v-model="row.value"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="选择日期"
+                style="width: 42%"
+              />
+              <el-switch
+                v-else-if="attrKindOf(row.key) === 'bool'"
+                v-model="row.value"
+                active-value="true"
+                inactive-value="false"
+              />
+              <el-input
+                v-else
+                v-model="row.value"
+                :placeholder="attrKindOf(row.key) === 'number' ? '数字' : '值'"
+                style="width: 42%"
+              />
               <el-button link type="danger" @click="editAttrs.splice(i, 1)">删除</el-button>
             </div>
             <el-button link type="primary" @click="editAttrs.push({ key: '', value: '' })">+ 添加属性</el-button>
@@ -669,7 +703,41 @@
           <div class="attr-editor">
             <div v-for="(row, i) in editAttrs" :key="i" class="attr-row">
               <el-input v-model="row.key" placeholder="属性名" style="width: 42%" />
-              <el-input v-model="row.value" placeholder="值" style="width: 42%" />
+              <!-- 值按该字段的字典渲染：enum 下拉 / 日期选择 / 布尔开关 / 数字输入。
+                   字典没配的字段仍是自由文本（今天的形态）；服务端始终是权威校验。 -->
+              <el-select
+                v-if="attrKindOf(row.key) === 'enum'"
+                v-model="row.value"
+                placeholder="选择取值"
+                style="width: 42%"
+              >
+                <el-option
+                  v-for="opt in attrEnumOf(row.key)"
+                  :key="opt.value"
+                  :label="opt.label || opt.value"
+                  :value="opt.value"
+                />
+              </el-select>
+              <el-date-picker
+                v-else-if="attrKindOf(row.key) === 'date'"
+                v-model="row.value"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="选择日期"
+                style="width: 42%"
+              />
+              <el-switch
+                v-else-if="attrKindOf(row.key) === 'bool'"
+                v-model="row.value"
+                active-value="true"
+                inactive-value="false"
+              />
+              <el-input
+                v-else
+                v-model="row.value"
+                :placeholder="attrKindOf(row.key) === 'number' ? '数字' : '值'"
+                style="width: 42%"
+              />
               <el-button link type="danger" @click="editAttrs.splice(i, 1)">删除</el-button>
             </div>
             <el-button link type="primary" @click="editAttrs.push({ key: '', value: '' })">+ 添加属性</el-button>
@@ -790,7 +858,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -813,6 +881,7 @@ import {
   updateAssetLabels,
   batchAssets,
   exportAssets,
+  getAssetTypes,
 } from '../../api/asset'
 import { useAuth } from '../../composables/useAuth'
 import { useAssetTypes } from '../../composables/useAssetTypes'
@@ -1397,11 +1466,58 @@ function openCreate() {
   ownerInput.value = ''
   form.value = { typeKey: 'host', naturalKey: '', name: '', node: '' }
   editAttrs.value = [{ key: '', value: '' }]
+  // 新建时也按字典渲染（默认类型是主机；换类型时由 watch 重载）
+  loadAttrDict(form.value.typeKey)
   createVisible.value = true
 }
 
+// ---- 属性字典（设计件 2026-10-08-asset-attr-dictionary-design.md）----
+//
+// 与 useAssetTypes 分开：那个只保留类型清单（key/title），编辑弹窗要的是 schema.attrMeta，
+// 用它把「值」输入换成对应的控件（enum 下拉 / 日期选择 / 布尔开关）。
+const attrDict = ref({})
+let attrDictCache = null
+
+function attrMetaOf(key) {
+  const k = (key || '').trim()
+  if (!k) return null
+  return attrDict.value[k] || null
+}
+
+function attrKindOf(key) {
+  const kind = (attrMetaOf(key)?.kind || '').toLowerCase()
+  return ['number', 'date', 'enum', 'bool'].includes(kind) ? kind : ''
+}
+
+function attrEnumOf(key) {
+  const list = attrMetaOf(key)?.enum
+  return Array.isArray(list) ? list.filter((o) => o && o.value) : []
+}
+
+async function loadAttrDict(typeKey) {
+  if (!attrDictCache) {
+    try {
+      const data = await getAssetTypes()
+      const cache = {}
+      for (const t of (data?.types || [])) cache[t.key] = t.schema?.attrMeta || {}
+      attrDictCache = cache
+    } catch (e) {
+      // 字典只是编辑体验的加成：取不到就退回自由文本输入，不阻断编辑
+      attrDictCache = {}
+    }
+  }
+  attrDict.value = attrDictCache[typeKey] || {}
+}
+
+// 新建弹窗换类型时重载字典（否则会拿主机的字典去渲染中间件实例的属性）
+watch(assetKind, (kind) => {
+  if (createVisible.value) loadAttrDict(kind === 'instance' ? 'middleware-instance' : 'host')
+})
+
 function openEdit(row) {
   editId.value = row.id
+  // 字典异步取（不 await：弹窗要立刻打开，控件随字典到达再切换）
+  loadAttrDict(row.typeKey)
   // 名称预填当前值：否则用户看到空框，会以为「名称改不了」或担心提交后名称被清空。
   editOriginalName.value = row.name || ''
   form.value = { typeKey: row.typeKey, naturalKey: row.naturalKey, name: row.name || '', node: row.node || '' }
