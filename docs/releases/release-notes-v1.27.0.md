@@ -26,7 +26,7 @@
 | 8 | 主机详情页时序图时间轴塌缩修复（前端） | `web/src/components/NodeView.vue` |
 | 9 | 告警引擎 `notifiers` 数据竞争消除（copy-on-write 快照） | `alert/engine.go` |
 
-另有约 20 条一般级修复随本版本发布（含飞书 timestamp 类型、升级/回退并发互斥、Do 错误分支连接泄漏等），完整清单见仓库 `docs/severity-fix-plan.md` 与 README「升级」章节。
+另有约 20 条一般级修复随本版本发布（含飞书 timestamp 类型、升级/回退并发互斥、Do 错误分支连接泄漏等），完整清单见仓库 `docs/notes/severity-fix-plan.md` 与 README「升级」章节。
 
 ## 升级顺序
 

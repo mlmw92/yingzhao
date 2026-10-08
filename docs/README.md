@@ -9,8 +9,8 @@
 | 想知道什么 | 看这份 |
 |---|---|
 | 某个功能**有没有做**、做到什么程度 | `superpowers/specs/2026-09-30-ops-platform-capability-map.md`——**功能全景与实现状态对照表**（14 个领域 × 已实现/部分实现/未实现 × 优先级 × 复杂度）。**行级状态是权威**，域表数字跟随它 |
-| 这次升级**要注意什么** | `release-notes-v1.30.0.md`——面向运维；含「**刻意不做**」与「**风险后置**」两张清单、以及两条**运维动作**（备份审计链密钥、把日志锚点送往异地） |
-| 系统**怎么用、怎么配** | 仓库根目录 `README.md`（部署/升级/配置/API 全量）+ 本目录 `configuration-cookbook.md`（可复制的配置模板） |
+| 这次升级**要注意什么** | `releases/release-notes-v1.30.0.md`——面向运维；含「**刻意不做**」与「**风险后置**」两张清单、以及两条**运维动作**（备份审计链密钥、把日志锚点送往异地） |
+| 系统**怎么用、怎么配** | 仓库根目录 `README.md`（部署/升级/配置/API 全量）+ 本目录 `guides/configuration-cookbook.md`（可复制的配置模板） |
 
 > **读文档前的一条规矩**：本仓库的文档里，**设计件**写的是"当时打算怎么做 + 实施记录 + 实机结果"，
 > **不代表现状**；**状态以全景表的行级状态为准**。凡被移入 `archive/` 的，一律**不要当现状读**。
@@ -24,13 +24,19 @@
 | `adr/` | **架构决策记录**——一事一议、短、**不改**（要改就再写一条） | `NNNN-主题.md` |
 | `superpowers/specs/` | **设计件**——功能设计 + 实施记录 + 实机验证结果 | `YYYY-MM-DD-主题-design.md` |
 | `superpowers/plans/` | **实施计划**——批次拆解与执行顺序 | `YYYY-MM-DD-主题.md` |
+| `designs/` | **早期设计件**（成文时未按 `YYYY-MM-DD` 命名，如 C2 集中日志、A1 高可用） | 主题名 |
+| `guides/` | **现役的横切文档**：权限矩阵、RBAC、配置手册 | 主题名 |
+| `releases/` | **发布说明** | `release-notes-v<版本>.md` |
+| `notes/` | **排查与修复记录**（方法可复用的那种） | 主题名 |
+| `prototypes/` | **静态原型**（设计参考稿，**不是可运行页面**） | 主题名 |
 | `testing/` | 测试计划、验证矩阵、审查结论 | `YYYY-MM-DD-*.md` 或主题名 |
 | `system-audit/` | 系统巡检问题清单 | — |
 | `agents/` | 给 AI 协作者的说明（领域术语、issue 流程） | — |
 | `archive/` | **已失效 / 一次性**记录，保留原文件名 | — |
-| 本目录根 | 现役的横切文档（权限矩阵、配置手册、发布说明等） | — |
+| **本目录根** | **只有 `README.md`（本索引）**——新文档一律进上面某个目录 | — |
 
 **判断落点**：功能设计 → `superpowers/specs/`（带日期）；一次决策 → `adr/`；测试与验证 → `testing/`；
+现役的权限/配置类横切文档 → `guides/`；发布说明 → `releases/`；排查记录 → `notes/`；
 被后续改动取代的旧文档 → `archive/`（**加横幅说明它为什么失效**，不要静默删掉——决策轨迹也是资产）。
 
 ---
@@ -110,23 +116,35 @@
 
 | 文件 | 覆盖 |
 |---|---|
-| `release-notes-v1.27.0.md` | v1.27 全仓代码审查安全修复 |
-| `release-notes-v1.28.0.md` | v1.28 节点分组资源范围 + Server 生命周期加固 |
-| **`release-notes-v1.30.0.md`** | **v1.29.0 ~ v1.30.56**（跨度大，按主题组织；**含刻意不做 / 风险后置 / 运维动作**） |
+| `releases/release-notes-v1.27.0.md` | v1.27 全仓代码审查安全修复 |
+| `releases/release-notes-v1.28.0.md` | v1.28 节点分组资源范围 + Server 生命周期加固 |
+| **`releases/release-notes-v1.30.0.md`** | **v1.29.0 ~ v1.30.56**（跨度大，按主题组织；**含刻意不做 / 风险后置 / 运维动作**） |
 
 ---
 
-## 六、现役的横切文档（本目录根）
+## 六、现役的横切文档
+
+### `guides/`（**权限与配置以它们为准**）
 
 | 文件 | 说明 |
 |---|---|
-| `permission-matrix.md` | **权限矩阵**：路由 → 权限点 → 资源范围（**权限相关的现状以它为准**） |
-| `role-permission-management.md` | RBAC 设计文档（角色模型、资源范围、迁移策略） |
-| `configuration-cookbook.md` | **配置模板手册**：可复制的告警事件管道、集中日志等配置模板 |
-| `c2-central-logs.md` | 集中日志设计件（**已落地**；代码注释仍引用它，见 `internal/agent/collector/logcollect.go`） |
-| `a1-server-ha.md` | Server 高可用设计件（**暂缓**，非待办；将来评审即可实施） |
-| `severity-fix-plan.md` | 2026-09 代码审查产出的严重缺陷修复方案（历史修复清单） |
-| `debug-security-event-rule-disabled-alerting.md` | 排查记录：安全事件规则禁用后仍持续告警（**排查方法可复用**） |
+| `guides/permission-matrix.md` | **权限矩阵**：路由 → 权限点 → 资源范围（**权限相关的现状以它为准**） |
+| `guides/role-permission-management.md` | RBAC 设计文档（角色模型、资源范围、迁移策略） |
+| `guides/configuration-cookbook.md` | **配置模板手册**：可复制的告警事件管道、集中日志等配置模板 |
+
+### `designs/`（早期设计件，未按日期命名）
+
+| 文件 | 说明 |
+|---|---|
+| `designs/c2-central-logs.md` | 集中日志设计件（**已落地**；代码注释仍引用它，见 `internal/agent/collector/logcollect.go`） |
+| `designs/a1-server-ha.md` | Server 高可用设计件（**暂缓**，非待办；将来评审即可实施） |
+
+### `notes/`（排查与修复记录）
+
+| 文件 | 说明 |
+|---|---|
+| `notes/debug-security-event-rule-disabled-alerting.md` | 排查记录：安全事件规则禁用后仍持续告警（**排查方法可复用**） |
+| `notes/severity-fix-plan.md` | 2026-09 代码审查产出的严重缺陷修复方案（历史修复清单） |
 
 ---
 
@@ -164,6 +182,7 @@
 
 | 文件 | 为什么归档 |
 |---|---|
+| `archive/refactor-plan.md` | 2026-09-26 的改造路线与批次计划，版本停留在 1.26.1；**正文按当时状态保留、不改写历史**，顶部已加历史横幅 |
 | `archive/c1-collector-templates.md` | 采集项模板**已整链路移除**（`1e25239`）；其中的接口、权限点、配置项与安全模型都不再有效 |
 | `archive/c1-phase3-kinds.md` | 所属方向已撤；且 `exec` / `file` 取数思路**与现行操作面安全边界冲突**（不提供任意命令 / 脚本执行） |
 | `archive/commits-34e0075-to-58c88ee.md` | 一次性提交梳理；依赖的 `git reflog` 90 天恢复窗口早已过期 |
@@ -177,7 +196,7 @@
 
 | 文件 | 说明 |
 |---|---|
-| `permission-console-mock.html` | 权限控制台的**静态原型**（设计参考稿，不是可运行页面） |
+| `prototypes/permission-console-mock.html` | 权限控制台的**静态原型**（设计参考稿，不是可运行页面） |
 
 ---
 
@@ -187,9 +206,9 @@
 本次已处置完毕，作为**今后遇到同类问题的样板**：
 
 1. **能改的改**：`CONTEXT.md`（复核后只剩 1 处，全景表原先写的"7 处"**自己也过期了**）、
-   `permission-matrix.md`（删掉 6 条不存在的 `/api/v1/middleware/templates*` 路由，
+   `guides/permission-matrix.md`（删掉 6 条不存在的 `/api/v1/middleware/templates*` 路由，
    **以及 1 条同样不存在的通用实例路由** `/api/v1/middleware/{type}/instances`）；
-2. **历史文档加横幅**：`refactor-plan.md` 顶部标明"不代表现状"与失效范围，**正文一字不改**；
+2. **历史文档加横幅**：`archive/refactor-plan.md` 顶部标明"不代表现状"与失效范围，**正文一字不改**；
 3. **过时设计件移入 `archive/` 并加横幅**：保留决策轨迹，但明确"其中的接口与安全模型不再有效"；
 4. **顺带发现**：`middleware:write` 权限点仍在权限目录里（且仍授予运维管理员），但**已不对应任何路由**——
    排查"为什么某人没有某个入口"时别被它误导。

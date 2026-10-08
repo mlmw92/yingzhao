@@ -264,7 +264,7 @@ func (c *LogCollector) collectFile(ctx context.Context, src config.LogSourceConf
 
 	offset, tracked := c.offsets[key]
 	if !tracked {
-		// 首次见到这个文件：**从文件尾开始，不回溯历史**（设计决策见 docs/c2-central-logs.md §12 决策 3）。
+		// 首次见到这个文件：**从文件尾开始，不回溯历史**（设计决策见 docs/designs/c2-central-logs.md §12 决策 3）。
 		//
 		// 为什么这条必须有：日志文件动辄几百 MB~几 GB，而在「刚打开日志开关」的那一刻，
 		// 最坏情况是把整个历史文件按模式筛一遍并全部上传——每日上限会被一次打满、

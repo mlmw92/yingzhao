@@ -39,7 +39,7 @@
 
 ## 2. 为什么仍然不做通用调度器
 
-把"通用"这条路摊开看，它要解决的三个问题在本平台都还没有答案（`docs/refactor-plan.md:283/332`：A1 Server 高可用明确暂缓）：
+把"通用"这条路摊开看，它要解决的三个问题在本平台都还没有答案（`docs/archive/refactor-plan.md:283/332`：A1 Server 高可用明确暂缓）：
 
 1. **身份与权限**：所有执行入口都挂在 `a.permit(handler, "xxx:exec")` 上、靠 `*http.Request` 取 `Principal`；
    `audit.Record` 的调用点**100% 在 `internal/server/api/`**，后台 goroutine **从不写审计**，

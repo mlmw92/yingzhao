@@ -2,7 +2,7 @@
 
 > 状态：**设计件待评审**（未开始实施）。
 > 范围：`cmd/server` 与 `internal/server/**` 的**运行期状态归属**改造；不涉及 Agent 与 Web 的协议变更（新增的实例标识只影响 Server 之间）。
-> 关联：路线图 `docs/refactor-plan.md` 的 A1；权限矩阵 `docs/permission-matrix.md`；数据保留 `docs/…`（A3）。
+> 关联：路线图 `docs/archive/refactor-plan.md` 的 A1；权限矩阵 `docs/guides/permission-matrix.md`；数据保留 `docs/…`（A3）。
 
 ---
 

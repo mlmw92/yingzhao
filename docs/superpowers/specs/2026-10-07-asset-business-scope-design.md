@@ -19,14 +19,14 @@
 | 范围模型 = `Scope{Mode: global\|restricted, Groups}`，`Groups` 是**节点分组**名 | `internal/server/auth/model.go:20-26,50-72`；节点分组本身存在 `nodes.json`（`internal/server/node/manager.go:18,267-278`），**没有独立的分组实体** |
 | 角色/用户绑定范围；自定义角色范围不得超过创建者范围 | `auth/model.go:80-96`；`auth/store.go:354`（`CreateRole` 的收窄约束） |
 | 服务端**已全线强制**范围（主机/中间件/资产/巡检/日志/容器/操作/安全/告警） | 统一走 auth 工具与 `nodeInScope` 族：`internal/server/api/{query,metric_scope,asset_api,inspect_api,logs_api,container_api,ops_api,security_api,middleware_api}.go` |
-| 唯二未接范围的缺口是两类**全局聚合值**（中间件 Summary 卡片、nginx 访问全局窗口） | `docs/permission-matrix.md` §8.8（380-386 行） |
+| 唯二未接范围的缺口是两类**全局聚合值**（中间件 Summary 卡片、nginx 访问全局窗口） | `docs/guides/permission-matrix.md` §8.8（380-386 行） |
 | 资产侧承载业务维度的现成字段 = **`asset_labels`**（表 + `Asset.Labels`），注释写明用途是"分类维度（业务系统/环境/机房…），用于展示与筛选" | `internal/server/asset/store.go:187-198`、`asset/model.go:196-199`；按 label 过滤的 store 能力已存在（`store.go:634-637`） |
 | 标签**只由人工写入**（带 actor、写变更历史 `label:<key>`），但**支持批量** | `asset/service.go:1001`（`SetLabels`）；`POST /api/v1/assets/batch` 支持 `labels` |
 | `asset_types.schema` 是**空壳**（"首期原样存取，不做解释"），无消费方 | `asset/store.go:26-31`、`asset/model.go:100-107` |
 | **不存在**任何"资产集合/资产组/业务线"领域实体 | 全仓无对应表、类型与路由 |
 | 前端**只回显**范围，不做隐藏也不做过滤（`canAccessGroup` 无任何组件调用） | `web/src/composables/useAuth.js:100-104`（定义）、`rbac/UsersView.vue`、`profile/ProfileView.vue`（仅展示）；`router/index.js:79-81` 只按权限点拦截 |
 | 授权侧的可复用范式：**服务端算出可见集合 → 下推到 store → 保留一次内存兜底** | `asset_api.go:675` `assetAllowedNodes` → `assets.List(filter.Nodes)`（383）、`Topology`（548）、巡检 `*InNodes`（`inspect_api.go:117-263`）；`inspect_api.go:95-98` 注明"范围复用台账筛选" |
-| 硬规定：**各 handler 不得自行实现范围判断**，一律调用 auth 工具 | `docs/permission-matrix.md` §6（334 行） |
+| 硬规定：**各 handler 不得自行实现范围判断**，一律调用 auth 工具 | `docs/guides/permission-matrix.md` §6（334 行） |
 
 **一句话**：能力齐、缺的是"第二条范围维度"；而承载它的现成字段（资产标签）与下推范式都已就位。
 

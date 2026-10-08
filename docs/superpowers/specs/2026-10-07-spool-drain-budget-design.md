@@ -174,7 +174,7 @@ D1~D8 若都按建议，则按 §6.1 的两笔开工；有异议的挑出来。
 **② 可见性**：新增 `DrainedBytes()` / `DrainedPoints()` 两个累计量，`cmd/agent/main.go` 把它们
 连同原有的 `agent_spool_bytes` 一起作为自监控指标上报；`noteDrained` 每轮记一行
 `已补传缓冲数据 drainedKB=… points=… remainingKB=…`，排空那一刻另记 `磁盘缓冲已排空`。
-配置手册（`docs/configuration-cookbook.md` §五）补上了新字段与它的两条边界（配小只是慢、配大有兜底）。
+配置手册（`docs/guides/configuration-cookbook.md` §五）补上了新字段与它的两条边界（配小只是慢、配大有兜底）。
 
 **测试**：`go test ./...` 全绿。新增 3 条（`spool_budget_test.go`）：预算的四种边界
 （默认 / 上限更大时顶到上限 / 上限小时夹到下限 / 载荷估算超过上限时不出现负预算）、

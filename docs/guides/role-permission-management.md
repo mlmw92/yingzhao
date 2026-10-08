@@ -485,7 +485,7 @@ type routePerm struct {
 **尚未实现（后续阶段）**：
 
 - 现有业务 handler（节点升级、Agent 密钥、fail2ban、通知、系统升级等）按权限点与节点范围的逐项服务端校验（当前仅权限管理接口受 `authz` 保护；其余高风险接口的保护需在各自 handler 内调用 `Principal(r)` 与 `policy.*` 过滤）。
-- 前端「用户与权限」页面（设计稿见 `docs/permission-console-mock.html`）、菜单守卫与 `auth/me` 加载。
+- 前端「用户与权限」页面（设计稿见 `docs/prototypes/permission-console-mock.html`）、菜单守卫与 `auth/me` 加载。
 - 单设备会话表、审计用户对业务数据的可见性边界细化。
 
 > 说明：范围约束规则（自定义角色范围不超过创建者）已在 `store.CreateRole` 实现；「资源范围为空=无资源权限」在 `policy.Scope.ContainsGroup` 体现。

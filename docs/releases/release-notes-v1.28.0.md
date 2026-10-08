@@ -25,7 +25,7 @@
 | 6 | Hub 可幂等断开连接；单客户端断线与写阻塞客户端不再残留推送协程与查询 | `server/api/ws.go` |
 | 7 | HTTP 读头/空闲超时与有界优雅退出（先断 WS → 排空 → 取消后台 → 关存储） | `cmd/server/http_lifecycle.go`、`main.go` |
 | 8 | CI 增加 `internal/server/api` 的 `-race` 步骤（覆盖 WS/Hub 并发路径） | `.github/workflows/ci.yml` |
-| 9 | 文档同步：README 路线图与权限章节、升级公告、权限矩阵、领域术语表 | `README.md`、`CONTEXT.md`、`docs/permission-matrix.md` |
+| 9 | 文档同步：README 路线图与权限章节、升级公告、权限矩阵、领域术语表 | `README.md`、`CONTEXT.md`、`docs/guides/permission-matrix.md` |
 
 ## 测试与验证
 
