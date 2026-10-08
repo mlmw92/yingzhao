@@ -223,3 +223,27 @@ type AIConfig struct {
 - `settings/AISettingsSubView.test.js`（6 例）：默认关闭且写明数据去向、**密钥不回填**、启用缺端点不提交、保存时端点去尾斜杠、测试连接成功/失败展示。
 
 **未做**：30b AI 诊断（服务端上下文组装 + 主机/资产/告警三处入口）、30c 收口与实机验证。
+
+### 批次 30b（2026-10-08，未打包）
+
+**已完成**：AI 诊断后端（三域取数 + prompt 组装 + 调用 + 审计）。**前端入口留到 30c**。
+
+- `internal/server/ai/context.go`（新）：`Section`（标题 + 逐行 + 敏感度）/ `DiagnosticContext` / `BuildMessages`（含 24K 预算截断，**截断会明说**）/ 固定 system prompt（只依据给定数据、不编造、不建议处置、样本不足要如实说）。`ai` 包**不认识** node/asset/alert——取数留在 API 层，依赖方向单向（与 report 包不依赖 auth 是同一条理由）。
+- `internal/server/api/ai_diagnose.go`（新）：`POST /api/v1/ai/diagnose`（`ai:invoke`），支持 `kind: node|asset|alert`。
+  - **范围判定先于取数**：主机用 `nodeInScope`、资产用 `assetVisible`（节点分组 + 业务标签两维）、告警用其 `Node`；范围外直接 400，**不发请求**。
+  - 主机上下文**直接用 `analysis` 的结论**（评分/严重度/风险证据/容量预测/基线偏离/覆盖度），不自己查指标——那套结论已有用例覆盖，另查一遍只会得到"两份说法"。
+  - 资产：概况 + **字段名清单** + 最近 10 条变更；值属高级别，见下。
+  - 告警：告警详情 + 标签 + 同主机其它活跃告警 + 该主机的分析结论。
+- `internal/server/api/query.go`：注册路由。
+- **删掉 `IncludeLogs`**：30a 预留的"诊断默认带日志片段"本批不实现，留着就是"配了却不生效"的死开关。日志正文（诊断价值最高、也最敏感）留给「日志归因」那一批，届时加它自己的开关。
+- **`notSent` 的两种来源**：因未开启 `AllowSensitive` 而**根本没取**的（第一道防线，`WithheldTitles`）与取到后被过滤的（第二道防线，`HighLevelTitles`）。这是测试抓出来的缺口——只做后者时 `notSent` 恒空，用户无从知道"模型没看到属性值"。
+
+**验证**：`go test ./...` 全绿；前端 `npm test` 27 文件 / 165 例全过。新增 `api/ai_diagnose_test.go`（5 例）：
+
+- **未配置时不发请求**并指路到配置页；
+- **范围外拒绝且不发请求**（受限身份诊断 g2 上的告警被拒、诊断 g1 上的通过，且上下文里**不出现** g2 的主机名）；
+- **敏感内容默认不发**（`AllowSensitive=false` 时属性值不进上下文但**字段名保留**，`=true` 时进入且响应标记 `sensitive`）；
+- 未知类型 / 缺主机名 / 告警不存在；
+- 权限（只有 `ai:read` 时 403）。
+
+**未做**：前端三处诊断入口（主机 / 资产 / 告警详情）、`dist/ai-e2e.py` 与实机验证、打包。
