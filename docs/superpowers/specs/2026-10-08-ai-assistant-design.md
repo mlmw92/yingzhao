@@ -175,7 +175,7 @@ type AIConfig struct {
 | **D3** | 默认状态 | **默认关闭** | 与「离线单机可用」一致；离线部署与离线包不受影响 |
 | **D4** | 数据边界 | **分级**：低/中默认发；高（日志正文/属性值/命令输出）默认不发，需显式开启 | 见 §3；高级别开启这一事实进审计 |
 | **D5** | 密钥存储 | **明文 `ai.yaml` + API 脱敏**（照 notify） | 平台既有取向是密钥明文落盘、只写不读。**不引入加密库**（会新增重量级依赖，与 §2.3 定界冲突） |
-| **D6** | 内置角色是否默认给权限 | **都不给**（除超管），要用就显式授予 | 数据出境是新风险面，默认最小授权 |
+| **D6** | 内置角色是否默认给权限 | **`ai:read` + `ai:invoke` 给运维管理员；`ai:write` 只给超管** | 与既有取向一致——运维是排障的人，`logs:read`/`container:read`/`ops:exec` 都给了他；但**改配置决定数据流向哪里**，是平台里唯一"改一下就会让数据离开部署环境"的配置，且**改回来也收不回已发出的数据**，因此**用**与**配**分离。这条也是被既有测试 `TestEveryCatalogKeyIsGrantedBySomeRole` 逼出来的：它要求每个权限点都有非超管内置角色覆盖，否则会出现"功能装了却没人看得到"（`ops:read`/`ops:exec` 就这样漏掉过一次） |
 | **D7** | 是否支持流式输出 | **第一期不做**（一次性返回） | 简化前端与错误处理；流式另批 |
 | **D8** | 是否保存 AI 结论 | **不落库**，只写审计摘要（对象 / 模型 / token / 耗时 / 是否含高级别数据） | 结论是"线索"；落库会与平台自己算的智能分析结论混淆，且模型输出不可复现 |
 | **D9** | 多轮对话 | **第一期不做**（单轮诊断） | 多轮要维护会话状态与上下文预算，价值增量不明 |
@@ -199,4 +199,27 @@ type AIConfig struct {
 
 ## 9. 实施记录
 
-（待实施后填写：提交链、实机验证脚本与断言数、核对坑。）
+### 批次 30a（2026-10-08，未打包）
+
+**已完成**：AI 模型配置地基——独立 `ai.yaml` + 读写/连通测试接口 + 三个权限点 + 审计留痕 + 前端设置页子页。
+
+改动：
+
+- `internal/server/config/config.go`：新增 `AIConfig`（含 `Normalize()` 补齐零值默认、`Ready()` 判定可用）与 `Config.AIFile`，默认路径 `/etc/monitor-server/ai.yaml`。**默认关闭**（`Enabled: false`）。`TimeoutSeconds` 的零值补 60——`http.Client` 的 0 超时是"无限等待"，是本批最危险的一个零值。
+- `internal/server/ai/manager.go`（新）：照 `notify.Manager` 的范式（独立文件 + `config.AtomicWrite` + 热生效）；加载与保存都过 `Normalize()`（手写 yaml 漏了超时也要被补上）。
+- `internal/server/ai/client.go`（新）：OpenAI 兼容客户端（`POST {BaseURL}/chat/completions`），复用 `alert/notifier.go` 踩过的坑——超时、`io.LimitReader`（256 KiB）、状态码 ≥300 与**响应体里的 error** 分别判定（部分网关 HTTP 200 也算失败）、`RedactEndpoint` 剥掉 query 里的凭据（有些网关用 `?api_key=`）。**不重试**：重试等于把同一份数据再出境一次。
+- `internal/server/api/ai.go`（新）：`GET /api/v1/ai/config`（**不回显 apiKey**，另给 `hasApiKey` 让界面能给出正确的 placeholder）、`PUT`（空密钥沿用旧值）、`POST /api/v1/ai/config/test`（用**已保存的配置**测，不接受请求体里的临时配置——否则"测试通过"与"保存后能用"可能不是同一份配置）。**保存与测试都写审计**（category `ai`），与 notify/ui/screen/retention **都不写审计**有意不同：本配置决定数据往哪里流。
+- `internal/server/auth/model.go`：权限目录新增「AI 助手」域（`ai:read`/`ai:write`/`ai:invoke`）；`RoleOpsAdmin` 给 `ai:read` + `ai:invoke`。
+- `internal/server/api/query.go`、`cmd/server/main.go`：`SetAIManager` 注入（可选能力走 setter，不动已有二十多个位置参数的 `api.New`）。
+- 前端：`web/src/components/settings/AISettingsSubView.vue`（新，含"开启前请确认数据去向"提示与敏感内容开关）+ `SettingsView.vue` 注册 `?tab=ai` + `api/http.js` 三个方法。
+
+**D6 在实施中被既有测试修正**：原建议"内置角色都不给"，被 `TestEveryCatalogKeyIsGrantedBySomeRole` 拦下——它要求每个权限点都有**非超管**内置角色覆盖，否则会出现"功能装了却没人看得到"（`ops:read`/`ops:exec` 就这样漏掉过一次）。改为 `ai:read` + `ai:invoke` 给运维管理员（与 `logs:read`/`container:read`/`ops:exec` 同一取舍：运维是排障的人），`ai:write` 登记进 `superAdminOnlyKeys` 并写明理由（它决定数据发往哪里，且**改回来也收不回已发出的数据**）。§6 的 D6 已同步。
+
+**验证**：`go build ./...`、`go test ./...` 全绿；前端 `npm test` **27 文件 / 165 例全过**。新增用例：
+
+- `ai/client_test.go`（6 例）：**未启用时不发出任何请求**（默认关闭的部署里这条外呼路径根本不该存在）、成功路径与鉴权头、HTTP 错误、HTTP 200 但带 error、非 JSON 与空回答、超时、`RedactEndpoint`、零值默认。
+- `ai/manager_test.go`（2 例）：落盘/热生效/跨重启、加载时归一化。
+- `api/ai_test.go`（5 例）：脱敏与 `hasApiKey`、空密钥沿用旧值、校验三态（缺端点/缺模型/非法 scheme；关闭时不校验）、权限（`ai:read` 能读不能写）、连通测试成功与端点不可达 502。
+- `settings/AISettingsSubView.test.js`（6 例）：默认关闭且写明数据去向、**密钥不回填**、启用缺端点不提交、保存时端点去尾斜杠、测试连接成功/失败展示。
+
+**未做**：30b AI 诊断（服务端上下文组装 + 主机/资产/告警三处入口）、30c 收口与实机验证。
