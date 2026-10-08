@@ -365,6 +365,24 @@ func main() {
 			slog.Error("审计事件改用数据库失败，继续按 JSON 文件工作", "err", err)
 		}
 	}
+	// 审计防篡改（链式 HMAC，设计件 2026-10-08）：让"改过/删过审计"变成**可检测**。
+	// **不是"不可删除"**——库仍在该机、同一权限面下，root 依然能删（威胁模型见设计件 §2.3）。
+	// 密钥文件不存在就自动生成（0600）；生成/读取失败**不阻断启动**，只是审计不带链，
+	// 校验时会如实报成"无链、不可验"，而不是假装完整。
+	if assetStore != nil {
+		keyPath := cfg.AuditKeyFile
+		if keyPath == "" {
+			keyPath = filepath.Join(cfg.DataDir, "audit.key")
+		}
+		key, err := audit.LoadOrCreateChainKey(keyPath)
+		if err != nil {
+			slog.Error("审计防篡改链未启用（密钥不可用），审计仍会记录但**不带完整性保护**",
+				"path", keyPath, "err", err)
+		} else {
+			auditStore.SetChainKey(key)
+			slog.Info("审计防篡改链已启用", "keyFingerprint", key.Fingerprint(), "keyFile", keyPath)
+		}
+	}
 	// 数据保留策略：清理本地可清理的数据（告警处置记录、巡检报告），
 	// 并只读呈现时序库保留期与内置上限的现状。
 	retentionFile := cfg.RetentionFile
@@ -444,6 +462,10 @@ func main() {
 	go selfmon.NewReporter(rawStore, mon, selfmon.DefaultReportInterval).Run(runCtx)
 	// 数据保留：按周期清理超期数据（策略可在「系统设置 → 数据保留」调整，保存即热生效）
 	go retentionMgr.Run(runCtx)
+	// 审计链头锚点：周期把链头写进服务日志（另一个权限面）。
+	// 库内的链**无法**证明"尾部没被删"——尾部没有后继指认它；清空整表更是不可检测。
+	// 有了锚点，只改库不改日志的人就会露出马脚（威胁模型场景 D，见设计件 §2.3）。
+	go auditStore.RunAnchor(runCtx)
 	// 报告周期化调度（全景表 11-4）：配置文件与运行状态同文件（跨重启保留上次运行时间，
 	// 否则频繁重启的机器每次启动都会重新生成一份报告——报告要拉一整个周期的数据）。
 	if reportSched != nil {

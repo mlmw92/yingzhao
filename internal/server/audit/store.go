@@ -62,6 +62,25 @@ type Store struct {
 	path   string
 	db     *sql.DB
 	events []Event // 仅降级模式使用
+	// chainKey 是链式 HMAC 的密钥（见 chain.go）。为 nil 表示**未启用链**：
+	// 要么是降级模式，要么密钥没加载成功。两种情况校验都会如实报出来，
+	// 而不是假装这些行是完整的。
+	chainKey *ChainKey
+}
+
+// SetChainKey 启用链式 HMAC。在 UseSQLite 之后调用（降级模式下无意义：它的写入是
+// 整文件重写，与链式追加语义不兼容，设计件 §4.7）。
+func (s *Store) SetChainKey(k *ChainKey) {
+	s.mu.Lock()
+	s.chainKey = k
+	s.mu.Unlock()
+}
+
+// ChainEnabled 返回链是否启用（降级模式或密钥缺失时为 false）。
+func (s *Store) ChainEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.db != nil && s.chainKey != nil
 }
 
 // New 创建审计存储并加载已有事件；path 为空时仅内存模式（测试用）。
@@ -181,8 +200,14 @@ func (s *Store) Record(event Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.db != nil {
-		_, err := s.db.Exec(insertEventSQL, eventArgs(event)...)
-		return err
+		if s.chainKey == nil {
+			// 没有密钥（未配置或加载失败）：**不阻断业务**——审计写不进去不该让管理操作失败。
+			// 这些行 seq=0、hash 为空，校验时会如实报成"无链、不可验"，
+			// 而不是混在"已验证"里（设计件 §4.1）。
+			_, err := s.db.Exec(insertEventSQL, eventArgs(event)...)
+			return err
+		}
+		return s.appendChained(s.chainKey, event)
 	}
 	s.events = append(s.events, event)
 	s.events = trim(s.events)
@@ -359,45 +384,30 @@ func (s *Store) Count() int {
 // Prune 删除早于 before（毫秒）的事件，返回删除条数（入库模式的保留策略）。
 //
 // 降级模式不做任何事：它的保留口径本来就是"最近 MaxEvents 条"，没有时间语义。
+// 链启用时，删除**与记录被裁区间在同一事务**（见 prune.go 的说明）——
+// 不记录的话，校验会把正常清理报成"有人删过审计"（假警报）。
 func (s *Store) Prune(before int64) (int, error) {
 	if before <= 0 {
 		return 0, nil
 	}
-	s.mu.RLock()
-	db := s.db
-	s.mu.RUnlock()
-	if db == nil {
-		return 0, nil
-	}
-	res, err := db.Exec("DELETE FROM audit_events WHERE time_ms < ?", before)
-	if err != nil {
-		return 0, fmt.Errorf("清理过期审计事件失败: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	return s.pruneWhere("time_ms < ?", before)
 }
 
-// PruneRows 把审计表裁到最多 max 行（保留最新的），返回删除条数。
+// PruneRows 把审计表裁到最多 max 行，返回删除条数。
 //
 // 这是**兜底**：时间保留（retention.AuditDays）才是主口径。降级模式不做任何事——
 // 它本来就只留最近 MaxEvents 条。
+//
+// **口径从「按 time_ms 最新」改为「按 seq 最新」**：它是条数兜底、不是时间规则，
+// 按到达顺序（seq）才是它本来的语义；而且这样裁剪永远是**前缀**、不会从中间挖洞。
+// 时间戳偏斜是真实存在的（例如时钟回拨过的机器），从中间挖洞会让校验把正常裁剪
+// 报成有人删过审计——那是假警报。seq=0 的行（启用链之前的历史）排在最后、优先被裁。
 func (s *Store) PruneRows(max int) (int, error) {
 	if max <= 0 {
 		return 0, nil
 	}
-	s.mu.RLock()
-	db := s.db
-	s.mu.RUnlock()
-	if db == nil {
-		return 0, nil
-	}
-	res, err := db.Exec(`DELETE FROM audit_events WHERE id NOT IN (
-		SELECT id FROM audit_events ORDER BY time_ms DESC, id DESC LIMIT ?)`, max)
-	if err != nil {
-		return 0, fmt.Errorf("裁剪审计事件失败: %w", err)
-	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	return s.pruneWhere(`id NOT IN (
+		SELECT id FROM audit_events ORDER BY seq DESC, id DESC LIMIT ?)`, max)
 }
 
 // SummarizeChange 返回持久化对象的语义化前后差异摘要。

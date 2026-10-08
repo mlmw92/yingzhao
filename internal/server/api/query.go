@@ -322,6 +322,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	// 管理操作审计：查看 audit:read；导出已拆为独立路由（audit:export，高危）
 	mux.HandleFunc("GET /api/v1/audit/events", a.permit(a.handleAuditEvents, "audit:read"))
 	mux.HandleFunc("GET /api/v1/audit/export", a.permit(a.handleAuditExport, "audit:export"))
+	// 审计完整性校验（防篡改链）：沿用 audit:read——结果不泄露超出审计内容本身的信息
+	mux.HandleFunc("GET /api/v1/audit/verify", a.permit(a.handleAuditVerify, "audit:read"))
 
 	// 安全中心：查看 security:read；入侵防御指令下发 security:write（高危）+ 节点资源范围
 	mux.HandleFunc("GET /api/v1/security/summary", a.permit(a.handleSecuritySummary, "security:read"))

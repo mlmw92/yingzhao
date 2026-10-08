@@ -42,6 +42,11 @@ type Config struct {
 	MiddlewareViewFile string         `yaml:"middlewareViewFile"` // 中间件监控页面展示开关（展示哪些类型）；留空用默认路径
 	DashboardsFile    string          `yaml:"dashboardsFile"`    // 自定义仪表盘配置文件（Web 端增删改写入）
 	RetentionFile     string          `yaml:"retentionFile"`     // 数据保留策略配置文件（Web 端可改，保存即热生效）
+	// AuditKeyFile 是审计防篡改链的 HMAC 密钥文件（0600，首次启动自动生成）。
+	//
+	// **刻意与 server.yaml 分开**：配置文件常被复制、备份、贴进工单，密钥一旦随配置扩散，
+	// "没有密钥就无法伪造审计"这条保证就没了。**绝不通过任何接口返回**（只返回指纹）。
+	AuditKeyFile string `yaml:"auditKeyFile"`
 	SecurityStoreFile string          `yaml:"securityStoreFile"` // 安全事件/基线持久化文件
 	AssetStoreFile    string          `yaml:"assetStoreFile"`    // 资产台账库（内嵌 SQLite 单文件）；留空取 <DataDir>/assets.db
 	LogDir            string             `yaml:"logDir"`            // 集中日志存储目录（按 来源/日期/节点 分片）；留空取 <DataDir>/logs
@@ -359,6 +364,7 @@ func Default() *Config {
 		UIFile:            "/etc/monitor-server/ui.yaml",
 		DashboardsFile:    "/etc/monitor-server/dashboards.yaml",
 		RetentionFile:     "/etc/monitor-server/retention.yaml",
+		AuditKeyFile:      "/etc/monitor-server/audit.key",
 		SecurityStoreFile: "/var/lib/monitor-server/security_store.json",
 		AssetStoreFile:    "/var/lib/monitor-server/assets.db",
 		// 集中日志（C2）：目录留空时由启动逻辑取 <DataDir>/logs；三个上限都必须有值，

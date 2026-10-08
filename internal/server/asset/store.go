@@ -207,6 +207,11 @@ var schemaStatements = []string{
 	//
 	// 与 asset_seen / asset_ignored 同理：纯附加表，老版本不读它，**不提升 schemaVersion**。
 	// 代价是回滚后旧版本的审计与处置列表会变空（旧版本读 JSON，而 JSON 已改名 .bak-migrated）。
+	//
+	// seq / prev_hash / hash 是**链式 HMAC**（设计件 `2026-10-08-audit-tamper-evident-design.md`）：
+	// 让"改过/删过审计"变成**可检测**。`seq` 刻意另起而不用自增 id——id 的缺口分不清
+	// "保留策略裁剪"与"被人删了"，seq 配 audit_pruned 才能把缺口**归因**。
+	// 存量行（本列上线前写入的）seq=0、hash 为空 = "启用链之前的历史"，校验时如实报为不可验。
 	`CREATE TABLE IF NOT EXISTS audit_events(
 		id         INTEGER PRIMARY KEY AUTOINCREMENT,
 		time_ms    INTEGER NOT NULL,
@@ -220,10 +225,38 @@ var schemaStatements = []string{
 		category   TEXT NOT NULL DEFAULT '',
 		action     TEXT NOT NULL DEFAULT '',
 		detail     TEXT NOT NULL DEFAULT '',
-		request_id TEXT NOT NULL DEFAULT ''
+		request_id TEXT NOT NULL DEFAULT '',
+		seq        INTEGER NOT NULL DEFAULT 0,
+		prev_hash  TEXT NOT NULL DEFAULT '',
+		hash       TEXT NOT NULL DEFAULT '',
+		key_fp     TEXT NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_time ON audit_events(time_ms DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_user ON audit_events(user_name, time_ms DESC)`,
+	// 注意：**不能**在这里建 idx_audit_events_seq —— 存量库此刻还没有 seq 列（它由
+	// ensureColumn 补），建索引会失败。它放在 postAlterIndexes 里（见那里的注释）。
+	// audit_chain 是**链头**（单行，id 恒为 1）：下一条的 seq 与 prev_hash 从它取。
+	// key_fingerprint 记下当前密钥的指纹——校验失败时要能区分"某条被改了"与"换了密钥"，
+	// 把后者报成前者是**假警报**（设计件 §4.2）。
+	`CREATE TABLE IF NOT EXISTS audit_chain(
+		id              INTEGER PRIMARY KEY CHECK(id = 1),
+		seq             INTEGER NOT NULL DEFAULT 0,
+		hash            TEXT NOT NULL DEFAULT '',
+		key_fingerprint TEXT NOT NULL DEFAULT '',
+		updated_ms      INTEGER NOT NULL DEFAULT 0
+	)`,
+	// audit_pruned 记录**每次保留策略合法移除**的那一段（含该段末尾的 hash）与它自己的 HMAC。
+	// 没有它，"删了一行"与"裁剪掉一行"在校验时无法区分——正常裁剪会被报成有人删过审计（假警报）。
+	// **它自己也要带 HMAC**：否则有库写权限的人可以伪造一条裁剪记录来遮盖自己的删除。
+	`CREATE TABLE IF NOT EXISTS audit_pruned(
+		from_seq   INTEGER NOT NULL,
+		to_seq     INTEGER NOT NULL,
+		head_hash  TEXT NOT NULL DEFAULT '',
+		rows       INTEGER NOT NULL DEFAULT 0,
+		pruned_ms  INTEGER NOT NULL DEFAULT 0,
+		mac        TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_pruned_range ON audit_pruned(from_seq, to_seq)`,
 	// ack_key 沿用既有的 rule|host|instance|startsAt 形态，语义零变化（Map/Get 的 key 不变）。
 	// comments 存 JSON 数组而不是拆表：评论永远随处置记录整体读写，拆表只会让读取多一次 join。
 	`CREATE TABLE IF NOT EXISTS alert_acks(
@@ -276,6 +309,10 @@ var schemaStatements = []string{
 var postAlterIndexes = []string{
 	`CREATE INDEX IF NOT EXISTS idx_changes_request ON asset_changes(request_id) WHERE request_id <> ''`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_request ON audit_events(request_id) WHERE request_id <> ''`,
+	// 链序号（审计防篡改）：校验按 seq 顺序扫，建在这里而不是建表语句里——
+	// 存量库的 seq 列是 ensureColumn 补的，在补列之前建索引会失败
+	// （TestMigrateAddsRequestIDColumns 正是为这类错误写的，本批当场被它抓到）。
+	`CREATE INDEX IF NOT EXISTS idx_audit_events_seq ON audit_events(seq)`,
 }
 
 // DB 返回底层连接，供**同库的其它持久化**复用（审计事件与告警处置，见设计件批次 18）。
@@ -350,6 +387,21 @@ func (s *Store) migrate() error {
 	if err := s.ensureColumn("audit_events", "request_id",
 		`ALTER TABLE audit_events ADD COLUMN request_id TEXT NOT NULL DEFAULT ''`); err != nil {
 		return err
+	}
+	// 链式 HMAC 的三列（见 audit_events 建表处的说明）。存量行一律 seq=0、
+	// 两个 hash 为空——**不回填**：链是"从启用那一刻起"的，给历史行补算 hash
+	// 等于把"我算的"伪装成"当时算的"，那比没有链更糟。
+	for _, c := range []struct{ name, alter string }{
+		{"seq", `ALTER TABLE audit_events ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`},
+		{"prev_hash", `ALTER TABLE audit_events ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''`},
+		{"hash", `ALTER TABLE audit_events ADD COLUMN hash TEXT NOT NULL DEFAULT ''`},
+		// key_fp 记下**这一行由哪个密钥签的**。换了密钥（恢复备份、换机器）时，
+		// 没有它就只能报"第 N 条 hash 不匹配"——那是**假警报**，会被当成有人改过审计。
+		{"key_fp", `ALTER TABLE audit_events ADD COLUMN key_fp TEXT NOT NULL DEFAULT ''`},
+	} {
+		if err := s.ensureColumn("audit_events", c.name, c.alter); err != nil {
+			return err
+		}
 	}
 	// 依赖上面这些列的索引（放在补列之后，理由见 postAlterIndexes 的注释）。
 	for _, stmt := range postAlterIndexes {
