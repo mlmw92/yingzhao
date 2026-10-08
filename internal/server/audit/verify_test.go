@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -212,7 +213,12 @@ func TestVerify_EmptyChain(t *testing.T) {
 }
 
 // captureHandler 把日志收进内存，用来断言锚点真的写出来了。
-type captureHandler struct{ msgs []string }
+// 带锁：RunAnchor 的用例会从**另一个 goroutine** 写日志，而断言在主 goroutine 读——
+// 不加锁就是数据竞争（`go test -race` 会红）。
+type captureHandler struct {
+	mu   sync.Mutex
+	msgs []string
+}
 
 func (h *captureHandler) Enabled(context.Context, slog.Level) bool { return true }
 func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
@@ -222,11 +228,19 @@ func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
 		sb.WriteString(" " + a.Key + "=" + a.Value.String())
 		return true
 	})
+	h.mu.Lock()
 	h.msgs = append(h.msgs, sb.String())
+	h.mu.Unlock()
 	return nil
 }
 func (h *captureHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h *captureHandler) WithGroup(string) slog.Handler      { return h }
+
+func (h *captureHandler) snapshot() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.msgs...)
+}
 
 // 锚点必须真的写进日志：库内的链**无法**证明"尾部没被删"（尾部没有后继指认它），
 // 日志锚点是"删尾部/清表"唯一能被发现的依据——它没写出来，整条防线就少了最关键的一环。
@@ -239,10 +253,11 @@ func TestAnchorOnce_WritesChainHeadToLog(t *testing.T) {
 
 	store.AnchorOnce()
 
-	if len(h.msgs) != 1 {
-		t.Fatalf("应写 1 条锚点日志，实际 %d 条：%v", len(h.msgs), h.msgs)
+	msgs := h.snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("应写 1 条锚点日志，实际 %d 条：%v", len(msgs), msgs)
 	}
-	got := h.msgs[0]
+	got := msgs[0]
 	// 消息用 ASCII：它是给脚本与运维 grep 的稳定标记，不该随界面文案调整而变
 	if !strings.Contains(got, "audit chain head") {
 		t.Fatalf("锚点消息应含稳定标记 audit chain head，实际 %q", got)
@@ -264,8 +279,38 @@ func TestAnchorOnce_SilentWhenChainDisabled(t *testing.T) {
 	defer slog.SetDefault(old)
 
 	store.AnchorOnce()
-	if len(h.msgs) != 0 {
-		t.Fatalf("未启用链时不该写锚点，实际 %v", h.msgs)
+	if msgs := h.snapshot(); len(msgs) != 0 {
+		t.Fatalf("未启用链时不该写锚点，实际 %v", msgs)
+	}
+}
+
+// 锚点必须**启动即写一次**，不能只靠 ticker。
+//
+// 实机核对时发现的缺口：只等首次 tick 的话，服务刚起来到第 5 分钟之间**没有锚点**，
+// 而那段时间里若库被清空（或尾部被删），就没有任何库外的依据可比对——正是锚点要防的场景。
+func TestRunAnchor_WritesImmediately(t *testing.T) {
+	store, _ := chainStore(t, 2)
+	h := &captureHandler{}
+	old := slog.Default()
+	slog.SetDefault(slog.New(h))
+	defer slog.SetDefault(old)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		store.RunAnchor(ctx)
+		close(done)
+	}()
+	// 不等 5 分钟：只要首次那一次写出来就够了
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(h.snapshot()) == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	if len(h.snapshot()) == 0 {
+		t.Fatal("RunAnchor 应在启动时立刻写一次锚点，而不是等到首次 tick（5 分钟后）")
 	}
 }
 

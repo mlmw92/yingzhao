@@ -23,6 +23,12 @@ const DefaultAnchorInterval = 5 * time.Minute
 
 // RunAnchor 周期把链头写进服务日志，直到 ctx 结束。
 func (s *Store) RunAnchor(ctx context.Context) {
+	// **启动时立刻写一次**，不要只靠 ticker。
+	//
+	// 实机核对时发现的缺口：只等首次 tick 的话，服务刚起来到第 5 分钟之间**没有锚点**——
+	// 而这段时间里若库被清空（或尾部被删），就没有任何库外的依据可比对，正是锚点要防的场景。
+	// 成本是一条日志，没有理由省它。
+	s.AnchorOnce()
 	t := time.NewTicker(DefaultAnchorInterval)
 	defer t.Stop()
 	for {
