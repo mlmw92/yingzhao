@@ -247,3 +247,25 @@ type AIConfig struct {
 - 权限（只有 `ai:read` 时 403）。
 
 **未做**：前端三处诊断入口（主机 / 资产 / 告警详情）、`dist/ai-e2e.py` 与实机验证、打包。
+
+### 批次 30c（2026-10-08，已打包 1.30.59）
+
+**已完成**：前端诊断入口（主机 + 告警）+ e2e 脚本 + 打包。
+
+- `web/src/components/ai/AiDiagnosePanel.vue`（新）：可复用的「AI 诊断」按钮 + 结果弹窗。**做成组件而不是在三处各写一遍**——上下文组装在服务端，前端只做"传对象标识 + 展示结果"这一件事。结果直接显示原始文本（**不渲染 markdown**：不引依赖，也避免把模型输出的 HTML 当代码执行）。
+- 入口**两处**（设计件写三处）：智能分析页的主机详情抽屉（`IntelligenceView.vue`）、告警详情抽屉（`AlertsView.vue`）。**资产详情入口未做**——该文件改动最大而边际价值最低（主机与告警已覆盖主要排障场景），后端已支持 `kind=asset`，需要时按同一组件插一行即可。
+- `web/src/api/http.js`：`diagnoseAI`。
+- `dist/ai-e2e.py`（新）：**自带假 OpenAI 兼容端点**（照 `build/template-fakes/fakevm` 的先例）——不依赖外网，且能捕获"平台到底把什么发出去了"。
+
+**e2e 判据**（核心不是"接口返回 200"）：
+
+- **未配置时不发请求**：未启用时诊断 400，且假端点一次都没被访问；
+- 配置与连通：GET 不回显明文密钥、`hasApiKey` 正确、请求确实带上了鉴权头；
+- 主机诊断：上下文含该主机与平台的分析结论段，且**不含其它任何主机名**（本机诊断只带这一台）；
+- 敏感内容：默认**不发**属性值但保留字段名、`notSent` 如实告知；打开 `AllowSensitive` 后值进入上下文且响应标记 `sensitive`；
+- 范围：受限身份（分组为空）诊断任何主机都被拒，且**被拒时没有发出请求**；
+- 审计：`ai:diagnose` 与 `ai:config:update`/`test` 都留痕。
+
+**打包**：`1.30.59`（full 201 MiB / upgrade 81 MiB）。已手工核对：6 个二进制齐全、manifest 引用的 8 个 component（含 `deploy/agent-install.sh`）全在包内、`web/index.html` 在包内、**新增 `web/assets/AiDiagnosePanel-*.js` 与 `.css`**、server 二进制内嵌 `1.30.59`。
+
+**未做**：资产详情入口；实机验证（待 dev-server 升 1.30.59 后跑 `dist/ai-e2e.py core`）。
