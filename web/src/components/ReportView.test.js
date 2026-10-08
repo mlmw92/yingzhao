@@ -128,3 +128,54 @@ describe('ReportView 周期化生成', () => {
     expect(paths.some((p) => p.includes('/api/v1/report/history'))).toBe(true)
   })
 })
+
+// 报告章节与生成范围（设计件 2026-10-08-reporting-views-design.md）。
+//
+// 守两件事：
+//  1. 章节选择要真的送到服务端（界面上勾了却没传，等于白勾）；
+//  2. 历史列表要能看出「这一份覆盖的是谁、跳过了什么」——报告是会被转发出去的文件。
+describe('报告章节与生成范围', () => {
+  it('默认全选章节，生成时把选择带上', async () => {
+    const w = mountView()
+    await flushPromises()
+    expect(w.text()).toContain('报告章节')
+    expect(w.text()).toContain('资产与配置')
+
+    const btn = w.findAll('button').find((b) => b.text().includes('生成报告'))
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await flushPromises()
+
+    const call = http.post.mock.calls.find((c) => String(c[0]).includes('/api/v1/report/generate'))
+    expect(call).toBeTruthy()
+    expect(call[1].sections).toContain('assets')
+    expect(call[1].sections).toContain('logs')
+  })
+
+  it('历史列表显示生成范围与「已跳过」标记', async () => {
+    http.get.mockImplementation(async (path) => {
+      if (String(path).includes('/api/v1/report/schedule')) return SCHEDULE
+      return {
+        reports: [{
+          id: 'rpt-1', type: 'daily', period: '2026-10-08', generatedAt: 1700000000000,
+          scope: '指定 2 个节点（1 台在范围内）', skipped: ['日志'],
+        }],
+      }
+    })
+    const w = mountView()
+    await flushPromises()
+    expect(w.text()).toContain('指定 2 个节点')
+    expect(w.text()).toContain('已跳过 1 章')
+  })
+
+  it('保存周期化生成时也带上章节选择', async () => {
+    const w = mountView()
+    await flushPromises()
+    await w.find('.el-switch').trigger('click')
+    await flushPromises()
+    const call = http.put.mock.calls.find((c) => String(c[0]).includes('/api/v1/report/schedule'))
+    expect(call).toBeTruthy()
+    expect(Array.isArray(call[1].sections)).toBe(true)
+    expect(call[1].sections.length).toBeGreaterThan(0)
+  })
+})

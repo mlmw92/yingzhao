@@ -14,6 +14,16 @@
         </el-select>
         <el-button type="primary" @click="generate" :loading="generating">生成报告</el-button>
       </div>
+      <div class="generate-row sections-row">
+        <span class="schedule-label">报告章节</span>
+        <el-checkbox-group v-model="sections" size="small">
+          <el-checkbox v-for="opt in sectionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</el-checkbox>
+        </el-checkbox-group>
+      </div>
+      <div class="schedule-hint">
+        默认全选。覆盖范围（能看哪些节点与资产）由服务端按你的权限折算，不受此处影响；
+        缺少某域权限的章节会被跳过，并在报告头部标注原因。
+      </div>
       <el-alert
         class="tip"
         type="info"
@@ -90,6 +100,17 @@
         <el-table-column label="生成时间" width="180">
           <template #default="{ row }">{{ formatTime(row.generatedAt) }}</template>
         </el-table-column>
+        <el-table-column label="范围" min-width="180">
+          <template #default="{ row }">
+            <span>{{ row.scope || '—' }}</span>
+            <el-tag
+              v-if="row.skipped && row.skipped.length"
+              size="small"
+              type="warning"
+              style="margin-left: 6px;"
+            >已跳过 {{ row.skipped.length }} 章</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <el-button link type="primary" @click="preview(row.id)">预览</el-button>
@@ -132,6 +153,19 @@ const historyError = ref('')
 const previewUrl = ref('')
 const currentId = ref('')
 
+// 报告章节（设计件 2026-10-08-reporting-views-design.md）。
+// 空数组在后端表示"全选"，因此初始就是全选；手动生成与周期化生成共用这一组选择。
+const sectionOptions = [
+  { value: 'hosts', label: '主机巡检明细' },
+  { value: 'middleware', label: '中间件监控明细' },
+  { value: 'security', label: '安全中心巡检' },
+  { value: 'analysis', label: '智能分析与预测' },
+  { value: 'assets', label: '资产与配置' },
+  { value: 'container', label: '容器与工作负载' },
+  { value: 'logs', label: '日志' },
+]
+const sections = ref(sectionOptions.map((o) => o.value))
+
 async function loadHistory() {
   try {
     const data = await http.get('/api/v1/report/history')
@@ -146,7 +180,7 @@ async function loadHistory() {
 async function generate() {
   generating.value = true
   try {
-    const data = await http.post('/api/v1/report/generate', { type: reportType.value })
+    const data = await http.post('/api/v1/report/generate', { type: reportType.value, sections: sections.value })
     if (data && data.id) {
       preview(data.id)
       await loadHistory()
@@ -177,6 +211,8 @@ function applySchedule(data) {
     lastError: last.error || cfg.lastError || '',
     nextAt: (data && data.nextAt) || 0,
   }
+  // 章节选择回读服务端真实值；空数组表示「全选」，此时保持界面全选（不要显示成全不选）。
+  if (Array.isArray(cfg.sections) && cfg.sections.length) sections.value = cfg.sections
 }
 
 async function loadSchedule() {
@@ -197,6 +233,7 @@ async function saveSchedule() {
         enabled: schedule.value.enabled,
         type: schedule.value.type,
         intervalHours: schedule.value.intervalHours,
+        sections: sections.value,
       })
     )
     ElMessage.success('已保存（热生效）')
@@ -275,6 +312,11 @@ onMounted(() => {
 .page-desc { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
 .chart-section { padding: 16px; margin-bottom: 16px; }
 .section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.sections-row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .generate-row { display: flex; gap: 12px; align-items: center; }
 .tip { margin-top: 14px; }
 .history-error { margin-bottom: 12px; }
