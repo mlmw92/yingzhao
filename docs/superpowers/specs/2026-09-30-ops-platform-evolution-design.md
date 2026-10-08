@@ -72,9 +72,9 @@
 
 - 移除提交：`1e25239 refactor!: 移除采集项模板功能全链路`
 - 代码事实：`internal/template` 目录不存在；`internal/server/api/query.go` 无 `middleware/templates` 注册
-- 文档滞后：`CONTEXT.md` 仍有 **7 处**按现役术语描述；`docs/c1-collector-templates.md`、`docs/refactor-plan.md`、`docs/permission-matrix.md` 亦按已交付描述
+- 文档滞后（**已于 2026-10-08 处置完毕**）：`CONTEXT.md` 复核后**只剩 1 处**（此处原先写的「7 处」**已过期**）；`docs/c1-collector-templates.md`、`docs/c1-phase3-kinds.md` 已移入 `docs/archive/` 并加归档横幅；`docs/permission-matrix.md` 已删掉 6 条不存在的 `/api/v1/middleware/templates*` 路由与 1 条不存在的通用实例路由；`docs/refactor-plan.md` 已加历史横幅（正文按当时状态保留）。
 
-处置：在本计划的「术语与路线图同步」步骤中修订，**不得**在新设计中继续引用该功能为现有能力。
+**仍须遵守**：**不得**在新设计中继续引用该功能为现有能力。
 
 ## 目标架构与模块划分
 

@@ -159,20 +159,16 @@
 | GET | `/api/v1/middleware/fastdfs/instances` | `middleware:read` | 分组 |
 | GET | `/api/v1/middleware/nginx/access/summary` | `middleware:read` | 分组 |
 | GET | `/api/v1/middleware/nginx/access/geo` | `middleware:read` | 分组 |
-| GET | `/api/v1/middleware/{type}/instances` | `middleware:read` | 分组（模板派生类型的通用实例接口；内置类型由各自的字面量路由优先命中） |
-| GET | `/api/v1/middleware/templates` | `middleware:read` | 见下方说明 |
-| GET | `/api/v1/middleware/templates/presets` | `middleware:read` | 内置预设（只读的模板样例，不含任何环境信息） |
-| POST | `/api/v1/middleware/templates` | `middleware:write` | 见下方说明 |
-| POST | `/api/v1/middleware/templates/validate` | `middleware:write` | 见下方说明 |
-| PUT | `/api/v1/middleware/templates/{id}` | `middleware:write` | 见下方说明 |
-| DELETE | `/api/v1/middleware/templates/{id}` | `middleware:write` | 见下方说明 |
 
-> **采集项模板（C1 阶段二）**：读写权限点刻意分离——读只是看配置，写会改变各 Agent 去拉取哪些地址
-> （等于让被监控机主动出站访问指定 URL），属高危操作，故归 `middleware:write`。
-> 至此 `middleware:write` 不再是预留权限点（此前无对应路由，中间件采集配置在 `agent.yaml` 侧维护）。
-> 模板的**下发范围为「按节点分组」**：模板必须声明生效的 `groups`（见阶段二设计），
-> Server 只把命中该 Agent 所属分组的模板随上报响应下发；因此这几条路由本身不做资源范围过滤
-> （它们操作的是「将要下发的内容」，与调用者能看哪些节点无关），危险点由权限点分离来兜。
+
+> **已移除：采集项模板（C1 阶段一~三）**。本表此前列出的 **6 条 `/api/v1/middleware/templates*` 路由
+> 已随 `1e25239 refactor!: 移除采集项模板功能全链路` 删除**——`internal/template` 目录不存在、
+> 路由未注册，故从本表移除。对应的两份设计件（`c1-collector-templates.md`、`c1-phase3-kinds.md`）
+> 已移入 `archive/`：保留决策记录，但**其中的接口、权限点与安全模型都不再有效**。
+>
+> 由此产生一处**需要留意的现状**：`middleware:write` 权限点仍在权限目录里（且仍授予运维管理员），
+> 但**它现在不对应任何路由**——即"有这个权限也管不了什么"。这不是缺陷（保留权限点便于将来复用），
+> 但排查"为什么某人没有某个入口"时别被它误导。
 
 ### 4.5 智能分析（2 条）
 

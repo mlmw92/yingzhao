@@ -161,7 +161,7 @@
 | CI 竞态门禁（本机因缺 cgo 无法运行） | `go test -race -count=1 ./internal/agent/...` 与 `./internal/server/api/...` 均通过，含本批新增用例——复核中「新测试可能触发 TSan」的担忧不成立。 |
 | 本批其余改动包的竞态 | `go test -race -count=1 ./internal/server/{alert,asset,dialtest,retention,audit}` 全部通过。 |
 | 真实 RabbitMQ exporter 核对 | 机器上 `127.0.0.1:15692`（rabbitmq_prometheus）返回 200，但**不存在** `rabbitmq_up` 或 `rabbitmq_instance_up`（仅 `rabbitmq_erlang_uptime_seconds` 等）。因此该类型靠「解析到 `rabbitmq_*` 业务指标即在线」回退判定，新增的 `rabbitmq_up` 候选在此部署下不命中（无害）。 |
-| 其他 exporter 核对 | 全端口扫描后，仅 15692（RabbitMQ）、8428（VictoriaMetrics）、10249（kubelet）返回 Prometheus 文本；**没有** mysqld/postgres/nginx/redis/mongodb exporter 在跑（中间件均走直连模式）。故 `mysql_up`/`pg_up`/`nginx_up`/`redis_up` 仍**未经实机 exporter 核对**——仓库内 `docs/c1-collector-templates.md:447` 列出了这些上游名字被改名为 `<mw>_instance_up`，可作旁证。 |
+| 其他 exporter 核对 | 全端口扫描后，仅 15692（RabbitMQ）、8428（VictoriaMetrics）、10249（kubelet）返回 Prometheus 文本；**没有** mysqld/postgres/nginx/redis/mongodb exporter 在跑（中间件均走直连模式）。故 `mysql_up`/`pg_up`/`nginx_up`/`redis_up` 仍**未经实机 exporter 核对**——仓库内 `docs/archive/c1-collector-templates.md:447` 列出了这些上游名字被改名为 `<mw>_instance_up`，可作旁证。 |
 
 
 

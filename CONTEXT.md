@@ -190,7 +190,7 @@ Server 经**上报响应**下发给 Agent 执行的结构化指令（与既有�
 | 包 | 职责 |
 |---|---|
 | `internal/server/node` | 节点注册、在线状态（offline 判定） |
-| `internal/server/instancereg` / `mwreg` | 中间件类型注册表（内置类型 + 模板派生类型）、实例聚合 |
+| `internal/server/instancereg` / `mwreg` | 中间件类型注册表（**内置类型**）、实例聚合。注：「模板派生类型」已随采集项模板功能移除（`1e25239`） |
 | `internal/server/dialtest` | 拨测任务调度与结果指标 |
 | `internal/server/security` | 安全事件落库、入侵防御任务下发 |
 | `internal/server/analysis` | 动态基线、容量预测、风险聚合、根因关联（只读） |

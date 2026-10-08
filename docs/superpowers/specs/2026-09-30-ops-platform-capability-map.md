@@ -355,8 +355,8 @@ S（≤3 人日）/ M（1-2 周）/ L（≥1 月）。跨模块或需新增持�
 ## 六、取证与复核方式
 
 - **代码为准**：所有「已实现/部分实现」行均给出文件路径 + 符号；复核可直接跳转核对。
-- **本次已发现并需修订的文档滞后项**（1 项，已列为待办）：
-  - **采集项模板（Collector Template）与取数护栏（templateGuards）**：功能已在 `1e25239 refactor!: 移除采集项模板功能全链路` 移除，代码中 `internal/template` 不存在、`/api/v1/middleware/templates*` 路由未注册；但 `CONTEXT.md` 仍以现役术语描述（**7 处**），`docs/c1-collector-templates.md`、`docs/refactor-plan.md`、`docs/permission-matrix.md` 亦仍按已交付描述。处置：在术语与路线图同步时修订（见计划最后一步）。
+- **本次已发现并需修订的文档滞后项**（1 项，**已于 2026-10-08 处置**）：
+  - **采集项模板（Collector Template）与取数护栏（templateGuards）**：功能已在 `1e25239 refactor!: 移除采集项模板功能全链路` 移除，代码中 `internal/template` 不存在、`/api/v1/middleware/templates*` 路由未注册。**处置结果（2026-10-08）**：① `CONTEXT.md` 复核后**只剩 1 处**（`instancereg/mwreg` 那句里的「模板派生类型」）——本行此前写的「**7 处**」**已过期**，已改；② `docs/c1-collector-templates.md` 与 `docs/c1-phase3-kinds.md` 已移入 `docs/archive/` 并加归档横幅（保留决策轨迹，但其中的接口与安全模型不再有效）；③ `docs/permission-matrix.md` 已删掉 6 条不存在的 `/api/v1/middleware/templates*` 路由，**以及 1 条同样不存在的通用实例路由** `/api/v1/middleware/{type}/instances`；④ `docs/refactor-plan.md` 已加历史横幅（正文按当时状态保留，**不改写历史**）。**顺带发现**：`middleware:write` 权限点仍在权限目录里（且仍授予运维管理员），但**已不对应任何路由**——排查"为什么某人没有某个入口"时别被它误导。
 - **未纳入本次对照的文档**：`docs/refactor-plan.md`（109 KB，历史重构计划）、`docs/system-audit/`、`docs/testing/` 作为线索使用，不作为状态依据。
 - **配置模板手册**：`docs/configuration-cookbook.md`（2026-09-30 新增）——告警事件管道与集中日志的**可复制模板**（页面亦内置「示例模板 / 配置示例」入口）。本表只统计"功能有没有"，"怎么配"集中在手册里，避免两处重复维护。
 - **复核清单**：①每行依据可跳转命中；②对账表覆盖 README 全部 21 条路线图项；③新增项均标注来源设计件；④P2→P3 的降档建议经确认后再写入 `README.md`。

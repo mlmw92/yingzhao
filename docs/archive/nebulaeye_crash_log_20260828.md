@@ -1,4 +1,6 @@
 # NebulaEye monitor-server 崩溃日志
+
+> **已归档（2026-10-08）｜一次性现场记录**：2026-08-28 的一次崩溃现场抓取，当时的版本早已被后续修复取代。
 抓取时间: 2026-08-28 21:xx (北京时间)
 主机: 124.223.77.206 (VM-0-10-ubuntu, 上海腾讯云)
 服务: monitor-server.service (nebula-monitor Server)
