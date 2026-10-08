@@ -22,7 +22,12 @@ func TestSecurityCollector_SudoUsesOwnOffset(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c := NewSecurityCollector("n1", "10.0.0.1", config.SecurityConfig{SSHLogPaths: []string{path}})
+	// FIMBaselinePath 决定状态文件（FIM 基线 + 日志偏移）的目录：指到临时目录，
+	// 避免在仓库根目录里落下 fim_baseline.json / log_offsets.json
+	c := NewSecurityCollector("n1", "10.0.0.1", config.SecurityConfig{
+		SSHLogPaths:     []string{path},
+		FIMBaselinePath: filepath.Join(filepath.Dir(path), "fim_baseline.json"),
+	})
 
 	// 先跑 SSH：它会把自己的偏移推到末尾
 	if got := c.collectSSH(); len(got) != 1 {

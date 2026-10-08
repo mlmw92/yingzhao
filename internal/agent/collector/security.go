@@ -100,6 +100,10 @@ func NewSecurityCollector(node, nodeIP string, cfg config.SecurityConfig) *Secur
 		sshBruteforceAlertAt: map[string]int64{},
 	}
 	c.loadFIMBaseline()
+	// 恢复上次的日志读取偏移：不恢复的话，每次重启都要从字节 0 重扫——
+	// 而 45 MB 的 auth.log 在 4 MiB/周期、5 分钟/周期的参数下要一小时才追到文件尾，
+	// 期间任何一次重启都会从头再来（表现为"sudo 审计只有很旧的几条且不再增加"）。
+	c.loadOffsets()
 	return c
 }
 
@@ -186,7 +190,6 @@ func (c *SecurityCollector) collectSSH() []model.SecurityEvent {
 	cutoff := now.Add(-window).UnixMilli()
 
 	for _, path := range paths {
-		offset, _ := c.sshOff[path]
 		f, err := os.Open(path)
 		if err != nil {
 			slog.Debug("SSH 日志打开失败，跳过", "path", path, "err", err)
@@ -197,13 +200,8 @@ func (c *SecurityCollector) collectSSH() []model.SecurityEvent {
 			_ = f.Close()
 			continue
 		}
-		if st.Size() < offset {
-			offset = 0
-		}
-		if _, err := f.Seek(offset, 0); err != nil {
-			_ = f.Close()
-			continue
-		}
+		// 起点由 seekStart 决定：有持久化偏移就接着读，没有（冷启动/轮转）就跳到末尾窗口
+		offset := seekStart(f, st.Size(), c.sshOff, path)
 		r := bufio.NewReader(f)
 		var readBytes int64
 		for {
@@ -237,6 +235,7 @@ func (c *SecurityCollector) collectSSH() []model.SecurityEvent {
 		c.mu.Lock()
 		c.sshOff[path] = offset
 		c.mu.Unlock()
+		c.saveOffsets()
 		_ = f.Close()
 	}
 
@@ -397,7 +396,6 @@ func (c *SecurityCollector) collectSudo() []model.SecurityEvent {
 		// sudo 与 SSH 读的是同一个文件、但关注的是不同内容，因此**各用各的偏移**。
 		// 早先这里复用 sshOff：而 collectSSH 在本函数之前执行、已把偏移推到文件末尾，
 		// 于是 sudo 永远从末尾开始读——表现为「sudo 审计一条都收不到」，且没有任何报错。
-		offset, _ := c.sudoOff[path]
 		f, err := os.Open(path)
 		if err != nil {
 			continue
@@ -407,13 +405,8 @@ func (c *SecurityCollector) collectSudo() []model.SecurityEvent {
 			_ = f.Close()
 			continue
 		}
-		if st.Size() < offset {
-			offset = 0 // 文件被轮转/重建：从头重读
-		}
-		if _, err := f.Seek(offset, 0); err != nil {
-			_ = f.Close()
-			continue
-		}
+		// 与 collectSSH 同一套起点逻辑（含冷启动跳到末尾窗口），只是各用各的偏移表
+		offset := seekStart(f, st.Size(), c.sudoOff, path)
 		r := bufio.NewReader(f)
 		var readBytes int64
 		for {
@@ -441,6 +434,7 @@ func (c *SecurityCollector) collectSudo() []model.SecurityEvent {
 		c.mu.Lock()
 		c.sudoOff[path] = offset + readBytes
 		c.mu.Unlock()
+		c.saveOffsets()
 	}
 	return events
 }
