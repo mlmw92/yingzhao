@@ -105,7 +105,7 @@ type EnumOption struct {
 | number | 可解析为数字（`strconv.ParseFloat`） | 400 `字段 cpuCost 需要是数字` |
 | date | 可解析为 `YYYY-MM-DD`（也接受 RFC3339，存原样） | 400 `字段 warrantyUntil 需要是 YYYY-MM-DD` |
 | enum | 值必须命中 `Enum[].Value` | 400 `字段 env 的取值不在枚举内（可选：prod / test）` |
-| bool | `true`/`false`（大小写不敏感，归一化成小写） | 400 `字段 isHA 需要是 true 或 false` |
+| bool | `true`/`false`（大小写不敏感；**存原样，不归一化**，与 date 同口径） | 400 `字段 isHA 需要是 true 或 false` |
 
 **校验位置**：`asset.Service` 层（写入口唯一），API 层只负责把错误映射成 400——与"人工值只写 manual"同处一层，任何调用方都绕不过。
 
@@ -182,4 +182,19 @@ type EnumOption struct {
 
 **验证**：`go build ./...`、`go test ./...`（31 包全绿）、前端 `vitest run` 全绿。
 
-**未做**：打包与实机验证；`Required` 目前只是模型字段（**界面提示尚未接**，见 §7）。
+**已打包 1.30.58**（full 201 MiB / upgrade 81 MiB）。打包时本机 jq 损坏、python 不可用，`release.sh` 的 manifest 自校验被跳过，已**手工核对**：6 个二进制齐全、manifest 引用的 8 个 component（含易漏的 `deploy/agent-install.sh`）全在包内、`web/index.html` 在包内、server 二进制内嵌 `1.30.58`。
+
+**已实机验证（2026-10-08，dev-server 1.30.58）**：`dist/asset-attr-e2e.py core` **41 项全过**——
+
+- 字典落库：`env`（enum 2 项）/ `cost`（number + 单位）/ `warrantyUntil`（date）/ `isHA`（bool），以及**只配了「类型」的字段**（守 `cleanAttrMeta` 的修正：旧代码按「三项都空」把它丢掉）。
+- 人工值校验：enum / number / date / bool 的非法值**全部 400 且点名到字段与可选值**；只配类型的字段同样被拦；合法值更新生效。
+- 放行面：空值不触发校验、未配字典的字段维持自由键且值正常落库。
+- **采集值不受影响（决定性判据）**：把真实采集值 `os = linux ubuntu 22.04` 配成枚举（枚举内不含它）后，**采集资产仍在、值原样保留**；而同一字段的**人工**写入被 400 拦住——证明校验只作用于人工值。
+- 字典写侧：未知类型 / enum 无取值 / enum 取值重复均 400；只读身份（仅 `assets:read`）改字典 403、读模型 200。
+- 收尾：`attrMeta` 恢复原状、测试资产彻底删除（验证不留残留）。
+
+**界面已实测（同环境真实浏览器）**：模型页出现「类型」与「枚举取值」两列、「添加建议属性」弹窗含 6 个建议项（lifecycle·枚举 / cost·数字 / warrantyUntil·日期 / env·枚举 / system·文本 / assetNo·文本）；勾选后进入字段表编辑态，**保存后经 API 独立核对确实落库**；台账编辑弹窗填入 `lifecycle` 键后，值输入**从文本框变成下拉**，选项显示 label「在用 / 闲置 / 下线 / 退役」——即「字典懒加载 → 按类型渲染控件」这条链路在真实环境成立（vitest 用的是 mock，此前没被真实跑过）。截图 `dist/attr-dict-ui.png`。
+
+**一处文档勘误（实现正确）**：§4.2 原写 bool「归一化成小写」，实际实现是**校验大小写不敏感、存储存原样**（与 `isDateLike` 的「存原样，不归一化」、`normalizeValue` 的「展示值始终保留原样」同口径）。已按实现改文档。
+
+**未做**：`Required` 目前只是模型字段（**界面提示尚未接**，见 §7）。
