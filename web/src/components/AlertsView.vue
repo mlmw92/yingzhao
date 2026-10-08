@@ -584,6 +584,8 @@
           >
             查看日志
           </el-button>
+          <!-- AI 诊断：只给排查建议，不执行任何处置（与「关闭告警」这类动作分开摆） -->
+          <AiDiagnosePanel v-if="detail.id" kind="alert" :id="detail.id" />
           <el-button size="small" :loading="commenting" @click="commentEvent(detail)">评论</el-button>
           <el-button size="small" @click="drawer = false">返回</el-button>
         </div>
@@ -604,6 +606,7 @@ import * as echarts from 'echarts'
 import http, { getToken } from '../api/http'
 import RuleModal from './RuleModal.vue'
 import TopologyGraph from './asset/TopologyGraph.vue'
+import AiDiagnosePanel from './ai/AiDiagnosePanel.vue'
 import useAuth from '../composables/useAuth'
 import { printPage } from '../utils/print'
 

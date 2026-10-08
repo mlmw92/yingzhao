@@ -187,6 +187,8 @@ const api = {
   getAIConfig: () => request('/api/v1/ai/config'),
   saveAIConfig: (cfg) => api.put('/api/v1/ai/config', cfg),
   testAIConfig: () => api.post('/api/v1/ai/config/test', {}),
+  // 诊断：上下文由服务端按调用者的资源范围组装（前端只传对象标识）。
+  diagnoseAI: (payload) => api.post('/api/v1/ai/diagnose', payload),
 }
 
 export default api
