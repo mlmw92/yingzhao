@@ -330,6 +330,10 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	// 合规矩阵导出：一次把全部可见节点的合规结论落盘，与"逐台翻看"不是一个量级的动作，
 	// 因此单设权限点（与 assets:export / audit:export 同一约定）。
 	mux.HandleFunc("GET /api/v1/security/baselines/export", a.permit(a.handleComplianceMatrixExport, "security:export"))
+	// 护栏组合风险（"两个护栏配在一起等于任意代码执行"）：读权限与安全中心其它数据一致；
+	// **刻意不并入 /security/baselines**——那一条是"合规评分"，这一条是"配置等于 RCE"，
+	// 混在一张卡上会让人把两者当同一量级的提示。
+	mux.HandleFunc("GET /api/v1/security/guard-risks", a.permit(a.handleGuardRisks, "security:read"))
 
 	// 受控 fail2ban 入侵防御（仅管理 nebula 专属 SSH jail）
 	mux.HandleFunc("GET /api/v1/security/defense/status", a.permit(a.handleDefenseStatusList, "security:read"))

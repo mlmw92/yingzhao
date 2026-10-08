@@ -17,6 +17,12 @@ const (
 	SecurityCatSudoAudit = "sudo_audit"
 	// SecurityCatBan fail2ban 封禁/解封动作事件（由 nebula 专属 action 审计文件增量采集）。
 	SecurityCatBan = "cat_ban"
+	// SecurityCatGuardRisk 护栏组合风险（"两个护栏配在一起等于任意代码执行"）。
+	//
+	// 与其它类别不同，它不是 Agent 采集到的原始事件，而是 **Server 端从上报的护栏风险清单里
+	// 首次出现时派生**的（`security/guardrisk.go`）。**状态与事件各司其职**：
+	// 状态回答"现在有没有"（改好配置 → 卡片干净），事件回答"曾经有过"（历史留痕）。
+	SecurityCatGuardRisk = "guard_risk"
 	// SecurityCatHighRiskCmd 高危命令（**事后发现**）。
 	//
 	// 与其它类别不同，它不是 Agent 采集出来的原始事件，而是 **Server 端从已采集的 sudo 命令文本里

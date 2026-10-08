@@ -44,6 +44,9 @@ var (
 	pendingResult *model.DefenseCommandResult
 	// opsExec 统一下行操作执行器（在 main 中按配置的本机护栏创建）。
 	opsExec *opsagent.Executor
+	// guardRisks 本机护栏组合风险的当前清单（启动时判定一次，每轮上报都带上）。
+	// 判定要跑 systemctl（`SystemdExecutables`），因此**不**每轮重算。
+	guardRisks []model.GuardRisk
 	// pendingOpsResult 已执行操作任务的结果，将在下一次 report 带回服务端。
 	pendingOpsResult *model.OpsResult
 )
@@ -145,10 +148,15 @@ func main() {
 	// （允许写某个可重启服务的可执行文件所在目录 + 允许重启它；或允许写进系统会自己执行的目录）。
 	// 这条依赖此前是隐性的——配的人不会意识到自己配出了一个 RCE，界面上也没有提示。
 	// **只告警不拒绝**：两个同意都是他明确写下的，替他悄悄禁掉一个比让风险可见更难排查。
-	for _, risk := range opsagent.CheckGuardRisks(cfg.Guards.Ops, opsagent.SystemdExecutables) {
+	// 结论**存下来随每轮上报带出去**：只打日志的话，只有登机器看 journal 的人知道，
+	// 而它描述的是一台机器"已经等于任意代码执行"的配置——平台侧必须看得见。
+	// 判定时机仍是启动时一次（护栏配置本身就是启动时读的，改了要重启才生效）。
+	guardRisks = opsagent.CheckGuardRisks(cfg.Guards.Ops, opsagent.SystemdExecutables)
+	for _, risk := range guardRisks {
 		slog.Warn(risk.Describe(),
 			"kind", risk.Kind, "allowedDir", risk.AllowedDir, "unit", risk.Unit, "exposed", risk.Exposed)
 	}
+	slog.Info("护栏组合检查完成", "risks", len(guardRisks))
 
 	// 代理模式（edge/hub）走独立启动路径，不进入采集主循环
 	if cfg.Mode == config.ModeEdge || cfg.Mode == config.ModeHub {
@@ -440,6 +448,8 @@ func collectAndReport(ctx context.Context, coll *collector.Collector, rep *repor
 		NginxAccessStats:       res.NginxAccess,
 		SecurityEvents:         res.SecurityEvents,
 		SecurityBaseline:       res.SecurityBaseline,
+		// 非 nil 的切片：空清单表示"已检查且无风险"，与"未上报"（旧 Agent → null）必须区分
+		GuardRisks: append([]model.GuardRisk{}, guardRisks...),
 		// 声明 Agent 能力：支持结构化入侵防护指令（旧 Server 忽略此字段）
 		Capabilities: &model.ClientCapability{
 			Defense: true,

@@ -385,6 +385,13 @@ func (r *Receiver) HandleReport(w http.ResponseWriter, req *http.Request) {
 		}
 		r.sec.Ingest(payload.Node, payload.SecurityEvents, payload.SecurityBaseline)
 	}
+	// 护栏组合风险：Agent 启动时判定一次、每轮带上（见 guardcheck.go 的说明）。
+	//
+	// **nil 与空切片必须分开**：nil = 旧 Agent 没报过这个字段（该节点从未检查过），
+	// 空 = 已检查且无风险。把前者显示成"无风险"会让人以为那台机器是安全的。
+	if r.sec != nil {
+		r.sec.SaveGuardRisks(payload.Node, payload.GuardRisks, payload.GuardRisks != nil)
+	}
 	if r.alerts != nil {
 		r.alerts.IngestSecurityEvents(payload.SecurityEvents)
 	}

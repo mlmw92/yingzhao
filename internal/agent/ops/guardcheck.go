@@ -20,29 +20,10 @@ import (
 // ld.so.conf.d、sudoers.d、root 的 authorized_keys）。往这些地方写文件**连重启都不需要**，
 // 等下一次登录 / 下一次 cron / 下一次动态链接即可生效，所以它们与 units 清单无关，单独检查。
 
-// GuardRisk 是一条「护栏组合导致任意代码执行」的风险。
-type GuardRisk struct {
-	// Kind 命中类型：exec（可重启服务的可执行文件落在允许写入的目录里）
-	// / persistence（允许写入的是系统会自己执行的目录）。
-	Kind string
-	// AllowedDir 是 file.push 允许写入的目录（配置里的形态）。
-	AllowedDir string
-	// Exposed 是因此暴露出来的东西：kind=exec 时是单元的可执行文件路径，
-	// kind=persistence 时是系统会自动执行的那个目录。
-	Exposed string
-	// Unit 只在 kind=exec 时有值：那个可重启的单元。
-	Unit string
-}
-
-// Describe 生成给人看的一句话（日志与后续的界面展示共用，避免两处措辞不一致）。
-func (r GuardRisk) Describe() string {
-	if r.Kind == "exec" {
-		return "护栏组合风险：允许写入的目录「" + r.AllowedDir + "」覆盖了可重启单元「" + r.Unit +
-			"」的可执行文件「" + r.Exposed + "」——推一个文件再重启该服务，等于任意代码执行"
-	}
-	return "护栏组合风险：允许写入的目录「" + r.AllowedDir + "」覆盖了系统会自动执行的目录「" + r.Exposed +
-		"」——写入即持久化，不需要重启任何服务"
-}
+// GuardRisk 已搬到 `model.GuardRisk`：它要随上报体序列化送出去，而界面要用同一句话描述，
+// 因此放在两端都引用的包里（`Describe()` 的注释本来就写着"日志与界面共用"）。
+// 这里保留别名只是为了少改调用点，类型定义只有 `model` 那一份。
+type GuardRisk = model.GuardRisk
 
 // persistenceDirs 是「系统自己会执行其内容」的目录，已**收敛到** `model.PersistenceDirs`。
 //
@@ -72,7 +53,7 @@ func CheckGuardRisks(g config.OpsGuards, executableOf func(unit string) []string
 	for _, dir := range dirs {
 		for _, exposed := range persistenceDirs {
 			if inAllowedDirOrSelf(exposed, []string{dir}) {
-				out = append(out, GuardRisk{Kind: "persistence", AllowedDir: dir, Exposed: exposed})
+				out = append(out, GuardRisk{Kind: model.GuardRiskPersistence, AllowedDir: dir, Exposed: exposed})
 			}
 		}
 	}
@@ -89,7 +70,7 @@ func CheckGuardRisks(g config.OpsGuards, executableOf func(unit string) []string
 		for _, unit := range units {
 			for _, exe := range executableOf(unit) {
 				if dir, ok := coveringDir(exe, forms); ok {
-					out = append(out, GuardRisk{Kind: "exec", AllowedDir: dir, Exposed: exe, Unit: unit})
+					out = append(out, GuardRisk{Kind: model.GuardRiskExec, AllowedDir: dir, Exposed: exe, Unit: unit})
 				}
 			}
 		}

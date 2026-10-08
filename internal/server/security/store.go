@@ -28,6 +28,7 @@ type Store struct {
 	events        []model.SecurityEvent             // 全量事件（按时间倒序追加，裁剪到 MaxEvents）
 	baseline      map[string]model.SecurityBaseline // node -> 最新基线
 	defenseStatus map[string]*model.DefenseStatus   // node -> 最新入侵防护状态
+	guardRisks    map[string]GuardRiskState         // node -> 最新护栏组合风险清单（含是否上报过）
 	path          string                            // 持久化文件路径
 }
 
@@ -39,6 +40,7 @@ func New(file string) *Store {
 	s := &Store{
 		baseline:      map[string]model.SecurityBaseline{},
 		defenseStatus: map[string]*model.DefenseStatus{},
+		guardRisks:    map[string]GuardRiskState{},
 		path:          file,
 	}
 	s.load()
@@ -55,6 +57,7 @@ func (s *Store) load() {
 		Events        []model.SecurityEvent             `json:"events"`
 		Baseline      map[string]model.SecurityBaseline `json:"baseline"`
 		DefenseStatus map[string]*model.DefenseStatus   `json:"defenseStatus"`
+		GuardRisks    map[string]GuardRiskState         `json:"guardRisks"`
 	}
 	if err := json.Unmarshal(data, &snap); err != nil {
 		slog.Warn("安全存储加载失败，忽略旧数据", "path", s.path, "err", err)
@@ -69,7 +72,14 @@ func (s *Store) load() {
 	if snap.DefenseStatus != nil {
 		s.defenseStatus = snap.DefenseStatus
 	}
-	slog.Info("已加载安全存储", "events", len(s.events), "baselines", len(s.baseline), "defense", len(s.defenseStatus))
+	// 护栏风险状态也要读回来：漏了这一句的话，重启后卡片会**静默变空**——
+	// 界面显示"未发现风险"，而实际上该节点上次报的风险还在（这正是本文件第一版的样子，
+	// 被 TestGuardRisks_SurviveReload 当场抓到）。
+	if snap.GuardRisks != nil {
+		s.guardRisks = snap.GuardRisks
+	}
+	slog.Info("已加载安全存储", "events", len(s.events), "baselines", len(s.baseline),
+		"defense", len(s.defenseStatus), "guardRisks", len(s.guardRisks))
 }
 
 // save 持久化事件与基线到磁盘。失败时仅记日志，不阻塞上报链路。
@@ -79,10 +89,12 @@ func (s *Store) save() {
 		Events        []model.SecurityEvent             `json:"events"`
 		Baseline      map[string]model.SecurityBaseline `json:"baseline"`
 		DefenseStatus map[string]*model.DefenseStatus   `json:"defenseStatus"`
+		GuardRisks    map[string]GuardRiskState         `json:"guardRisks"`
 	}{
 		Events:        s.events,
 		Baseline:      s.baseline,
 		DefenseStatus: s.defenseStatus,
+		GuardRisks:    s.guardRisks,
 	}
 	s.mu.RUnlock()
 	data, err := json.MarshalIndent(snap, "", "  ")

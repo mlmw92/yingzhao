@@ -142,6 +142,12 @@ type ReportPayload struct {
 	NginxAccessStats       []NginxAccessStat       `json:"nginxAccessStats,omitempty"`       // Nginx access log 聚合统计
 	SecurityEvents         []SecurityEvent         `json:"securityEvents,omitempty"`         // 安全事件（结构化，非时序）
 	SecurityBaseline       *SecurityBaseline       `json:"securityBaseline,omitempty"`       // 安全基线检查结果
+	// GuardRisks 是本机护栏组合风险的**当前清单**（Agent 启动时判定一次，每轮上报都带上）。
+	//
+	// **刻意不用 omitempty**：null = 旧 Agent 未上报该字段，[] = 已检查且无风险——
+	// 沿用 Processes / Listeners 的既有约定。少了这个区分，界面会把"没上报"显示成"没有风险"，
+	// 而这两件事的处置完全不同（前者要去升级 Agent，后者才是安全的）。
+	GuardRisks []GuardRisk `json:"guardRisks"`
 	Capabilities           *ClientCapability       `json:"capabilities,omitempty"`           // Agent 能力声明（旧 Agent 不报此字段，前端据此判断兼容）
 	DefenseStatus          *DefenseStatus          `json:"defenseStatus,omitempty"`          // 入侵防护当前状态（由 Agent 定期采集上报）
 	DefenseResult          *DefenseCommandResult   `json:"defenseResult,omitempty"`          // 防护指令执行结果回执
