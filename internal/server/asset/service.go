@@ -229,6 +229,35 @@ func (s *Service) invalidateTypeSchemas() {
 	s.schemaMu.Unlock()
 }
 
+// validateManualAttrs 按类型的属性字典校验一批**人工值**（设计件 2026-10-08-asset-attr-dictionary-design.md）。
+//
+// 三条口径：
+//   - **只校验人工值**（调用方已保证 src == manual）：采集值来自真实环境、采集侧不受平台控制，
+//     用它拒收采集数据会把"真实但不合规"的机器挡在台账外，而那正是台账最该记录的东西；
+//   - **没配字典的字段维持自由键**（今天的形态）：字典是可选加固，不是"必须登记才能填"；
+//   - 按 key 排序遍历：多个字段同时非法时错误信息要可预期（map 遍历顺序随机）。
+func (s *Service) validateManualAttrs(typeKey string, attrs map[string]string) error {
+	sch := s.typeSchemaOf(typeKey)
+	if len(sch.AttrMeta) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		meta, ok := sch.AttrMeta[k]
+		if !ok {
+			continue
+		}
+		if err := ValidateAttrValue(k, meta, attrs[k]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // NewService 创建资产服务。store 由 Open 得到，生命周期由调用方管理。
 func NewService(store *Store) *Service {
 	return &Service{store: store, now: func() int64 { return time.Now().UnixMilli() }}
@@ -261,6 +290,12 @@ func (s *Service) Apply(ob Observation) (Asset, bool, error) {
 	}
 
 	src := ob.Source.normalized()
+	// 人工值按类型的属性字典校验（只校验人工值，理由见 validateManualAttrs）。
+	if src == SourceManual && len(ob.Attrs) > 0 {
+		if err := s.validateManualAttrs(typeKey, ob.Attrs); err != nil {
+			return Asset{}, false, err
+		}
+	}
 	at := s.now()
 	name, node := strings.TrimSpace(ob.Name), strings.TrimSpace(ob.Node)
 
@@ -1354,6 +1389,9 @@ func (s *Service) UpdateTypeModel(typeKey string, sch TypeSchema) error {
 }
 
 // cleanAttrMeta 去掉空白项与空壳条目（只填了空格的说明没必要存下来）。
+//
+// 「空壳」的判定必须**含本批新增的字典字段**：只配了类型（Kind）或枚举、却没写中文名的字段
+// 是**有内容**的配置；按旧的「三项都空就丢」会把它悄悄删掉——那正是"我配了却没生效"。
 func cleanAttrMeta(in map[string]AttrMeta) map[string]AttrMeta {
 	if len(in) == 0 {
 		return nil
@@ -1361,11 +1399,43 @@ func cleanAttrMeta(in map[string]AttrMeta) map[string]AttrMeta {
 	out := make(map[string]AttrMeta, len(in))
 	for k, v := range in {
 		key := strings.TrimSpace(k)
-		meta := AttrMeta{Title: strings.TrimSpace(v.Title), Unit: strings.TrimSpace(v.Unit), Note: strings.TrimSpace(v.Note)}
-		if key == "" || (meta.Title == "" && meta.Unit == "" && meta.Note == "") {
+		meta := AttrMeta{
+			Title:    strings.TrimSpace(v.Title),
+			Unit:     strings.TrimSpace(v.Unit),
+			Note:     strings.TrimSpace(v.Note),
+			Kind:     strings.ToLower(strings.TrimSpace(v.Kind)),
+			Enum:     cleanEnumOptions(v.Enum),
+			Required: v.Required,
+		}
+		if key == "" || meta.isBlank() {
 			continue
 		}
 		out[key] = meta
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// isBlank 判断这条字段说明是否"什么都没配"（据此决定要不要存下来）。
+func (m AttrMeta) isBlank() bool {
+	return m.Title == "" && m.Unit == "" && m.Note == "" &&
+		m.Kind == "" && len(m.Enum) == 0 && !m.Required
+}
+
+// cleanEnumOptions 清洗枚举取值：去首尾空白、丢弃空值项、保持调用方给出的顺序。
+func cleanEnumOptions(in []EnumOption) []EnumOption {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]EnumOption, 0, len(in))
+	for _, opt := range in {
+		v := strings.TrimSpace(opt.Value)
+		if v == "" {
+			continue
+		}
+		out = append(out, EnumOption{Value: v, Label: strings.TrimSpace(opt.Label)})
 	}
 	if len(out) == 0 {
 		return nil

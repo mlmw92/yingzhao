@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -165,11 +167,139 @@ const MaxModelKeyLen = 128
 // "我要改的类型不存在"与"我提交的内容不合法"——两者的下一步动作完全不同。
 var ErrTypeNotFound = errors.New("资产类型未注册")
 
-// AttrMeta 是属性的**说明**：只影响展示，不参与比对、不进导出列。
+// AttrMeta 是属性的**说明与约束**。
+//
+// 2026-10-08 起它从"只影响展示"扩到"约束人工值"（属性字典与枚举，设计件
+// docs/superpowers/specs/2026-10-08-asset-attr-dictionary-design.md）：这是
+// 「资产生命周期 / 成本 / 维保」那条定界的**前置**——OwnerKey 的注释写着
+// 「在字典与枚举能力上线前，不把一堆展示字段固化成领域概念」，本字段就是那个能力。
+//
+// 仍然**不参与比对、不进导出列**（比对只看 FocusFields / RuntimeFields）。
 type AttrMeta struct {
 	Title string `json:"title,omitempty"` // 中文名（界面优先显示它，原键始终可见、可搜）
 	Unit  string `json:"unit,omitempty"`
 	Note  string `json:"note,omitempty"`
+	// Kind 是字段类型：text（默认）/ number / date / enum / bool。
+	Kind string `json:"kind,omitempty"`
+	// Enum 仅在 Kind=enum 时有意义：Value 是存进 attrs 的值，Label 是界面显示名。
+	//
+	// Label **不落 attrs**：它是展示约定（与 Title 同一性质），落库后"改显示名"就要改数据。
+	Enum []EnumOption `json:"enum,omitempty"`
+	// Required 表示"人工值缺失时界面提示"——**不阻断保存**：台账是如实记录，不是表单系统。
+	Required bool `json:"required,omitempty"`
+}
+
+// EnumOption 是枚举字段的一个取值。
+type EnumOption struct {
+	Value string `json:"value"`
+	Label string `json:"label,omitempty"`
+}
+
+// 字段类型取值。
+const (
+	AttrKindText   = "text"
+	AttrKindNumber = "number"
+	AttrKindDate   = "date"
+	AttrKindEnum   = "enum"
+	AttrKindBool   = "bool"
+)
+
+// KindNormalized 返回规范化的字段类型：空值与未知取值一律按 text（= 不校验，今天的形态）。
+//
+// 读侧刻意宽松：存量 schema 可能是历史形态（甚至被人手改坏），坏数据不该让台账起不来。
+func (m AttrMeta) KindNormalized() string {
+	switch k := strings.ToLower(strings.TrimSpace(m.Kind)); k {
+	case AttrKindNumber, AttrKindDate, AttrKindEnum, AttrKindBool:
+		return k
+	default:
+		return AttrKindText
+	}
+}
+
+// ValidateAttrValue 按字段字典校验**一个人工值**。
+//
+// 空值一律放行：清空字段（或交给 resetAttrs）不该被字典拦住——校验的目的是
+// 「填进来的值要能被理解」，不是「必须填」（必填见 AttrMeta.Required，仅界面提示）。
+func ValidateAttrValue(key string, meta AttrMeta, value string) error {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return nil
+	}
+	switch meta.KindNormalized() {
+	case AttrKindNumber:
+		if _, err := strconv.ParseFloat(v, 64); err != nil {
+			return fmt.Errorf("字段 %s 需要是数字（当前 %q）", key, value)
+		}
+	case AttrKindDate:
+		if !isDateLike(v) {
+			return fmt.Errorf("字段 %s 需要是 YYYY-MM-DD 形式的日期（当前 %q）", key, value)
+		}
+	case AttrKindBool:
+		if lv := strings.ToLower(v); lv != "true" && lv != "false" {
+			return fmt.Errorf("字段 %s 需要是 true 或 false（当前 %q）", key, value)
+		}
+	case AttrKindEnum:
+		for _, opt := range meta.Enum {
+			if strings.TrimSpace(opt.Value) == v {
+				return nil
+			}
+		}
+		return fmt.Errorf("字段 %s 的取值不在枚举内（当前 %q；可选：%s）", key, value, enumValueList(meta.Enum))
+	}
+	return nil
+}
+
+// isDateLike 判断是否是可理解的日期：YYYY-MM-DD 或 RFC3339（存原样，不归一化）。
+func isDateLike(v string) bool {
+	if _, err := time.Parse("2006-01-02", v); err == nil {
+		return true
+	}
+	if _, err := time.Parse(time.RFC3339, v); err == nil {
+		return true
+	}
+	return false
+}
+
+// enumValueList 把枚举取值拼成给用户看的提示（"prod / test"）。
+func enumValueList(enum []EnumOption) string {
+	parts := make([]string, 0, len(enum))
+	for _, opt := range enum {
+		if v := strings.TrimSpace(opt.Value); v != "" {
+			parts = append(parts, v)
+		}
+	}
+	return strings.Join(parts, " / ")
+}
+
+// validateAttrMeta 校验字段字典本身（**写侧**）：类型受支持、enum 有取值且不重复。
+func validateAttrMeta(key string, meta AttrMeta) error {
+	kind := strings.ToLower(strings.TrimSpace(meta.Kind))
+	switch kind {
+	case "", AttrKindText, AttrKindNumber, AttrKindDate, AttrKindEnum, AttrKindBool:
+	default:
+		return fmt.Errorf("字段 %s 的类型 %q 不支持（可选：text / number / date / enum / bool）", key, meta.Kind)
+	}
+	if kind != AttrKindEnum {
+		if len(meta.Enum) > 0 {
+			return fmt.Errorf("字段 %s 配了枚举取值，但类型不是 enum", key)
+		}
+		return nil
+	}
+	if len(meta.Enum) == 0 {
+		return fmt.Errorf("字段 %s 的类型是 enum，至少要有一个取值", key)
+	}
+	seen := make(map[string]bool, len(meta.Enum))
+	for _, opt := range meta.Enum {
+		v := strings.TrimSpace(opt.Value)
+		if v == "" {
+			return fmt.Errorf("字段 %s 的枚举取值不能为空", key)
+		}
+		if seen[v] {
+			return fmt.Errorf("字段 %s 的枚举取值 %q 重复", key, v)
+		}
+		seen[v] = true
+	}
+	return nil
 }
 
 // TypeSchema 是资产类型的模型。
@@ -232,8 +362,12 @@ func ValidateTypeSchema(sch TypeSchema) error {
 			return err
 		}
 	}
-	for k := range sch.AttrMeta {
+	for k, meta := range sch.AttrMeta {
 		if err := validateModelKey(k); err != nil {
+			return err
+		}
+		// 字典本身也要校验：类型受支持、enum 有取值且不重复（写侧严格、读侧宽松）。
+		if err := validateAttrMeta(k, meta); err != nil {
 			return err
 		}
 	}
