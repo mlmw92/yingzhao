@@ -110,12 +110,11 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, h } from 'vue'
-import * as echarts from 'echarts'
 import http from '../../api/http'
 import RefreshBar from '../RefreshBar.vue'
 import KpiCard from '../KpiCard.vue'
 import MwStatusDot from '../mw/MwStatusDot.vue'
-import { tokenColor } from '../../charts/echarts'
+import { initChart, tokenColor } from '../../charts/echarts'
 const AXIS_COLOR = tokenColor('t2', '#9fb3c8')
 
 // ---- 图标组件（内联 SVG 渲染函数） ----
@@ -200,7 +199,7 @@ function onDrawerOpened() {
 async function loadTrendChart(row) {
   if (!chartRef.value) return
   if (chartInstance) { chartInstance.dispose(); chartInstance = null }
-  chartInstance = echarts.init(chartRef.value)
+  chartInstance = initChart(chartRef.value)
   const end = Date.now()
   const start = end - 3600 * 1000
   try {

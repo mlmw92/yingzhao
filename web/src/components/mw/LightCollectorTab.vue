@@ -97,7 +97,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import * as echarts from 'echarts'
+import { initChart } from '../../charts/echarts'
 import { Grid, CircleCheck, CircleClose, DataLine } from '@element-plus/icons-vue'
 import http from '../../api/http'
 import RefreshBar from '../RefreshBar.vue'
@@ -190,7 +190,7 @@ async function renderTrends(row) {
   for (const t of spec.value.trends) {
     const el = chartRefs[t.metric]
     if (!el) continue
-    const chart = echarts.init(el)
+    const chart = initChart(el)
     charts.push(chart)
     try {
       const data = await http.get(

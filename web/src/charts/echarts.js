@@ -359,8 +359,38 @@ export function setHistory(chart, series) {
   })
 }
 
+// 图表初始化统一走这里：除了建实例，还要挂上尺寸自适应。
+//
+// 为什么不能只监听 window.resize——容器宽度变化的大头根本不在窗口缩放：
+// 侧栏折叠（232px ↔ 64px）、栅格断点（4 列 → 2 列 / 1 列）、抽屉与对话框开合
+// 都不会触发 window 的 resize 事件。只监听窗口的话，画布会停在初始化时的宽度，
+// 表现为图表被裁掉或右侧留白，而用户除了刷新页面没有别的办法。
 export function initChart(el) {
-  return echarts.init(el, null, { renderer: 'canvas' })
+  const chart = echarts.init(el, null, { renderer: 'canvas' })
+  // 测试环境（jsdom）没有 ResizeObserver，降级为「不自适应」而不是直接抛错
+  if (typeof ResizeObserver === 'undefined') return chart
+
+  let frame = 0
+  // 合并一帧内的多次回调：侧栏折叠是 0.2s 过渡，逐帧 resize 会明显掉帧
+  const ro = new ResizeObserver(() => {
+    if (frame) return
+    frame = requestAnimationFrame(() => {
+      frame = 0
+      // 容器还没布局完（宽高为 0，典型是图表被放进 el-dialog、首次打开还没测量）
+      // 时不要 resize，否则 echarts 按 0 尺寸重绘，之后即使有了尺寸也不一定自愈。
+      if (!chart.isDisposed() && el.clientWidth > 0 && el.clientHeight > 0) chart.resize()
+    })
+  })
+  ro.observe(el)
+  // 调用方统一走 chart.dispose()，这里顺带断开观察器，
+  // 否则 observer 会一直持有已经卸载的 DOM 节点。
+  const dispose = chart.dispose.bind(chart)
+  chart.dispose = () => {
+    if (frame) cancelAnimationFrame(frame)
+    ro.disconnect()
+    dispose()
+  }
+  return chart
 }
 
 // 环形仪表盘（用于 CPU/内存/SWAP 使用率展示）
