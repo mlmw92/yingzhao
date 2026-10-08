@@ -1,6 +1,6 @@
 <template>
   <div class="settings-view">
-    <PageHeader title="系统设置" desc="站点品牌、告警管道、自监控与数据保留策略" />
+    <PageHeader title="系统设置" desc="站点品牌、告警管道、自监控、数据保留与 AI 助手" />
 
     <!-- 二级导航改为纵向：
          原来用横向 el-tabs，而子页内部还会横向分块，两层都是横的，层级分不清；
@@ -39,6 +39,7 @@ import BrandSettingsSubView from './BrandSettingsSubView.vue'
 import AlertPipelineSubView from './AlertPipelineSubView.vue'
 import SelfMonitorSubView from './SelfMonitorSubView.vue'
 import RetentionSubView from './RetentionSubView.vue'
+import AISettingsSubView from './AISettingsSubView.vue'
 
 const route = useRoute()
 
@@ -47,6 +48,7 @@ const panes = [
   { name: 'pipeline', label: '告警管道', comp: AlertPipelineSubView },
   { name: 'selfmon', label: '系统自监控', comp: SelfMonitorSubView },
   { name: 'retention', label: '数据保留', comp: RetentionSubView },
+  { name: 'ai', label: 'AI 助手', comp: AISettingsSubView },
 ]
 
 // 支持 /system/settings?tab=pipeline 直达某个分类

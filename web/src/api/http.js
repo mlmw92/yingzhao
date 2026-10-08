@@ -182,6 +182,11 @@ const api = {
   getRetention: () => request('/api/v1/system/retention'),
   saveRetention: (cfg) => api.put('/api/v1/system/retention', cfg),
   cleanupRetention: () => api.post('/api/v1/system/retention/cleanup', {}),
+  // —— AI 助手（大模型配置）——
+  // 注意：apiKey 在 GET 响应里被置空（服务端脱敏），保存时留空表示"沿用旧值"。
+  getAIConfig: () => request('/api/v1/ai/config'),
+  saveAIConfig: (cfg) => api.put('/api/v1/ai/config', cfg),
+  testAIConfig: () => api.post('/api/v1/ai/config/test', {}),
 }
 
 export default api
