@@ -540,6 +540,11 @@
             </p>
           </el-tab-pane>
         </el-tabs>
+        <!-- AI 诊断：把台账信息、变更与关系交给模型，给下一步排查建议（只给建议，不改数据）。
+             入口不按写权限门控——只读账号同样需要这条排障路径（与上面的容器日志入口同一取向）。 -->
+        <div class="drawer-actions">
+          <AiDiagnosePanel kind="asset" :id="detail.id" />
+        </div>
       </div>
     </el-drawer>
 
@@ -894,6 +899,7 @@ import KpiCard from '../KpiCard.vue'
 import BatchBar from '../BatchBar.vue'
 // 关系图与告警影响面共用同一个组件：两处的范围裁剪、着色与交互必须一致
 import TopologyGraph from './TopologyGraph.vue'
+import AiDiagnosePanel from '../ai/AiDiagnosePanel.vue'
 
 const auth = useAuth()
 // 资产类型清单（含显示名）来自配置项模型接口，接口不可用时退回内置四类（见 composable）
