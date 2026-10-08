@@ -320,16 +320,19 @@ onMounted(() => {
   overflow: hidden;
 }
 .sidebar.collapsed {
-  width: 64px;
+  width: var(--sidebar-w-collapsed);
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 6px 14px;
+  /* 顶栏下边框落在 56px（--topbar-h），品牌区的下边框必须落在同一条线上，
+     否则壳层顶部两条同级分隔线会撕开一道断口。侧栏自身 padding-top 是 16px，
+     所以品牌区高度取 40px（16 + 40 = 56），而不是此前算错账的 52px（落到 68px）。 */
+  padding: 3px 6px;
+  height: 40px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 10px;
-  height: 52px;
+  margin-bottom: 14px;
 }
 .brand-logo {
   width: 34px;
@@ -465,11 +468,13 @@ onMounted(() => {
   font-weight: 600;
 }
 /* 活动项左侧光条：与 .nav-item.active::before 落在同一条竖线上。
-   子项位于 padding-left:24px 的容器内，所以偏移量取 -24px 才能回到侧栏内缘。 */
+   偏移量要一路抵消到侧栏内缘：侧栏自身 padding-left 12px（.sidebar）
+   + 子项容器 padding-left 24px（.nav-group-items）= 36px，故取 -36px。
+   此前取 -24px 漏算了侧栏那 12px，两条光条实际错开 12px。 */
 .nav-subitem.active::before {
   content: '';
   position: absolute;
-  left: -24px;
+  left: -36px;
   top: 50%;
   transform: translateY(-50%);
   width: 3px;

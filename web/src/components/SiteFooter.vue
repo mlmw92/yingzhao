@@ -45,9 +45,9 @@ const links = computed(() => {
   flex: 0 0 auto;
   width: 100%;
   padding: 18px 28px 22px;
-  color: var(--text-secondary, #8490a7);
-  border-top: 1px solid color-mix(in srgb, var(--border-color, #263149) 75%, transparent);
-  background: color-mix(in srgb, var(--bg-primary, #0c1220) 84%, transparent);
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elev) 84%, transparent);
 }
 
 .site-footer__inner {
@@ -69,7 +69,7 @@ const links = computed(() => {
 }
 
 .site-footer__brand {
-  color: var(--text-primary, #e6ebf5);
+  color: var(--text);
   font-weight: 600;
   letter-spacing: .02em;
   white-space: nowrap;
@@ -87,7 +87,7 @@ const links = computed(() => {
 }
 
 .site-footer a:hover {
-  color: var(--text-primary, #f2f5fb);
+  color: var(--text);
 }
 
 .site-footer__meta {

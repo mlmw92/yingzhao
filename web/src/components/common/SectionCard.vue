@@ -44,6 +44,8 @@ defineProps({
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  /* 与 PageHeader 同一套规则：操作区不收缩，窄屏时让它换行而不是把标题挤没 */
+  flex-wrap: wrap;
   padding: 12px 16px;
   border-bottom: 1px solid var(--bd);
 }
@@ -79,10 +81,14 @@ defineProps({
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .sec-body {
   padding: 16px;
   min-width: 0;
+  /* 卡片被网格行/父容器限高时必须能收缩：flex 子项默认 min-height:auto 不会收缩，
+     内部表格会顶破卡片底边与圆角。 */
+  min-height: 0;
   flex: 1;
 }
 .sec-body.dense {

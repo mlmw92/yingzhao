@@ -25,6 +25,9 @@ defineProps({
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
+  /* 操作区是 flex-shrink:0，一旦总宽超出就把标题压成一条窄竖列。
+     允许换行后，窄屏是「标题一行、按钮另起一行」，而不是整页横向溢出。 */
+  flex-wrap: wrap;
   margin-bottom: 20px;
 }
 .ph-text {
@@ -36,6 +39,8 @@ defineProps({
   line-height: 1.25;
   letter-spacing: -0.01em;
   color: var(--t1);
+  /* 长 ID / 长资源名不要把容器撑破 */
+  overflow-wrap: break-word;
 }
 .ph-desc {
   font-size: var(--fs-sm);
@@ -47,5 +52,6 @@ defineProps({
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 </style>

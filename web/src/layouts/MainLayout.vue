@@ -150,7 +150,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 .main-wrap.collapsed {
-  margin-left: 64px;
+  margin-left: var(--sidebar-w-collapsed);
 }
 .content {
   flex: 1;

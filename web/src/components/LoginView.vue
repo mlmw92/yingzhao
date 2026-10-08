@@ -126,10 +126,17 @@ async function doLogin() {
   position: fixed;
   inset: 0;
   display: flex;
+  /* 纵向排列：卡片在上、页脚在下。此前页脚是 absolute bottom，
+     视口一矮就压在卡片上；让它回到流里，跟着内容一起滚动。 */
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: var(--bg);
-  overflow: hidden;
+  /* 居中 + 不可滚动在矮视口下是双向裁切：卡片上下都被切掉还滚不到。
+     改成允许纵向滚动，并用 padding 保证短内容仍然居中（margin:auto 在 flex 居中
+     下于溢出时仍能保持对称留白）。 */
+  overflow-y: auto;
+  padding: 24px 16px;
 }
 .bg-grid {
   position: absolute;
@@ -152,7 +159,9 @@ async function doLogin() {
 }
 .login-card {
   position: relative;
+  /* 写死 380px 在窄屏（<412px）会横向被切；与命令面板同一口径：上限 px，下限视口 */
   width: 380px;
+  max-width: 100%;
   padding: 36px 32px 28px;
   border-radius: 16px;
   z-index: 1;
@@ -169,7 +178,7 @@ async function doLogin() {
   height: 44px;
   border-radius: 12px;
   object-fit: contain;
-  background: var(--card-bg);
+  background: var(--bg-card);
   box-shadow: 0 0 24px var(--accent-glow);
 }
 .brand-text h1 {
@@ -202,10 +211,8 @@ async function doLogin() {
   margin-top: 20px;
 }
 .login-footer {
-  position: absolute;
-  bottom: 20px;
-  left: 0;
-  right: 0;
+  flex: 0 0 auto;
+  margin-top: 20px;
   text-align: center;
   font-size: 13px;
   color: var(--text-muted);
