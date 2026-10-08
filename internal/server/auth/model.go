@@ -393,6 +393,14 @@ func PermissionCatalog() []permDomain {
 		}},
 		// 日志内容可能含密码/个人信息/业务数据，因此单独设权限点：不默认给只读角色，按需授予
 		{Domain: "集中日志", Items: []Permission{{"logs:read", "查看集中日志"}}},
+		// AI 助手（大模型）。**调用单设权限点**：它会把运维数据发往配置的端点
+		// （指向本地模型时不出口，但授权方无法从权限点区分），与"看配置"不是一个量级的动作——
+		// 数据出境这件事要让批权限的人明确知道自己在批什么。
+		{Domain: "AI 助手", Items: []Permission{
+			{"ai:read", "查看 AI 模型配置"},
+			{"ai:write", "修改 AI 模型配置与连通测试"},
+			{"ai:invoke", "发起 AI 调用（会把运维数据发往所配置的端点）"},
+		}},
 		{Domain: "Agent", Items: []Permission{{"agent:read", "查看"}, {"agent:upgrade", "升级"}}},
 		{Domain: "系统", Items: []Permission{
 			{"system:upgrade", "系统升级"},
@@ -449,6 +457,10 @@ func BuiltinRoles() []Role {
 				// 审批：运维是提交高风险动作的人，也是**最可能成为第二个人**的角色。
 				// 只给 read + approve，不给 manage——关掉审批这条护栏是另一回事。
 				"approval:read", "approval:approve",
+				// AI 助手：运维是**用**它排障的人，与 logs:read / container:read / ops:exec 同一取舍。
+				// 刻意**不给 ai:write**：那一项决定"运维数据发往哪个端点"，是平台里唯一
+				// "改一下就会让数据离开部署环境"的配置——**用**与**配**分离（见 catalog_test 的 superAdminOnlyKeys）。
+				"ai:read", "ai:invoke",
 			},
 		},
 		{

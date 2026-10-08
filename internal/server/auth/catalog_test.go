@@ -79,6 +79,10 @@ var superAdminOnlyKeys = map[string]bool{
 	// 与 users:manage / roles:manage 同类：能改护栏的人不该是护栏要拦的那些人。
 	// 注意 approval:read / approve 是给出去的（运维管理员、安全管理员），只有 manage 不下放。
 	"approval:manage": true,
+	// 改 AI 模型配置 = 决定"运维数据发往哪个端点"。它是平台里唯一"改一下就会让数据离开
+	// 部署环境"的配置，而且**改回来也不能把已经发出去的数据收回来**。
+	// 用（ai:read / ai:invoke，已给运维管理员）与配（ai:write）分离："发到哪里"由超管定。
+	"ai:write": true,
 }
 
 // TestEveryCatalogKeyIsGrantedBySomeRole 目录里的每个权限点都必须至少被一个**非超级管理员**的

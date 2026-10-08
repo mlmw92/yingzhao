@@ -34,6 +34,7 @@ import (
 	"github.com/nebula/monitor/internal/server/mwview"
 	"github.com/nebula/monitor/internal/server/nginxaccess"
 	"github.com/nebula/monitor/internal/server/node"
+	"github.com/nebula/monitor/internal/server/ai"
 	"github.com/nebula/monitor/internal/server/notify"
 	"github.com/nebula/monitor/internal/server/ops"
 	"github.com/nebula/monitor/internal/server/receiver"
@@ -153,6 +154,15 @@ func main() {
 	}
 	// 用加载后的配置同步内存通知器（若文件存在则覆盖初始 cfg.Notify）。
 	engine.SetNotifiers(buildNotifiers(notifyMgr.Get()))
+
+	// AI 助手（大模型）：独立配置文件，**默认关闭**——不配置就不存在任何外呼路径，
+	// 离线部署的默认真空因此不变（设计件 2026-10-08-ai-assistant-design.md）。
+	// 传零值：由 Normalize 补齐超时/上限等默认，避免"超时为 0 = 无限等待"这类零值陷阱。
+	aiMgr, err := ai.New(cfg.AIFile, config.AIConfig{})
+	if err != nil {
+		slog.Error("初始化 AI 配置失败", "err", err)
+		os.Exit(1)
+	}
 
 	// 自监控采集点接在「已有的真实状态」上（拉取式），避免另记一份而漂移。
 	mon.SetWSStats(hub.ClientCount)
@@ -404,6 +414,8 @@ func main() {
 	}
 	rest := api.New(store, nodeMgr, rules, alertStore, hub, cfg.AgentAuth, cfg.AgentBinDir, cfg.WebDir, cfg.Auth, upgrader, notifyMgr, engine, maintenance, dialtestStore, reportGen, screenMgr, ackStore, inhibitStore, groupingStore, ngxWin, uiMgr, *cfgPath, securityStore, defenseStore, auditStore, authStore)
 	rest.SetDashboardManager(dashMgr)
+	// AI 配置管理器（可选能力；未注入时 AI 接口明确报"未初始化"，不静默）。
+	rest.SetAIManager(aiMgr)
 	// 下行操作通道：与 receiver 共用同一个 service 实例（见上面 opsSvc 的说明）
 	rest.SetOpsService(opsSvc)
 	// 高风险操作双人复核：审批单与配置都与下行操作同处一个数据目录（同为"要能人工查看、

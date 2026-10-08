@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nebula/monitor/internal/model"
+	"github.com/nebula/monitor/internal/server/ai"
 	"github.com/nebula/monitor/internal/server/alert"
 	"github.com/nebula/monitor/internal/server/analysis"
 	"github.com/nebula/monitor/internal/server/approval"
@@ -98,6 +99,7 @@ type API struct {
 	auth           config.AuthConfig
 	upgrader       *upgrade.Manager
 	notifyMgr      *notify.Manager
+	aiMgr          *ai.Manager
 	screenMgr      *screencfg.Manager
 	engine         *alert.Engine
 	maintenance    MaintenanceProvider
@@ -139,6 +141,12 @@ type API struct {
 
 // SetDashboardManager 注入仪表盘配置管理器（可选，不注入则相关接口返回空列表）。
 func (a *API) SetDashboardManager(m *dashboard.Manager) { a.dashMgr = m }
+
+// SetAIManager 注入 AI 配置管理器（可选；未注入时 AI 接口返回 500"未初始化"）。
+//
+// 用 setter 而不是给 api.New 再加一个参数：那个签名已经有二十多个位置参数，
+// 每加一个可选能力都要改所有调用点（含测试）；可选能力一律走 setter 是既有做法。
+func (a *API) SetAIManager(m *ai.Manager) { a.aiMgr = m }
 
 // SetAnalyzer 注入只读智能分析服务，并把它接到告警风暴收敛的关联结论来源上。
 func (a *API) SetAnalyzer(analyzer *analysis.Analyzer) {
@@ -441,6 +449,13 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/notify", a.permit(a.handleNotifyGet, "notify:read"))
 	mux.HandleFunc("PUT /api/v1/notify", a.permit(a.handleNotifyPut, "notify:write"))
 	mux.HandleFunc("POST /api/v1/notify/test", a.permit(a.handleNotifyTest, "notify:write"))
+
+	// AI 助手（大模型）：读配置 ai:read；改配置与连通测试 ai:write。
+	// **发起调用（诊断）单设 ai:invoke**——调用会把运维数据发往外部端点，与"看配置"不是一个量级的
+	// 动作；那个权限点随诊断接口一起注册（30b）。
+	mux.HandleFunc("GET /api/v1/ai/config", a.permit(a.handleAIGet, "ai:read"))
+	mux.HandleFunc("PUT /api/v1/ai/config", a.permit(a.handleAIPut, "ai:write"))
+	mux.HandleFunc("POST /api/v1/ai/config/test", a.permit(a.handleAITest, "ai:write"))
 
 	// 大屏与品牌配置：system:config（GET /ui/settings 为公开匿名只读，见 AuthMiddleware）
 	mux.HandleFunc("GET /api/v1/screen/config", a.permit(a.handleScreenGet, "system:config"))

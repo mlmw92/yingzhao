@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -42,6 +43,9 @@ type Config struct {
 	MiddlewareViewFile string         `yaml:"middlewareViewFile"` // 中间件监控页面展示开关（展示哪些类型）；留空用默认路径
 	DashboardsFile    string          `yaml:"dashboardsFile"`    // 自定义仪表盘配置文件（Web 端增删改写入）
 	RetentionFile     string          `yaml:"retentionFile"`     // 数据保留策略配置文件（Web 端可改，保存即热生效）
+	// AIFile 是 AI 助手（大模型）的独立配置文件，与 notify.yaml 同理：Web 端可改、保存即热生效。
+	// **默认关闭**——不配置就没有任何外呼路径（见 AIConfig 的注释）。
+	AIFile string `yaml:"aiFile"`
 	// AuditKeyFile 是审计防篡改链的 HMAC 密钥文件（0600，首次启动自动生成）。
 	//
 	// **刻意与 server.yaml 分开**：配置文件常被复制、备份、贴进工单，密钥一旦随配置扩散，
@@ -273,6 +277,70 @@ type NotifyConfig struct {
 	WeCom    WeComConfig    `yaml:"wecom" json:"wecom"`
 }
 
+// AIConfig 是 AI 助手（大模型）配置。
+//
+// **默认关闭**，这不是随手取的默认值：平台此前所有能力的数据都在本地闭环（通知只发告警标题、
+// 拨测只发探测包、报告只落本地文件），而本功能会把运维数据**发往外部端点**——这是第一条
+// "数据离开部署环境"的能力。不配置就没有这条路径，离线部署的默认真空因此不变
+// （`2026-09-30-ops-platform-evolution-design.md:19`「不引入需外网或重量级依赖」、
+// `config.go` 的「离线单机可用」）。
+//
+// 协议只做 **OpenAI 兼容**（`POST {BaseURL}/chat/completions`）：一个适配器同时覆盖云端
+// （DeepSeek / 通义 / 智谱 / Moonshot…）与**本地**（vLLM / Ollama），不写多套适配器、
+// 不引任何 SDK（HTTP 用标准库，与 `alert/notifier.go` 同一取向）。
+type AIConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// BaseURL 是 OpenAI 兼容端点前缀，如 https://api.deepseek.com/v1 或 http://127.0.0.1:11434/v1。
+	BaseURL string `yaml:"baseUrl" json:"baseUrl"`
+	// APIKey 敏感：不写日志、GET 接口置空、PUT 留空沿用旧值（照 notify 的既有做法）。本地模型通常不需要。
+	APIKey string `yaml:"apiKey" json:"apiKey"`
+	Model  string `yaml:"model" json:"model"`
+	// TimeoutSeconds 默认 60：大模型比 webhook 慢得多，照搬通知的 10s 会大面积超时。
+	TimeoutSeconds int `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+	MaxTokens      int `yaml:"maxTokens" json:"maxTokens"`
+	// Temperature 默认 0.2：运维结论要稳定可复现，不要发散。
+	Temperature float64 `yaml:"temperature" json:"temperature"`
+	// AllowSensitive 允许把**高级别数据**（日志正文、属性值、命令输出）发给模型。默认 false。
+	// 打开这一项意味着"日志里可能的口令/连接串会出境"，因此该事实会记进审计。
+	AllowSensitive bool `yaml:"allowSensitive" json:"allowSensitive"`
+	// IncludeLogs 是"诊断时默认带日志片段"，仅在 AllowSensitive 为真时有意义。
+	IncludeLogs bool `yaml:"includeLogs" json:"includeLogs"`
+}
+
+// Normalize 补齐零值默认并收敛取值范围。
+//
+// 最危险的一个零值是超时：0 会被 `http.Client` 读成**无限等待**，一次卡住的调用能拖住整个请求。
+func (c AIConfig) Normalize() AIConfig {
+	if c.TimeoutSeconds <= 0 {
+		c.TimeoutSeconds = 60
+	}
+	if c.TimeoutSeconds > 600 {
+		c.TimeoutSeconds = 600
+	}
+	if c.MaxTokens <= 0 {
+		c.MaxTokens = 1024
+	}
+	if c.MaxTokens > 32768 {
+		c.MaxTokens = 32768
+	}
+	if c.Temperature < 0 {
+		c.Temperature = 0
+	}
+	if c.Temperature > 2 {
+		c.Temperature = 2
+	}
+	c.BaseURL = strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
+	c.Model = strings.TrimSpace(c.Model)
+	return c
+}
+
+// Ready 判断是否可以发起调用：启用 + 有端点 + 有模型。
+//
+// **没有它就等于没有 AI**：不满足时所有调用入口都应显示"未配置"而不是发一个必然失败的请求。
+func (c AIConfig) Ready() bool {
+	return c.Enabled && c.BaseURL != "" && c.Model != ""
+}
+
 // EmailConfig 邮件通知配置。
 type EmailConfig struct {
 	Enabled     bool     `yaml:"enabled" json:"enabled"`
@@ -364,6 +432,7 @@ func Default() *Config {
 		UIFile:            "/etc/monitor-server/ui.yaml",
 		DashboardsFile:    "/etc/monitor-server/dashboards.yaml",
 		RetentionFile:     "/etc/monitor-server/retention.yaml",
+		AIFile:            "/etc/monitor-server/ai.yaml",
 		AuditKeyFile:      "/etc/monitor-server/audit.key",
 		SecurityStoreFile: "/var/lib/monitor-server/security_store.json",
 		AssetStoreFile:    "/var/lib/monitor-server/assets.db",
