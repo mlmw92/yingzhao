@@ -146,6 +146,34 @@
       </template>
     </el-dialog>
 
+    <!-- 护栏组合风险：平时是空的，因此**整卡不显示**（占着位置只会让人习惯性忽略它）；
+         只有真有风险、或有节点没上报过这个检查时才出现 -->
+    <SectionCard v-if="guardRiskNodes.length || guardUnreported" title="护栏组合风险" dense v-loading="guardLoading">
+      <template #actions>
+        <span class="defense-tip">
+          要消除它：去该机器的 agent.yaml 收掉 guards.ops.file.dirs 或 guards.ops.units 里的一个（改完需重启 Agent）
+        </span>
+      </template>
+      <div v-for="n in guardRiskNodes" :key="n.node" class="guard-risk-node">
+        <div class="guard-risk-head">
+          <span class="node-name">
+            {{ n.displayName || n.node }}<span v-if="n.nodeIp" class="node-ip"> · {{ n.nodeIp }}</span>
+          </span>
+          <el-tag type="danger" size="small">{{ n.risks.length }} 条风险</el-tag>
+        </div>
+        <div v-for="(r, i) in n.risks" :key="i" class="guard-risk-item">
+          <el-tag size="small" :type="r.kind === 'exec' ? 'danger' : 'warning'">
+            {{ r.kind === 'exec' ? '可执行文件暴露' : '写入即持久化' }}
+          </el-tag>
+          <span class="guard-risk-desc">{{ r.description }}</span>
+        </div>
+      </div>
+      <!-- 未上报是"我们不知道"，不是"安全"——单独一行说清楚，别混进风险列表 -->
+      <div v-if="guardUnreported" class="guard-risk-unknown">
+        另有 {{ guardUnreported }} 台机器<strong>未上报该检查</strong>（Agent 需升级）——它们的状态是「未知」，不是「无风险」。
+      </div>
+    </SectionCard>
+
     <!-- 安全事件区 -->
     <SectionCard title="安全事件" dense v-loading="loading">
       <template #actions>
@@ -283,7 +311,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getSecuritySummary, getSecurityEvents, getSecurityBaselines, getDefenseStatuses, postDefenseAction, exportComplianceMatrix } from '../api/security'
+import { getSecuritySummary, getSecurityEvents, getSecurityBaselines, getDefenseStatuses, postDefenseAction, exportComplianceMatrix, getGuardRisks } from '../api/security'
 import useAuth from '../composables/useAuth'
 import { Lock } from '@element-plus/icons-vue'
 import RefreshBar from './RefreshBar.vue'
@@ -298,6 +326,14 @@ const loadError = ref('')
 const summary = ref({ score: 0, eventCount: 0, riskNodes: 0, fimChanges: 0, baselineHosts: 0 })
 const events = ref([])
 const baselines = ref([])
+const guardRisks = ref([])
+const guardLoading = ref(false)
+
+// 只展示**真有风险**的节点：reported=true 且清单为空的节点是"已检查、无风险"，
+// 不该出现在这张卡里（否则每次打开都有一排"无风险"，等于把这张卡变成噪音）。
+const guardRiskNodes = computed(() => guardRisks.value.filter((n) => (n.risks || []).length > 0))
+// 未上报的台数：那是"未知"，必须与"无风险"分开说（把未知显示成安全是本能力最坏的失败形态）。
+const guardUnreported = computed(() => guardRisks.value.filter((n) => !n.reported).length)
 
 // 安全事件空态：区分「确实没有事件」与「被筛选掉了」
 const eventHints = computed(() => {
@@ -546,9 +582,21 @@ async function loadBaselines() {
     if (e && e.message) loadError.value = e.message
   }
 }
+async function loadGuardRisks() {
+  guardLoading.value = true
+  try {
+    const d = await getGuardRisks()
+    guardRisks.value = d.nodes || []
+  } catch (e) {
+    guardRisks.value = []
+    if (e && e.message) loadError.value = e.message
+  } finally {
+    guardLoading.value = false
+  }
+}
 async function refreshAll() {
   refreshing.value = true
-  await Promise.all([loadSummary(), loadEvents(), loadBaselines(), loadDefense()])
+  await Promise.all([loadSummary(), loadEvents(), loadBaselines(), loadDefense(), loadGuardRisks()])
   refreshing.value = false
 }
 
@@ -801,6 +849,36 @@ onMounted(async () => {
 .defense-tip {
   font-size: 13px;
   color: var(--text-muted);
+}
+/* 护栏组合风险：一条风险一行，描述用服务端给的人话（界面不自己拼措辞） */
+.guard-risk-node {
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.guard-risk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.guard-risk-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+}
+.guard-risk-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.guard-risk-unknown {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding-top: 4px;
 }
 .defense-kpi {
   display: grid;

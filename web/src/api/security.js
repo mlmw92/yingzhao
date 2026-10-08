@@ -19,6 +19,15 @@ export const getSecurityEvents = (params = {}) => {
 // 各主机安全基线评分与检查项明细
 export const getSecurityBaselines = () => http.get('/api/v1/security/baselines')
 
+// 各节点「护栏组合风险」：允许写入的目录覆盖了某个可重启单元的可执行文件，
+// 或者覆盖了系统自己会执行的目录（systemd/cron/profile.d/sudoers.d/root 的 .ssh）——
+// 这两种组合都等于**任意代码执行**，而且不需要任何"任意命令"能力。
+//
+// 响应里每台机器有 reported 标志：false = 该节点从未上报过这个字段（旧 Agent，压根没检查过），
+// 与"已检查、无风险"**必须分开显示**——把前者显示成后者会让人以为那台机器是安全的。
+// 每条风险带 description（服务端用 Describe() 生成），界面直接显示，不自己拼措辞。
+export const getGuardRisks = () => http.get('/api/v1/security/guard-risks')
+
 // 导出合规矩阵 CSV（节点 × 检查项；该节点没上报的项留空，**空 ≠ 未通过**）。
 //
 // 与资产导出一致：文件名优先用服务端给的（自带导出时间，同一天导多份不会互相覆盖）；

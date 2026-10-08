@@ -13,6 +13,7 @@ import {
   getSecurityBaselines,
   getDefenseStatuses,
   exportComplianceMatrix,
+  getGuardRisks,
 } from '../api/security'
 
 vi.mock('../api/security', () => ({
@@ -22,6 +23,7 @@ vi.mock('../api/security', () => ({
   getDefenseStatuses: vi.fn(),
   postDefenseAction: vi.fn(),
   exportComplianceMatrix: vi.fn(),
+  getGuardRisks: vi.fn(),
 }))
 
 vi.mock('element-plus', async (importOriginal) => ({
@@ -53,6 +55,7 @@ beforeEach(() => {
     baselines: [{ node: 'web-01', displayName: '美国', score: 60, items: [{ key: 'k1', name: '防火墙已启用', pass: false }] }],
   })
   getDefenseStatuses.mockResolvedValue({ statuses: [] })
+  getGuardRisks.mockResolvedValue({ nodes: [], enabled: true })
 })
 
 async function mountView() {
@@ -96,5 +99,56 @@ describe('安全中心 · 合规矩阵导出', () => {
 
     expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('还没有安全基线数据可导出'))
     expect(ElMessage.success).not.toHaveBeenCalled()
+  })
+})
+
+// 护栏组合风险（"两个护栏配在一起等于任意代码执行"）。
+//
+// 只钉住三件做错了不会报错的事：
+//  ① 无风险且都已上报时**整卡不显示**（否则每次打开都有一张空卡，久了就没人看它）；
+//  ② 有风险时显示的是**服务端给的人话**（界面不自己拼措辞，否则与 Agent 日志两处会漂移）；
+//  ③ **未上报 ≠ 无风险**——把"我们不知道"显示成"安全"是这张卡最坏的失败形态。
+describe('安全中心 · 护栏组合风险', () => {
+  it('无风险且都已上报时不显示这张卡（避免空卡变成噪音）', async () => {
+    getGuardRisks.mockResolvedValue({
+      nodes: [{ node: 'web-01', reported: true, risks: [] }],
+      enabled: true,
+    })
+    const w = await mountView()
+    expect(w.text()).not.toContain('护栏组合风险')
+  })
+
+  it('有风险时显示，并原样使用服务端给的人话描述', async () => {
+    const desc = '护栏组合风险：允许写入的目录「/etc/cron.d」覆盖了系统会自动执行的目录「/etc/cron.d」——写入即持久化，不需要重启任何服务'
+    getGuardRisks.mockResolvedValue({
+      nodes: [{
+        node: 'web-01', displayName: '美国', nodeIp: '10.0.0.1', reported: true,
+        risks: [{ kind: 'persistence', allowedDir: '/etc/cron.d', exposed: '/etc/cron.d', description: desc }],
+      }],
+      enabled: true,
+    })
+    const w = await mountView()
+
+    expect(w.text()).toContain('护栏组合风险')
+    expect(w.text()).toContain(desc) // 服务端给的整句，界面不重新拼
+    expect(w.text()).toContain('写入即持久化')
+    // 卡片头部要告诉人**怎么消掉**（只告警不拒绝是刻意的，但不能只告警不说下一步）
+    expect(w.text()).toContain('guards.ops')
+  })
+
+  it('未上报的机器显示成「未知」，不能显示成「无风险」', async () => {
+    getGuardRisks.mockResolvedValue({
+      nodes: [
+        { node: 'old-01', reported: false, risks: [] },
+        { node: 'web-01', reported: true, risks: [] },
+      ],
+      enabled: true,
+    })
+    const w = await mountView()
+
+    expect(w.text()).toContain('护栏组合风险')
+    expect(w.text()).toContain('未上报该检查')
+    expect(w.text()).toContain('未知')
+    expect(w.text()).toContain('Agent 需升级')
   })
 })
