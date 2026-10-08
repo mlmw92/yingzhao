@@ -27,7 +27,6 @@ const CFG = {
   maxTokens: 1024,
   temperature: 0.2,
   allowSensitive: false,
-  includeLogs: false,
 }
 
 let wrappers = []

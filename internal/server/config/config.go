@@ -300,11 +300,12 @@ type AIConfig struct {
 	MaxTokens      int `yaml:"maxTokens" json:"maxTokens"`
 	// Temperature 默认 0.2：运维结论要稳定可复现，不要发散。
 	Temperature float64 `yaml:"temperature" json:"temperature"`
-	// AllowSensitive 允许把**高级别数据**（日志正文、属性值、命令输出）发给模型。默认 false。
-	// 打开这一项意味着"日志里可能的口令/连接串会出境"，因此该事实会记进审计。
+	// AllowSensitive 允许把**高级别数据**（属性值等，可能含连接串/口令）发给模型。默认 false。
+	// 打开这一项意味着这些内容会出境，因此该事实会记进审计。
+	//
+	// 本批只覆盖**资产属性值**：日志正文（诊断价值最高、也最敏感）留到"日志归因"那一批，
+	// 届时加它自己的开关——不做"配了却不生效"的死开关。
 	AllowSensitive bool `yaml:"allowSensitive" json:"allowSensitive"`
-	// IncludeLogs 是"诊断时默认带日志片段"，仅在 AllowSensitive 为真时有意义。
-	IncludeLogs bool `yaml:"includeLogs" json:"includeLogs"`
 }
 
 // Normalize 补齐零值默认并收敛取值范围。

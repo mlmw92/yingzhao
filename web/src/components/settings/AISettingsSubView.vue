@@ -86,16 +86,7 @@
           <el-form-item label="允许发送敏感内容">
             <el-switch v-model="form.allowSensitive" />
             <div class="field-hint">
-              打开后，诊断可以携带<b>日志正文与属性值</b>（其中可能含连接串、口令）。
-              该开关的每次变更都会记入审计。
-            </div>
-          </el-form-item>
-        </el-col>
-        <el-col :xs="24" :md="12">
-          <el-form-item label="诊断默认带日志片段">
-            <el-switch v-model="form.includeLogs" :disabled="!form.allowSensitive" />
-            <div class="field-hint">
-              仅在「允许发送敏感内容」打开时生效；单次诊断仍可在界面上临时关掉。
+              打开后，诊断可以携带<b>资产属性值</b>（其中可能含连接串、口令）。该开关的每次变更都会记入审计。
             </div>
           </el-form-item>
         </el-col>
