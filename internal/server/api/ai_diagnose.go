@@ -253,12 +253,16 @@ func (a *API) diagnoseContextAsset(p *auth.Principal, idStr string, allowSensiti
 	ctx.Sections = append(ctx.Sections, assetBriefSections(item)...)
 
 	if recs, err := a.assets.History(asset.Ref{TypeKey: item.TypeKey, NaturalKey: item.NaturalKey}, 10); err == nil && len(recs) > 0 {
+		// **只发字段名与时间，不发旧值/新值**：变更的新值就是属性值，可能含连接串与口令，
+		// 而它属于高级别内容——e2e 正是这样抓到"属性值经由变更历史漏出去"的
+		// （默认不取属性值，值却出现在了上下文里）。
+		// 模型需要知道的是"最近动过什么"，不是"动成了什么"。
 		lines := make([]string, 0, len(recs))
 		for _, rec := range recs {
-			lines = append(lines, fmt.Sprintf("%s %s：%s → %s（来源 %s）",
-				time.UnixMilli(rec.At).Format("01-02 15:04"), rec.Field, dash(rec.Old), dash(rec.New), rec.Source))
+			lines = append(lines, fmt.Sprintf("%s %s（来源 %s）",
+				time.UnixMilli(rec.At).Format("01-02 15:04"), rec.Field, rec.Source))
 		}
-		ctx.Sections = append(ctx.Sections, ai.Section{Title: "最近变更", Level: ai.LevelMid, Lines: lines})
+		ctx.Sections = append(ctx.Sections, ai.Section{Title: "最近变更（仅字段与时间）", Level: ai.LevelMid, Lines: lines})
 	}
 
 	// 属性值属于高级别（可能有连接串/口令）：**不打开就根本不取**（第一道防线）。

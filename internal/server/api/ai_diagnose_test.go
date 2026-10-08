@@ -202,3 +202,40 @@ func TestAIDiagnosePermission(t *testing.T) {
 }
 
 func idStr(v int64) string { return strconv.FormatInt(v, 10) }
+
+// 变更历史里的「新值」就是属性值，属于高级别内容——不能借「最近变更」段漏出去。
+//
+// 这条是实机验证抓出来的：默认不取属性值，值却出现在了上下文里（经由变更记录）。
+// 用例守着它，否则这个洞会悄悄回来。
+func TestAIDiagnoseHistoryDoesNotLeakValues(t *testing.T) {
+	a, m, svc := diagnoseTestAPI(t)
+	srv, body := captureEndpoint(t)
+	if err := m.Save(config.AIConfig{Enabled: true, BaseURL: srv.URL, Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	const secret = "LEAK-CHECK-9527"
+	// 写一个人工属性值：会同时产生属性行与一条变更记录
+	if _, _, err := svc.Apply(asset.Observation{
+		TypeKey: asset.TypeHost, NaturalKey: "web-01", Name: "web-01", Node: "web-01",
+		Source: asset.SourceManual, Actor: "tester", Attrs: map[string]string{"dbConn": secret},
+	}); err != nil {
+		t.Fatalf("写入属性失败：%v", err)
+	}
+	item, ok, err := svc.Get(asset.Ref{TypeKey: asset.TypeHost, NaturalKey: "web-01"})
+	if err != nil || !ok {
+		t.Fatalf("取资产失败：%v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(rec, reqWith(globalPrincipal("ai:invoke"), http.MethodPost, "/api/v1/ai/diagnose",
+		`{"kind":"asset","id":"`+idStr(item.ID)+`"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("应成功，实际 %d（%s）", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(*body, secret) {
+		t.Fatalf("**变更历史不得携带属性值**（值属高级别，默认不发）：%s", *body)
+	}
+	if !strings.Contains(*body, "dbConn") {
+		t.Fatalf("字段名仍应出现（模型要知道动过什么）：%s", *body)
+	}
+}
