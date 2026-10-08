@@ -2,12 +2,22 @@
   <div class="network-tab">
     <div class="nt-instance-bar glass">
       <span class="nt-instance-label">Nginx 实例</span>
-      <select v-model="selectedInstance" class="nt-instance-select" aria-label="选择 Nginx 实例">
-        <option value="">全部实例</option>
-        <option v-for="it in nginxInstances" :key="instanceKey(it)" :value="instanceKey(it)">
-          {{ instanceLabel(it) }}{{ it.up ? '' : ' · 离线' }}
-        </option>
-      </select>
+      <!-- 此前是原生 <select>：控件本身可以改样式，但 <option> 下拉面板由操作系统绘制，
+           深色大屏上会弹出一块白色系统下拉，主题直接断裂。换成 el-select。 -->
+      <el-select
+        v-model="selectedInstance"
+        size="small"
+        class="nt-instance-select"
+        placeholder="全部实例"
+      >
+        <el-option label="全部实例" value="" />
+        <el-option
+          v-for="it in nginxInstances"
+          :key="instanceKey(it)"
+          :label="instanceLabel(it) + (it.up ? '' : ' · 离线')"
+          :value="instanceKey(it)"
+        />
+      </el-select>
       <span class="nt-instance-hint">{{ selectedInstance ? '当前显示单实例数据' : '当前显示集群汇总数据' }}</span>
     </div>
     <!-- 顶部 KPI 条 -->
@@ -551,6 +561,15 @@ onUnmounted(() => {
   gap: 10px;
   flex: 1;
   min-height: 0;
+}
+/* 34% 在 1366 宽下只剩约 460px，左侧还要再切 2×2，
+   「接口访问 / 来源 IP」的名称列被压到 70px 以内，长 URL 只能靠 title 才看得到。
+   收窄时改成上下单列。 */
+@media (max-width: 1500px) {
+  .nt-body {
+    grid-template-columns: 1fr;
+    grid-auto-rows: min-content;
+  }
 }
 
 .nt-left {

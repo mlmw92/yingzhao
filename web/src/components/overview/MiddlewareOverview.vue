@@ -1,12 +1,21 @@
 <template>
   <div class="mw-grid">
-    <div
-      v-for="s in summaries"
-      :key="s.key"
-      class="mw-card"
-      :class="{ disabled: s.total === 0 }"
-      @click="goTab(s.tab)"
-    >
+    <!-- 加载中先占位：summaries 在数据到达前每个类型都是 total=0，
+         直接渲染会把「尚未配置监控」当成结论显示出来，数据到达后再整块翻转。 -->
+    <template v-if="loading">
+      <div v-for="i in 4" :key="'sk' + i" class="mw-card mw-card-sk">
+        <div class="sk sk-row" style="width: 55%"></div>
+        <div class="sk" style="height: 64px; margin-top: 14px"></div>
+      </div>
+    </template>
+    <template v-else>
+      <div
+        v-for="s in summaries"
+        :key="s.key"
+        class="mw-card"
+        :class="{ disabled: s.total === 0 }"
+        @click="goTab(s.tab)"
+      >
       <div class="mw-head">
         <!-- 模板派生类型若未提供图标则不渲染，避免出现坏图 -->
         <img v-if="s.icon" class="mw-icon" :src="s.icon" :alt="s.label" />
@@ -44,7 +53,8 @@
         <div class="mw-empty-title">{{ s.emptyTitle || '尚未配置监控' }}</div>
         <div class="mw-empty-sub">{{ s.emptySub || `点击前往 ${s.label} 页面了解接入方式` }}</div>
       </div>
-    </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -54,6 +64,9 @@ import { useRouter } from 'vue-router'
 
 const props = defineProps({
   summaries: { type: Array, default: () => [] },
+  // 数据未到达时为 true：此时 summaries 里每个类型都是 total=0，
+  // 不加这个标志就会把「尚未配置监控」当成真实结论先显示一遍。
+  loading: { type: Boolean, default: false },
 })
 const router = useRouter()
 
@@ -73,6 +86,17 @@ function goTab(tab) {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
+}
+/* 卡内是 64px 甜甜圈 + 14px gap + 文字列，4 列在 1400px 以下就开始挤：
+   Top 实例的名称列会被 max-width 截断到只剩几个字。逐级降列而不是一步到单列。 */
+@media (max-width: 1400px) {
+  .mw-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 1100px) {
+  .mw-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 680px) {
+  .mw-grid { grid-template-columns: 1fr; }
 }
 .mw-card {
   background: var(--bg-elev);

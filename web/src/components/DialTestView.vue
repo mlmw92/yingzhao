@@ -81,7 +81,7 @@
     </SectionCard>
 
     <!-- 新建/编辑对话框 -->
-    <el-dialog v-model="showDialog" :title="editing ? '编辑拨测任务' : '新建拨测任务'" width="540px">
+    <el-dialog v-model="showDialog" :title="editing ? '编辑拨测任务' : '新建拨测任务'" width="min(540px, 94vw)">
       <el-form :model="form" label-width="95px">
         <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="类型">
@@ -98,7 +98,7 @@
         <el-form-item label="启用"><el-switch v-model="form.enabled" /></el-form-item>
         <el-form-item label="对外发布">
           <el-switch v-model="form.public" />
-          <span class="field-hint inline">
+          <span class="hint-inline">
             开启后出现在免登录的「对外状态页」上（只展示名称 / 可用性 / 延迟，不含目标地址与节点）
           </span>
         </el-form-item>
@@ -139,6 +139,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import PageHeader from './common/PageHeader.vue'
 import SectionCard from './common/SectionCard.vue'
@@ -183,11 +184,25 @@ async function saveTask() {
 }
 
 async function deleteTask(row) {
-  if (!confirm(`确认删除任务 "${row.name}"？`)) return
+  // 此前用原生 window.confirm：系统级白底弹窗与深色主题直接冲突，
+  // 也与全站其它确认框（ElMessageBox）不是一套东西。
+  try {
+    await ElMessageBox.confirm(`确认删除任务 "${row.name}"？`, '删除拨测任务', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
   try {
     await http.del(`/api/v1/dialtest/tasks/${row.id}`)
+    ElMessage.success('已删除')
     await load()
-  } catch (e) { console.error(e) }
+  } catch (e) {
+    // 此前失败只 console.error，界面无任何反馈，用户看到的是「点了没反应」
+    ElMessage.error(e.message || '删除失败')
+  }
 }
 
 // 列表内直接开关启用状态：乐观更新，失败回滚

@@ -35,7 +35,7 @@
         </button>
       </div>
       <p class="muted note">
-        类型与字段定义是**平台配置**（谁能进本页，看到的是同一份）；而资产数与下面的覆盖度按你的可见范围统计。
+        类型与字段定义是「平台配置」（谁能进本页，看到的是同一份）；而资产数与下面的覆盖度按你的可见范围统计。
         <template v-if="current && current.baseline">
           本类型的标杆资产：<span class="mono">{{ current.baseline.assetKey }}</span>。
         </template>
@@ -74,7 +74,9 @@
       </div>
 
       <el-table :data="attrRows" style="width: 100%">
-        <el-table-column label="字段" min-width="190">
+        <!-- 首列固定：这张表 9 列合计约 1360px，横向滚动后若首列跟着滑走，
+             就不知道自己正在编辑哪个属性了。 -->
+        <el-table-column label="字段" min-width="190" fixed>
           <template #default="{ row }"><span class="mono">{{ row.key }}</span></template>
         </el-table-column>
         <el-table-column label="中文名" width="170">
@@ -151,9 +153,9 @@
       </el-table>
 
       <!-- 枚举取值编辑：Value 进台账，显示名只影响界面（改显示名不改数据） -->
-      <el-dialog v-model="enumDialog.visible" title="枚举取值" width="560px">
+      <el-dialog v-model="enumDialog.visible" title="枚举取值" width="min(560px, 94vw)">
         <p class="muted note">
-          Value 是**存进台账**的值（如 <span class="mono">prod</span>），显示名只影响界面显示（如「生产」）。
+          Value 是「存进台账」的值（如 <span class="mono">prod</span>），显示名只影响界面显示（如「生产」）。
           人工值必须落在这些取值里；采集值不受约束（真实环境上报什么就记什么）。
         </p>
         <div v-for="(opt, i) in enumDialog.options" :key="i" class="enum-row">
@@ -169,7 +171,7 @@
       </el-dialog>
 
       <!-- 建议属性：只把常见配法摆出来，**不自动写入**（没配过却出现字段会让人困惑） -->
-      <el-dialog v-model="suggestDialog.visible" title="添加建议属性" width="560px">
+      <el-dialog v-model="suggestDialog.visible" title="添加建议属性" width="min(560px, 94vw)">
         <p class="muted note">
           勾选后它们会进入当前类型的字段表（编辑态），确认无误再点「保存」。
           中文名与取值都可以按自己的口径改。
@@ -192,12 +194,12 @@
       </p>
 
       <div v-if="current.synonymGroups && current.synonymGroups.length" class="synonyms">
-        <div class="muted">疑似同义键（只是写法不同；**不会自动合并**——合并是不可逆的，请自行确认后决定）</div>
+        <div class="muted">疑似同义键（只是写法不同；不会自动合并——合并是不可逆的，请自行确认后决定）</div>
         <div v-for="(group, i) in current.synonymGroups" :key="i" class="mono">{{ group.join('  /  ') }}</div>
       </div>
 
       <p class="muted note">
-        这里**不显示属性值**：值里可能有连接串与口令，模型页只看模型；要看某台资产的具体值，去资产台账详情
+        这里不显示属性值：值里可能有连接串与口令，模型页只看模型；要看某台资产的具体值，去资产台账详情
         （那里有权限与范围约束）。
       </p>
     </SectionCard>

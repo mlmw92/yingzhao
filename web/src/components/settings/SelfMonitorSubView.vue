@@ -44,7 +44,7 @@
     />
 
     <!-- 关键指标 -->
-    <el-descriptions :column="4" border size="small" class="grid">
+    <el-descriptions :column="descCols" border size="small" class="grid">
       <el-descriptions-item label="goroutine">{{ m.goroutines ?? '—' }}</el-descriptions-item>
       <el-descriptions-item label="堆内存">{{ mb(m.heapAllocBytes) }}</el-descriptions-item>
       <el-descriptions-item label="GC 次数">{{ m.gcCount ?? '—' }}</el-descriptions-item>
@@ -102,16 +102,18 @@
           数据来自时序库 <code v-pre>self_goroutines</code> / <code v-pre>self_heap_alloc_bytes</code>
         </span>
       </div>
-      <div ref="chartRef" class="chart" />
+      <!-- 此前 nodeLabel 为空时 renderTrend 直接 return，260px 的图表区永久空白，
+           既没有空态也没有任何说明（权限不足、时序库不可达时尤其明显）。 -->
+      <div v-if="nodeLabel" ref="chartRef" class="chart" />
+      <div v-else class="chart chart-empty">未获取到本节点的标识，无法查询趋势数据</div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import * as echarts from 'echarts'
 import http from '../../api/http'
-import { tokenColor } from '../../charts/echarts'
+import { initChart, tokenColor } from '../../charts/echarts'
 const AXIS_COLOR = tokenColor('t2', '#9fb3c8')
 
 const loading = ref(false)
@@ -207,7 +209,7 @@ async function renderTrend() {
       })
     }
     if (chartInstance) { chartInstance.dispose(); chartInstance = null }
-    chartInstance = echarts.init(chartRef.value)
+    chartInstance = initChart(chartRef.value)
     chartInstance.setOption({
       tooltip: { trigger: 'axis' },
       legend: { data: series.map((s) => s.name), textStyle: { color: AXIS_COLOR } },
@@ -224,12 +226,22 @@ async function renderTrend() {
   }
 }
 
+// 指标明细固定 4 列：容器一窄，8 个单元格会同时换行，行高参差、标签与值错位。
+// 没有媒体查询可用（column 是数字属性），按视口宽度切 4 / 2 列。
+const descCols = ref(4)
+function syncCols() {
+  descCols.value = window.innerWidth < 1100 ? 2 : 4
+}
+
 onMounted(() => {
+  syncCols()
+  window.addEventListener('resize', syncCols)
   load()
   timer = setInterval(() => { if (autoRefresh.value) load() }, 10000)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', syncCols)
   if (timer) clearInterval(timer)
   if (chartInstance) { chartInstance.dispose(); chartInstance = null }
 })
@@ -295,6 +307,16 @@ onUnmounted(() => {
 .chart {
   width: 100%;
   height: 260px;
+}
+/* 与 .chart 同高：空态不该让卡片塌下去，也不该变成一整块空白 */
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--bd);
+  border-radius: var(--r-md);
+  color: var(--t3);
+  font-size: 13px;
 }
 .trend {
   margin-top: 4px;

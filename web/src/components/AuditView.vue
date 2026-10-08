@@ -30,7 +30,7 @@
           start-placeholder="开始时间"
           end-placeholder="结束时间"
           :shortcuts="rangeShortcuts"
-          style="width: 360px"
+          style="width: 400px; max-width: 100%"
           @change="applyFilters"
         />
         <el-select v-model="filters.limit" size="small" style="width: 120px" @change="applyFilters">
@@ -105,7 +105,10 @@
             ]"
           />
         </template>
-        <el-table-column label="时间" width="180">
+        <!-- 首列固定 + 两列 min-width 收窄：这张表 9 列合计约 1520px，
+             内容区只有约 1130px。此前横向滚动后既看不到时间、
+             「状态码 / 结果 / 资产改动」这三列排障最关心的信息也落在视野外。 -->
+        <el-table-column label="时间" width="180" fixed>
           <template #default="{ row }">{{ formatTime(row.time) }}</template>
         </el-table-column>
         <el-table-column label="分类" width="110">
@@ -116,19 +119,22 @@
         <el-table-column prop="user" label="操作者" width="140">
           <template #default="{ row }">{{ row.user || '未登录/未知' }}</template>
         </el-table-column>
-        <el-table-column label="操作" min-width="300">
+        <el-table-column label="操作" min-width="240">
           <template #default="{ row }">
-            <span class="method" :class="'method-' + row.method.toLowerCase()">{{ row.method }}</span>
+            <span class="method" :class="'method-' + (row.method || '').toLowerCase()">{{ row.method }}</span>
             <span class="path">{{ row.path }}</span>
             <div v-if="row.action" class="action">{{ row.action }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="变更摘要" min-width="300">
+        <el-table-column label="变更摘要" min-width="240">
           <template #default="{ row }">
             <div v-if="changeSummary(row.detail).changed.length || changeSummary(row.detail).added.length || changeSummary(row.detail).removed.length" class="change-summary">
-              <span v-if="changeSummary(row.detail).changed.length">修改：{{ changeSummary(row.detail).changed.join('、') }}</span>
-              <span v-if="changeSummary(row.detail).added.length">新增：{{ changeSummary(row.detail).added.join('、') }}</span>
-              <span v-if="changeSummary(row.detail).removed.length">删除：{{ changeSummary(row.detail).removed.join('、') }}</span>
+              <!-- 颜色按语义挂在各自的 class 上，不用 nth-child：
+                   三段都带 v-if，缺「修改」时 nth-child 会整体前移，
+                   出现「新增」显示成琥珀、「删除」显示成绿的语义反转。 -->
+              <span v-if="changeSummary(row.detail).changed.length" class="cs-changed">修改：{{ changeSummary(row.detail).changed.join('、') }}</span>
+              <span v-if="changeSummary(row.detail).added.length" class="cs-added">新增：{{ changeSummary(row.detail).added.join('、') }}</span>
+              <span v-if="changeSummary(row.detail).removed.length" class="cs-removed">删除：{{ changeSummary(row.detail).removed.join('、') }}</span>
             </div>
             <span v-else class="muted">{{ row.detail || '-' }}</span>
           </template>
@@ -183,7 +189,7 @@
     <!-- 「本次改动」抽屉：把这一次操作在资产台账里改动的字段列清楚（可跨多个资产）。
          与资产页的变更历史互为反面：那条回答"这台资产经历了什么"，这条回答"那次操作动了谁"。
          条数被服务端截断时显式说明——静默截断会让人以为"这次就动了这些"。 -->
-    <el-drawer v-model="changesDrawer" :title="changesTitle" size="760px" direction="rtl">
+    <el-drawer v-model="changesDrawer" :title="changesTitle" size="min(760px, 94vw)" direction="rtl">
       <div class="changes-head">
         <div class="mono">{{ currentEvent ? currentEvent.method + ' ' + currentEvent.path : '' }}</div>
         <div class="muted">
@@ -556,18 +562,19 @@ onUnmounted(() => { latestRequest++; latestChanges++ })
 }
 /* 页头与筛选分离：筛选条独立成一张薄卡，不再和标题挤在同一个容器里 */
 .filter-bar { padding: 12px 16px; }
-.toolbar { display: flex; gap: 8px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; }
 .filters .el-input { width: 180px; }
 .method { display: inline-block; min-width: 48px; margin-right: 8px; color: var(--accent, #4a9df0); font-size: 13px; font-weight: 700; }
-.method-post, .method-put, .method-patch, .method-delete { color: #ffb454; }
-.path { color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; }
+.method-post, .method-put, .method-patch, .method-delete { color: var(--warn); }
+.path { color: var(--text); font-family: var(--mono); font-size: 13px; }
 .change-summary { display: flex; flex-direction: column; gap: 3px; color: var(--text-muted); font-size: 13px; }
-.change-summary span:first-child { color: #e6a23c; }
-.change-summary span:nth-child(2) { color: #67c23a; }
-.change-summary span:nth-child(3) { color: #f56c6c; }
+/* 按语义类名上色（不用 nth-child：三段都是条件渲染，位置会变） */
+.change-summary .cs-changed { color: var(--warn); }
+.change-summary .cs-added { color: var(--ok); }
+.change-summary .cs-removed { color: var(--danger); }
 .muted { color: var(--text-muted); font-size: 13px; }
-.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.mono { font-family: var(--mono); }
 /* 删除/旧值用删除线：与资产页的变更 diff 同一读法（那里也是"旧值划线 + 新值加粗"） */
 .struck { color: var(--text-muted); text-decoration: line-through; }
 /* 「本次改动」抽屉：头部先把"这是哪一次操作"说清楚，再列改动 */
@@ -582,7 +589,7 @@ onUnmounted(() => { latestRequest++; latestChanges++ })
 }
 .asset-cell { display: flex; flex-direction: column; gap: 2px; line-height: 1.3; font-size: 13px; }
 .source-cell { display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
-.source-ip { font-family: var(--font-mono, monospace); font-size: 13px; }
+.source-ip { font-family: var(--mono); font-size: 13px; }
 .source-loc { font-size: 13px; color: var(--text-muted); }
 .source-loc--unknown { font-style: italic; opacity: 0.7; }
 @media (max-width: 720px) { .toolbar { width: 100%; } }

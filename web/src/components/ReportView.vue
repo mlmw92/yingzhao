@@ -87,7 +87,12 @@
         title="历史报告加载失败"
         :description="historyError"
       />
-      <el-table v-if="history.length > 0" :data="history" style="width: 100%">
+      <!-- 加载中先用骨架占位：此前 history 初值就是 []，
+           首屏会先渲染「暂无历史报告」，请求回来再整块翻转成表格。 -->
+      <div v-if="historyLoading" class="sk-list">
+        <div v-for="i in 4" :key="i" class="sk sk-row"></div>
+      </div>
+      <el-table v-else-if="history.length > 0" :data="history" style="width: 100%">
         <el-table-column label="类型" width="80">
           <template #default="{ row }">
             <el-tag v-if="row.type" size="small">{{ typeLabel(row.type) }}</el-tag>
@@ -119,7 +124,7 @@
         </el-table-column>
       </el-table>
       <EmptyState
-        v-else-if="!historyError"
+        v-else-if="!historyError && !historyLoading"
         title="暂无历史报告"
         :hints="['在上方选择日报 / 周报 / 月报，点「生成报告」创建第一份']"
         action-text="生成报告"
@@ -150,6 +155,7 @@ const reportType = ref('daily')
 const generating = ref(false)
 const history = ref([])
 const historyError = ref('')
+const historyLoading = ref(false)
 const previewUrl = ref('')
 const currentId = ref('')
 
@@ -167,6 +173,7 @@ const sectionOptions = [
 const sections = ref(sectionOptions.map((o) => o.value))
 
 async function loadHistory() {
+  historyLoading.value = true
   try {
     const data = await http.get('/api/v1/report/history')
     history.value = data.reports || []
@@ -174,6 +181,8 @@ async function loadHistory() {
   } catch (e) {
     console.error(e)
     historyError.value = e.message || '网络异常，请稍后重试'
+  } finally {
+    historyLoading.value = false
   }
 }
 
@@ -265,7 +274,8 @@ function preview(id) {
   // 滚动到预览区域
   setTimeout(() => {
     const el = document.querySelector('.report-frame')
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // 与 CommandPalette 一致加存在性判断：jsdom（单元测试环境）不实现 scrollIntoView
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, 60)
 }
 
@@ -306,12 +316,10 @@ onMounted(() => {
 .report-view { padding: 4px 0 16px; }
 .schedule-label { color: var(--text-dim); font-size: 13px; }
 .schedule-hint { margin-top: 8px; color: var(--text-dim); font-size: 12.5px; }
-.schedule-fail { color: #f56c6c; }
-.page-header { margin-bottom: 16px; }
-.page-title { font-size: 22px; font-weight: 700; margin: 0; background: linear-gradient(135deg, var(--text) 0%, var(--text-dim) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.page-desc { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
-.chart-section { padding: 16px; margin-bottom: 16px; }
-.section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.schedule-fail { color: var(--danger); }
+/* .page-header / .page-title / .page-desc / .chart-section / .section-title
+   是改用 PageHeader + SectionCard 之后遗留的死规则（模板里已无对应元素），
+   留着只会让后续改样式时误以为这里有生效的排版。 */
 .sections-row {
   flex-wrap: wrap;
   gap: 6px;
@@ -320,11 +328,15 @@ onMounted(() => {
 .generate-row { display: flex; gap: 12px; align-items: center; }
 .tip { margin-top: 14px; }
 .history-error { margin-bottom: 12px; }
+/* 骨架占位（.sk / .sk-row 是全局类）：与表格行的纵向节奏对齐，避免加载完成时高度突变 */
+.sk-list { padding: 10px 0; }
 .frame-head { display: flex; align-items: center; justify-content: space-between; }
 .frame-actions { display: flex; gap: 8px; }
 .report-iframe {
   width: 100%;
-  height: 860px;
+  /* 此前写死 860px：笔记本上预览区顶到视口外、页面与 iframe 嵌套双滚动；
+     内容短的周报又会在卡片下方留好几百 px 空白。改成随视口收放，但不矮于 420px。 */
+  height: clamp(420px, calc(100vh - 280px), 860px);
   border: 1px solid var(--border, #ebeef5);
   border-radius: 10px;
   background: #fff;

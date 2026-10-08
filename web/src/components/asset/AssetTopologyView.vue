@@ -304,10 +304,13 @@ onMounted(() => {
 .sec > span:first-child { font-weight: 600; }
 .summary-line { display: flex; gap: 24px; margin-bottom: 10px; font-size: 13px; }
 .summary-line b { font-size: 15px; }
-.summary-line .warn b { color: #e6a23c; }
+.summary-line .warn b { color: var(--warn); }
 .ov-table :deep(.el-table__row) { cursor: pointer; }
-.tag { font-size: 12px; padding: 1px 6px; border-radius: 3px; background: rgba(74, 157, 240, 0.14); }
+/* 此前写死 rgba(74,157,240,.14)（主题「极光蓝」的主色）：切到青绿/紫色主题后
+   这里的标签底色不跟着变，与页面其它用令牌的元素割裂。 */
+.tag { font-size: 12px; padding: 1px 6px; border-radius: 3px; background: var(--accent-dim); }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.muted { color: var(--text-muted, #8a94a6); font-size: 13px; }
-.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.muted { color: var(--text-muted); font-size: 13px; }
+/* 全站等宽字体令牌是 --mono（JetBrains Mono 组） */
+.mono { font-family: var(--mono); }
 </style>

@@ -211,7 +211,7 @@
     </div>
 
     <!-- 下发：节点（可多选）→ 动作 → 参数 → 原因 -->
-    <el-dialog v-model="dispatchVisible" title="下发操作" width="720px">
+    <el-dialog v-model="dispatchVisible" title="下发操作" width="min(720px, 94vw)">
       <el-alert
         type="warning"
         :closable="false"
@@ -320,7 +320,7 @@
     </el-dialog>
 
     <!-- 下发结果：逐节点给结论（部分成功是常态） -->
-    <el-dialog v-model="batchVisible" title="批量下发结果" width="700px">
+    <el-dialog v-model="batchVisible" title="批量下发结果" width="min(700px, 94vw)">
       <div v-if="batchResult">
         <el-alert
           :type="batchResult.failed === 0 ? 'success' : batchResult.created > 0 ? 'warning' : 'error'"
@@ -356,7 +356,7 @@
          此前 `<pre>` 落在 v-for 之外，`sec` 成了未定义变量，一渲染就抛
          TypeError（"Cannot read properties of undefined"），表现是"点了没反应"，
          控制台之外看不到任何线索。 -->
-    <el-drawer v-model="resultVisible" :title="resultTitle" size="560px" class="ops-result-drawer">
+    <el-drawer v-model="resultVisible" :title="resultTitle" size="min(560px, 94vw)" class="ops-result-drawer">
       <div v-if="resultTask" class="dr-body">
         <div class="dr-top">
           <span class="op-pill" :class="pillClass(resultTask.state)">{{ stateLabel(resultTask.state) }}</span>
@@ -1398,12 +1398,21 @@ const resultSections = computed(() => {
 }
 .op-search {
   width: 250px;
+  max-width: 100%;
 }
 .op-tb-right {
   margin-left: auto;
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
   align-items: center;
+}
+/* 工具条换到第二行后，margin-left:auto 会把「列 / 密度 / 导出」这一组孤零零顶到最右，
+   右侧悬空一撮、左侧一片空。换行时改成靠左，让它们紧跟在筛选条件后面。 */
+@media (max-width: 1100px) {
+  .op-tb-right {
+    margin-left: 0;
+  }
 }
 .col-off {
   color: var(--text-muted);
@@ -1627,12 +1636,14 @@ const resultSections = computed(() => {
   min-width: 58px;
   text-align: right;
 }
-/* 行内操作平时压低存在感，hover / 键盘聚焦时显出来 */
+/* 行内操作平时压低存在感，hover / 键盘聚焦时显出来。
+   0.45 在深色底上对比度太低，触屏与无鼠标场景（focus-within 只对可聚焦元素生效）
+   等于把「查看结果 / 取消 / 删除」藏了起来，这里抬到 0.8——仍比 hover 态弱一档。 */
 .ops-cell {
   display: flex;
   gap: 2px;
   justify-content: flex-end;
-  opacity: 0.45;
+  opacity: 0.8;
   transition: 0.15s;
 }
 .op-table-wrap :deep(.el-table__row:hover) .ops-cell,

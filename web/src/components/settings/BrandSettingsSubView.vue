@@ -39,7 +39,9 @@
           </el-form-item>
         </el-col>
 
-        <el-col :xs="24" :md="12">
+        <!-- 占满整行：这一组只有三项，前两项各占半行，
+             Logo 若也占半行就会独占一行且右侧空出半列，与上下两组对不齐。 -->
+        <el-col :xs="24" :md="24">
           <el-form-item label="系统 Logo">
             <div class="logo-row">
               <div class="logo-preview">

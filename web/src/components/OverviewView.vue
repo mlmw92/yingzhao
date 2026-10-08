@@ -22,6 +22,7 @@
         v-for="b in visibleBlocks"
         :key="b.key"
         class="ov-block"
+        :data-span="b.span"
         :style="{ gridColumn: 'span ' + b.span }"
       >
         <div class="card ov-card">
@@ -274,7 +275,7 @@ function blockProps(key) {
     case 'hostOverview':
       return { groupedHosts: groupedHosts.value }
     case 'middleware':
-      return { summaries: mwSummaries.value }
+      return { summaries: mwSummaries.value, loading: loading.value }
     case 'recentAlerts':
       return { alerts: recentAlerts.value }
     default:
@@ -379,6 +380,15 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+/* 12 栅格里 span 4 在 1400px 以下只剩约 300px，而「关键指标」卡内部还要再分 2 列，
+   每格约 138px——26px 的数字加上「在线 x · 离线 y」几乎必然被截成「在线 …」。
+   1400px 起先让 span 4 降到半宽（span 6），1100px 以下再全部拉通。
+   data-span 是为了让断点能区分区块：span 是内联样式，CSS 只能靠属性选择器命中。 */
+@media (max-width: 1400px) {
+  .ov-block[data-span='4'] {
+    grid-column: span 6 !important;
+  }
+}
 @media (max-width: 1100px) {
   .ov-block {
     grid-column: span 12 !important;

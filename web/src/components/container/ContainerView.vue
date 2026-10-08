@@ -163,7 +163,7 @@
     </template>
 
     <!-- 对象详情：只读投影，敏感字段不下发 -->
-    <el-drawer v-model="detailVisible" :title="detailTitle" size="620px">
+    <el-drawer v-model="detailVisible" :title="detailTitle" size="min(620px, 94vw)">
       <!-- 与主表同一套规矩：点开行不重新下发，要最新的自己点「刷新」 -->
       <div class="detail-bar">
         <span class="muted">
@@ -184,7 +184,7 @@
       </template>
     </el-drawer>
     <!-- Pod 日志：与详情同一套异步规矩——拉一次就缓存，要看最新的点「重新拉取」 -->
-    <el-drawer v-model="logsVisible" :title="logsTitle" size="720px">
+    <el-drawer v-model="logsVisible" :title="logsTitle" size="min(720px, 94vw)">
       <div class="detail-bar">
         <span class="muted">
           <template v-if="logsBusy">正在拉取（等待 Agent 上报）…</template>
@@ -1014,9 +1014,13 @@ onBeforeUnmount(() => {
   padding: 12px;
   max-height: calc(100vh - 220px);
   overflow: auto;
-  background: var(--bg-sunken, rgba(0, 0, 0, 0.04));
+  background: var(--s0);
+  /* 与同页 .result-notice / .query-state 一致用「描边 + 语义底色」：
+     此前这里是未定义的 var(--bg-sunken) 回退 4% 黑，深色下几乎看不出底色且没有边界，
+     长日志块会与页面底色糊在一起。 */
+  border: 1px solid var(--border);
   border-radius: 6px;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--mono);
   font-size: var(--fs-xs);
   line-height: 1.5;
   white-space: pre-wrap;

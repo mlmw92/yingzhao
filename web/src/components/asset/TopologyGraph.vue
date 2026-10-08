@@ -41,7 +41,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import * as echarts from 'echarts'
+import { initChart, tokenColor } from '../../charts/echarts'
 import { getAssetTopology } from '../../api/asset'
 
 const props = defineProps({
@@ -75,12 +75,15 @@ const truncatedHint = computed(() => (props.reCenter
   ? '缩小跳数，或直接以目标资产为中心查看。静默省略会让人以为关系就这么多。'
   : '当前筛选命中的关系超过上限，缩小筛选范围可以看到全部。静默省略会让人以为关系就这么多。'))
 
-// 类型 → 颜色。与图例共用同一份定义，避免"图上是蓝的、图例说是绿的"。
-const TOPO_COLORS = {
-  host: '#4a9df0',
-  'middleware-instance': '#00d9a3',
-  pod: '#e6a23c',
-  workload: '#8b5cf6',
+// 类型 → 颜色令牌。与图例共用同一份定义，避免"图上是蓝的、图例说是绿的"。
+// 读的是 CSS 变量而不是写死的十六进制：写死的话切到青绿 / 紫色主题后
+// --accent / --ok 全变了，而关系图仍停在极光蓝那一套，与页面其它元素割裂。
+// 在 render() 里取而不在模块顶层取——那时样式表不一定已经生效。
+const TOPO_TOKENS = {
+  host: 'chart-blue',
+  'middleware-instance': 'chart-green',
+  pod: 'chart-orange',
+  workload: 'chart-purple',
 }
 
 // 状态标签与台账列表共用一套措辞（"上报正常/失联"而不是"在线/离线"：
@@ -107,16 +110,16 @@ async function load(id) {
 function render() {
   const data = topo.value
   if (!data || !chartRef.value) return
-  if (!chart) chart = echarts.init(chartRef.value)
+  if (!chart) chart = initChart(chartRef.value)
   const nodes = (data.nodes || []).map((n) => ({
     id: n.key,
     name: n.name || n.naturalKey,
     symbolSize: n.root ? 52 : n.depth === 1 ? 38 : 28,
     itemStyle: {
-      color: TOPO_COLORS[n.typeKey] || '#909399',
+      color: tokenColor(TOPO_TOKENS[n.typeKey] || 't3', '#8a94a6'),
       // 已从台账隐藏的资产画成半透明：它仍在关系里，但已不是"要治理的对象"
       opacity: n.ignored ? 0.45 : 1,
-      borderColor: n.status === 'online' ? 'transparent' : '#f56c6c',
+      borderColor: n.status === 'online' ? 'transparent' : tokenColor('danger', '#f56c6c'),
       borderWidth: n.status === 'online' ? 0 : 2,
     },
     // 原始节点挂在 data 上：tooltip 与点击回调都要用
@@ -127,8 +130,17 @@ function render() {
     source: e.from,
     target: e.to,
     raw: e,
-    lineStyle: { type: e.source === 'manual' ? 'dashed' : 'solid', width: 1.4, color: '#9aa4b2' },
-    label: { show: true, formatter: e.kind, fontSize: 10, color: '#8a94a6' },
+    lineStyle: {
+      type: e.source === 'manual' ? 'dashed' : 'solid',
+      width: 1.4,
+      color: tokenColor('t3', '#9aa4b2'),
+    },
+    label: {
+      show: true,
+      formatter: e.kind,
+      fontSize: 10,
+      color: tokenColor('t3', '#8a94a6'),
+    },
   }))
 
   chart.setOption(

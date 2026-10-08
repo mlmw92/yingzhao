@@ -28,7 +28,7 @@
           start-placeholder="开始时间"
           end-placeholder="结束时间"
           :shortcuts="shortcuts"
-          style="width: 360px"
+          style="width: 400px; max-width: 100%"
         />
         <el-select v-model="mode" size="small" style="width: 96px">
           <el-option label="关键词" value="kw" />
@@ -141,9 +141,12 @@
         class="alert-gap"
       />
 
-      <el-table :data="lines" style="width: 100%">
+      <el-table v-loading="loading" :data="lines" style="width: 100%">
+        <!-- 空态分两种：查过之后没有命中才是「没有命中的日志」；
+             一次都没查过时不能复用这句话，否则首屏就给出一个错误结论。 -->
         <template #empty>
           <EmptyState
+            v-if="searched"
             title="没有命中的日志"
             :hints="[
               '确认 Agent 的 logSources.patterns 已配置并包含目标文件路径',
@@ -151,6 +154,11 @@
               '扩大时间范围——日志默认只查最近一段时间',
               '关键词模式下是子串匹配，正则模式需切换到「正则」',
             ]"
+          />
+          <EmptyState
+            v-else
+            title="按条件查询后显示结果"
+            :hints="['选择时间范围与关键词，然后点「查询」']"
           />
         </template>
         <el-table-column label="时间" width="180">
@@ -233,7 +241,7 @@
 
     <!-- 配置示例：logSources 配在 Agent 侧，界面上看不到字段，是"查不到数据"时最需要的东西。
          复制走 execCommand 兜底：离线部署多为 http 源，navigator.clipboard 在非安全上下文不可用。 -->
-    <el-dialog v-model="exampleVisible" title="Agent 侧 logSources 配置示例" width="760px">
+    <el-dialog v-model="exampleVisible" title="Agent 侧 logSources 配置示例" width="min(760px, 94vw)">
       <el-alert
         type="info"
         :closable="false"
@@ -445,6 +453,9 @@ async function loadBackend() {
     backend.value = null
   }
 }
+// 是否已经查过一次。没有它就无法区分「查过、确实没有命中」和「还没查」，
+// 首屏会把后者渲染成「没有命中的日志」——那是一个会让运维得出错误结论的空态。
+const searched = ref(false)
 const loading = ref(false)
 const loadingMore = ref(false)
 const loadError = ref('')
@@ -714,6 +725,7 @@ async function search() {
     podAssetMap.value = {}
   } finally {
     loading.value = false
+    searched.value = true
   }
 }
 
@@ -809,7 +821,7 @@ onMounted(async () => {
 .panel { padding: 12px; }
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .alert-gap { margin-bottom: 10px; }
-.tag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--tag-bg, rgba(64, 158, 255, 0.12)); font-size: 12px; }
+.tag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--accent-dim); font-size: 12px; }
 /* 字段过滤行：已生效的条件（可删）+ 候选字段名（点击填入输入框） */
 .field-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .field-hint { display: inline-flex; align-items: center; gap: 2px; flex-wrap: wrap; }
@@ -821,8 +833,8 @@ onMounted(async () => {
 /* 容器身份：一行小字而不是标签——它是"这行日志的出处"，本身不是可点的实体
    （可点的是它下面的 Pod 资产标签） */
 .pod-line { font-size: 12px; margin-top: 2px; }
-.field-chip { background: var(--tag-bg-2, rgba(103, 194, 58, 0.14)); font-family: var(--mono); }
-.logline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; cursor: pointer; }
+.field-chip { background: var(--ok-dim); font-family: var(--mono); }
+.logline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 12px; cursor: pointer; }
 .logline.open { white-space: pre-wrap; word-break: break-all; }
 .foot { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 /* 配置示例弹窗 */

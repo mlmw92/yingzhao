@@ -74,7 +74,7 @@
     </el-card>
 
     <!-- 新建 / 编辑用户 -->
-    <el-dialog v-model="formVisible" :title="editing ? '编辑用户' : '新建用户'" width="560px">
+    <el-dialog v-model="formVisible" :title="editing ? '编辑用户' : '新建用户'" width="min(560px, 94vw)">
       <el-form :model="form" label-width="92px" @submit.prevent>
         <el-form-item label="用户名" required>
           <el-input v-model="form.username" :disabled="editing" placeholder="3-32 位字母/数字/下划线" />
@@ -447,7 +447,7 @@ onMounted(loadAll)
 .scope-warn {
   margin: 8px 0 0;
   font-size: 13px;
-  color: #e6a23c;
+  color: var(--warn);
 }
 /* 业务范围是第二个维度，与节点范围是「且」：视觉上要能看出这是两块。 */
 .scope-sub {

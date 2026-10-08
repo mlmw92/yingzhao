@@ -3,7 +3,7 @@
     :model-value="visible"
     @update:model-value="$emit('update:visible', $event)"
     :title="'主机详情 · ' + displayName"
-    width="560px"
+    width="min(560px, 94vw)"
     class="host-detail-dialog"
     append-to-body
     :close-on-click-modal="true"

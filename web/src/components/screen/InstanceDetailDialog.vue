@@ -3,7 +3,7 @@
     :model-value="visible"
     @update:model-value="$emit('update:visible', $event)"
     :title="title"
-    width="540px"
+    width="min(540px, 94vw)"
     class="instance-detail-dialog"
     append-to-body
     :close-on-click-modal="true"

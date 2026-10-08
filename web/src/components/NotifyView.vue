@@ -20,12 +20,12 @@
           </div>
         </template>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="SMTP 主机"><el-input v-model="notify.email.smtpHost" placeholder="smtp.example.com" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="端口"><el-input-number v-model="notify.email.smtpPort" :min="1" :max="65535" controls-position="right" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="用户名"><el-input v-model="notify.email.username" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="发件人"><el-input v-model="notify.email.from" placeholder="monitor@example.com" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="密码"><el-input v-model="notify.email.password" type="password" show-password placeholder="不修改请留空" /></el-form-item></el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :sm="24" :md="12"><el-form-item label="SMTP 主机"><el-input v-model="notify.email.smtpHost" placeholder="smtp.example.com" /></el-form-item></el-col>
+          <el-col :xs="24" :sm="24" :md="12"><el-form-item label="端口"><el-input-number v-model="notify.email.smtpPort" :min="1" :max="65535" controls-position="right" /></el-form-item></el-col>
+          <el-col :xs="24" :sm="24" :md="12"><el-form-item label="用户名"><el-input v-model="notify.email.username" /></el-form-item></el-col>
+          <el-col :xs="24" :sm="24" :md="12"><el-form-item label="发件人"><el-input v-model="notify.email.from" placeholder="monitor@example.com" /></el-form-item></el-col>
+          <el-col :xs="24" :sm="24" :md="12"><el-form-item label="密码"><el-input v-model="notify.email.password" type="password" show-password placeholder="不修改请留空" /></el-form-item></el-col>
+          <el-col :xs="24" :sm="24" :md="12">
             <el-form-item label="加密方式">
               <el-radio-group v-model="emailEncryption">
                 <el-radio value="none">无</el-radio>
@@ -217,31 +217,12 @@ onMounted(load)
 
 <style scoped>
 .notify-view {
-  max-width: 920px;
+  /* 920px 在宽屏上把内容钉在左侧、右侧大片留白；
+     放宽到 1120px，同时保留上限——表单行过长反而不好扫读。 */
+  max-width: 1120px;
 }
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-.head-actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.page-head h2 {
-  margin: 0 0 4px;
-  font-size: 22px;
-  font-weight: 600;
-}
-.sub {
-  margin: 0;
-  color: var(--text-dim);
-  font-size: 13px;
-  max-width: 640px;
-}
+/* .page-head / .head-actions / .sub 是改用 PageHeader 之后遗留的死规则
+   （模板里已无对应元素），删掉避免误以为这里有生效的排版。 */
 .cards {
   display: flex;
   flex-direction: column;
@@ -249,7 +230,7 @@ onMounted(load)
 }
 .ch {
   border: 1px solid var(--border);
-  background: var(--card);
+  background: var(--bg-card);
 }
 .ch-head {
   display: flex;

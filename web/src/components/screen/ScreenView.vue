@@ -337,7 +337,10 @@ onUnmounted(() => {
     'kpi'
     'main'
     'bottom';
-  grid-template-rows: auto 48px 1fr 48px;
+  /* 末行用 auto 而不是写死 48px：底部告警区由 cfg.modules.alerts 控制显隐，
+     写死的话在模块设置里关掉它之后，底部会永久残留一条 48px 的空白带。
+     .hud-bottom 自带 min-height:48px，显示时的高度与原来一致。 */
+  grid-template-rows: auto 48px 1fr auto;
   gap: 8px;
   padding: 8px 12px;
   color: var(--text);
@@ -407,6 +410,9 @@ onUnmounted(() => {
 
 .hud-center {
   flex: 1;
+  /* 两侧 .hud-side 各 300px 写死且不会收缩，中间列若没有 min-width:0
+     就按内容的最小宽度撑开，配合根节点 overflow:hidden 会把主标题与装饰线裁掉。 */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -613,7 +619,10 @@ onUnmounted(() => {
   min-height: 0;
   position: relative;
   z-index: 2;
-  overflow: hidden;
+  /* 此前是 hidden：大屏按 100vh 固定，一旦视口达不到设计分辨率
+     （1366/1600、非 16:9、浏览器带书签栏），超出部分直接被裁掉且滚不到。
+     改 auto 不影响设计分辨率下的观感（不溢出时没有滚动条）。 */
+  overflow: auto;
 }
 
 /* Tab 切换动画 */
@@ -637,6 +646,8 @@ onUnmounted(() => {
   grid-area: bottom;
   display: flex;
   align-items: center;
+  /* 高度由自己声明，配合 grid 末行的 auto —— 关掉这个模块时行会塌成 0，不留空白 */
+  min-height: 48px;
   gap: 12px;
   padding: 0 14px;
   border-radius: 10px;

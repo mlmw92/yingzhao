@@ -186,7 +186,10 @@
         </div>
       </template>
 
-      <el-table :data="pagedEvents" style="width: 100%" :row-class-name="rowClass" max-height="460">
+      <!-- 原本 max-height 写死 460：每页条数可切 10/20/50/100，
+           于是切页时卡片高度在 380↔460 之间跳，100 条时表体内部还多出一个滚动区。
+           条数已经由分页器控制，这里让表格按当前页自然展开，高度只随分页变化。 -->
+      <el-table :data="pagedEvents" style="width: 100%" :row-class-name="rowClass">
         <template #empty>
           <EmptyState
             :icon="Lock"
@@ -701,8 +704,13 @@ onMounted(async () => {
   font-size: 13px;
   color: var(--text-dim);
 }
-.row-critical :deep(.el-table__row) { box-shadow: inset 3px 0 0 var(--danger); }
-.row-warning :deep(tr) { border-left: 3px solid var(--warn); }
+/* 行状态色条：row-class-name 把类名加在 <tr> 自身，所以必须直接命中 tr——
+   此前写成 `.row-critical :deep(.el-table__row)` 是后代选择器（要求 tr 的后代里有
+   .el-table__row），永远匹配不到，紧急/警告行的色条等于没画。
+   色条挂到首个单元格而不是 tr：表格是 separate 边框模型，tr 上的 box-shadow 不一定渲染。
+   两档统一用 inset box-shadow，避免此前 critical/warning 两种实现（阴影 vs border-left）不一致。 */
+:deep(tr.row-critical) td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+:deep(tr.row-warning) td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 
 .dim { color: var(--text-dim); font-size: 13px; }
 .muted { color: var(--text-muted); font-size: 13px; }
@@ -793,7 +801,9 @@ onMounted(async () => {
 .bl-item.pass .bl-dot { background: var(--ok); box-shadow: 0 0 8px var(--ok-dim); }
 .bl-item.fail .bl-dot { background: var(--danger); box-shadow: 0 0 8px var(--danger-dim); }
 .bl-name { color: var(--text-dim); flex: 1; }
-.bl-item.fail .bl-name { color: var(--warn); }
+/* 同一条「未通过」此前是圆点红、名称琥珀、状态文字红三处不一致，
+   扫读时「这到底算警告还是失败」没有统一答案。这里统一成 --danger。 */
+.bl-item.fail .bl-name { color: var(--danger); }
 .bl-state { font-size: 13px; color: var(--text-muted); }
 .bl-item.fail .bl-state { color: var(--danger); }
 
@@ -884,6 +894,12 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
+}
+/* 本文件其余网格都有 1100px 断点，唯独这里没有：平板宽度下 4 张卡会被压到 180px 以内 */
+@media (max-width: 1100px) {
+  .defense-kpi {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 .dk-card {
   background: var(--fill-1);

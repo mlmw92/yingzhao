@@ -75,7 +75,9 @@
             <el-input v-model="row.target" size="small" placeholder="如 host" />
           </template>
         </el-table-column>
-        <el-table-column label="正则 / 替换为 / 值">
+        <!-- 其余列宽合计约 674px 且都是固定值，这一列若不给 min-width，
+             容器一窄它就会被压到接近 0，三个输入框叠成一条、实际没法输入。 -->
+        <el-table-column label="正则 / 替换为 / 值" min-width="260">
           <template #default="{ row }">
             <div class="triple">
               <el-input

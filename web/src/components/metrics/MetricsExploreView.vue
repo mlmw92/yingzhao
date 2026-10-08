@@ -213,7 +213,9 @@ onBeforeUnmount(() => {
 <style scoped>
 /* 原来这里全是写死的十六进制色（var(--t1) / var(--ok) / var(--t3)），
    切到青绿或紫色主题时整页不跟随。全部收敛到令牌。 */
-.explore { display: flex; height: calc(100vh - 140px); }
+/* 140px 只算了顶栏，没算页脚（约 60px，且页脚按品牌配置可显隐），
+   于是要么页面与内容区双滚动，要么底部空一截。留出 200px 并用下限兜住矮屏。 */
+.explore { display: flex; height: clamp(420px, calc(100vh - 200px), 1400px); }
 .left { width: 320px; border-right: 1px solid var(--bd); padding: 12px; overflow: auto; }
 .left-head-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .left-head { font-size: var(--fs-md); font-weight: 700; color: var(--t1); }
@@ -224,11 +226,13 @@ onBeforeUnmount(() => {
 .metric-state.online { color: var(--ok); }
 .metric-state.offline { color: var(--t3); }
 .kw { margin-bottom: 8px; }
-.right { flex: 1; padding: 16px; min-width: 0; }
+.right { flex: 1; padding: 16px; min-width: 0; display: flex; flex-direction: column; }
 .empty { color: var(--t3); margin-top: 40px; text-align: center; }
 .right-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
 .m-title { font-size: var(--fs-lg); font-weight: 700; color: var(--t1); }
 .m-name { font-size: var(--fs-sm); color: var(--t3); font-weight: 400; }
 .m-meta { font-size: var(--fs-sm); color: var(--t2); margin-top: 4px; }
-.chart { height: calc(100% - 70px); min-height: 320px; background: var(--s1); border: 1px solid var(--bd); border-radius: var(--r-lg); }
+/* 此前是 calc(100% - 70px) 减掉一个猜出来的头部高度（实际约 72px），图表底部会溢出 .right。
+   改成由 flex 撑满剩余空间，不再依赖那个数字。 */
+.chart { flex: 1; min-height: 320px; background: var(--s1); border: 1px solid var(--bd); border-radius: var(--r-lg); }
 </style>

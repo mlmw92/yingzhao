@@ -370,7 +370,9 @@ watch(
 /* 底部mini KPI */
 .mini-row {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  /* 与上方 KPI 行同为 5 列：此前写 6 列而 minis 只有 5 项，
+     底部永远空一格，两行的左右边界对不齐。 */
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   flex-shrink: 0;
 }

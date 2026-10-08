@@ -1,5 +1,5 @@
 <template>
-  <el-dialog :model-value="true" title="告警规则" width="680px" @close="$emit('close')">
+  <el-dialog :model-value="true" title="告警规则" width="min(760px, 94vw)" @close="$emit('close')">
     <el-form :model="form" label-width="90px" label-position="left" class="rule-form">
 
       <!-- ── 基本信息 ── -->
@@ -89,7 +89,9 @@
           </el-form-item>
           <el-row :gutter="12" align="middle">
             <el-col :span="7">
-              <el-form-item label="运算符">
+              <!-- 全站 label-width 是 90px，在 24 栅格的 7/24 列里会把 select 压到约 87px，
+                   「大于等于 ≥」这类选项会被裁掉后半截。这一行标签都很短，单独收窄标签。 -->
+              <el-form-item label="运算符" label-width="52px">
                 <el-select v-model="form.operator" style="width: 100%">
                   <el-option value=">" label="大于 &gt;" />
                   <el-option value=">=" label="大于等于 ≥" />
@@ -101,12 +103,12 @@
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="阈值" required>
+              <el-form-item label="阈值" label-width="40px" required>
                 <el-input-number v-model="form.threshold" :step="0.1" :min="0" :precision="2" controls-position="right" placeholder="阈值" style="width: 100%" />
               </el-form-item>
             </el-col>
             <el-col :span="9">
-              <el-form-item label="持续时间">
+              <el-form-item label="持续时间" label-width="62px">
                 <el-select v-model="form.for" style="width: 100%">
                   <el-option value="0" label="立即触发" />
                   <el-option value="1m" label="1 分钟" />

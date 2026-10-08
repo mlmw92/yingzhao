@@ -65,7 +65,7 @@
     </el-card>
 
     <!-- 新建 / 编辑角色 -->
-    <el-dialog v-model="formVisible" :title="editing ? '编辑角色' : '新建角色'" width="720px" top="5vh">
+    <el-dialog v-model="formVisible" :title="editing ? '编辑角色' : '新建角色'" width="min(720px, 94vw)" top="5vh">
       <el-form :model="form" label-width="84px" @submit.prevent>
         <el-form-item label="角色名" required>
           <el-input v-model="form.name" :disabled="editing" placeholder="英文标识，如 custom_ops" />
@@ -405,7 +405,7 @@ onMounted(loadAll)
 .scope-warn {
   margin: 8px 0 0;
   font-size: 13px;
-  color: #e6a23c;
+  color: var(--warn);
 }
 /* 业务范围是第二个维度，与节点范围是「且」的关系：视觉上也要能看出这是两块，
    否则很容易被读成"选一个就行"。 */
@@ -507,7 +507,7 @@ onMounted(loadAll)
   min-width: 0;
 }
 .perm-key {
-  font-family: var(--font-mono, 'Courier New', monospace);
+  font-family: var(--mono);
   font-size: 13px;
   color: var(--text, #e0e0e0);
   word-break: break-all;

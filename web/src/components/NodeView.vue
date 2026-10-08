@@ -175,6 +175,15 @@
               <el-input v-model="procSearch" placeholder="搜索进程名 / PID" clearable size="small" :prefix-icon="Search" class="proc-search" />
             </div>
             <el-table :data="filteredProcs" stripe size="small" max-height="320" :default-sort="{ prop: 'cpu', order: 'descending' }">
+              <!-- 空态放进 el-table 自己的 #empty：此前表格常驻渲染、下方又另挂一个 EmptyState，
+                   无数据时同一区域同时出现两个空提示（EP 的「暂无数据」+ 自绘空态）。 -->
+              <template #empty>
+                <EmptyState
+                  :icon="List"
+                  title="无进程数据"
+                  :hints="['该主机尚未上报进程明细', '确认 Agent 运行正常；若上方填了关键字，先清空再试']"
+                />
+              </template>
               <el-table-column prop="pid" label="PID" width="90" sortable />
               <el-table-column prop="name" label="进程名" min-width="160" show-overflow-tooltip />
               <el-table-column label="CPU %" width="120" sortable :sort-method="(a, b) => a.cpu - b.cpu">
@@ -194,12 +203,6 @@
                 </template>
               </el-table-column>
             </el-table>
-            <EmptyState
-              v-if="!filteredProcs.length"
-              :icon="List"
-              title="无进程数据"
-              :hints="['该主机尚未上报进程明细', '确认 Agent 运行正常；若上方填了关键字，先清空再试']"
-            />
           </div>
           <div class="bottom-col">
             <div class="section-title">
@@ -221,6 +224,13 @@
 
             <div class="section-title" style="margin-top: 16px">告警事件</div>
             <el-table :data="alertEvents" stripe size="small" max-height="220">
+              <template #empty>
+                <EmptyState
+                  :icon="Bell"
+                  title="暂无告警"
+                  :hints="['该主机当前没有告警事件', '可在「告警中心」查看全部历史事件与已恢复告警']"
+                />
+              </template>
               <el-table-column label="时间" width="160">
                 <template #default="{ row }">{{ fmtTime(row.startsAt || row.endsAt) }}</template>
               </el-table-column>
@@ -236,12 +246,6 @@
                 </template>
               </el-table-column>
             </el-table>
-            <EmptyState
-              v-if="!alertEvents.length"
-              :icon="Bell"
-              title="暂无告警"
-              :hints="['该主机当前没有告警事件', '可在「告警中心」查看全部历史事件与已恢复告警']"
-            />
           </div>
         </div>
       </el-tab-pane>

@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" title="分组管理" width="560px" @close="$emit('close')">
+  <el-dialog v-model="visible" title="分组管理" width="min(560px, 94vw)" @close="$emit('close')">
     <!-- 新建分组 -->
     <div class="add-row">
       <el-input

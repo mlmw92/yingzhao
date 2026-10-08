@@ -138,9 +138,12 @@ const bars = computed(() => [
   font-size: 13px;
 }
 .sh-bar-l {
-  width: 56px;
+  /* 此前写死 56px 且 nowrap：「告警健康度」这类 5 字标签约 65px，会溢出并压到进度条上。
+     改用 min-width 保住各条起点对齐，同时允许更长的标签撑开而不是溢出。 */
+  min-width: 76px;
   flex-shrink: 0;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 .sh-bar-track {
   flex: 1;
@@ -160,8 +163,5 @@ const bars = computed(() => [
   flex-shrink: 0;
   text-align: right;
   color: var(--text);
-}
-.sh-bar-l {
-  white-space: nowrap;
 }
 </style>

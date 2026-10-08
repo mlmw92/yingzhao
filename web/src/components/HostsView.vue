@@ -110,6 +110,7 @@
     <SectionCard v-if="hostTab === 'hosts'" dense>
       <el-table
         ref="hostTable"
+        v-loading="loading"
         :data="pagedNodes"
         stripe
         style="width: 100%"
@@ -273,7 +274,7 @@
     </SectionCard>
 
     <!-- 添加主机 / 部署 Agent 抽屉 -->
-    <el-drawer v-model="showAddModal" title="添加主机" direction="rtl" size="520px" :close-on-click-modal="false">
+    <el-drawer v-model="showAddModal" title="添加主机" direction="rtl" size="min(520px, 94vw)" :close-on-click-modal="false">
       <div class="drawer-body">
         <el-alert type="info" :closable="false" show-icon class="add-tip">
           按部署场景选择安装方式：常规直连直接执行安装命令；跨网闸隔离场景使用 Edge/Hub 代理隧道。
@@ -527,6 +528,9 @@ const refreshInterval = ref(20) // 0=关闭, >0=秒
 const countdown = ref(20)
 const lastRefresh = ref('')
 const loadError = ref('')
+// 首屏与每轮轮询都需要：此前表格没有加载态，
+// 数据是「空表 → 突然满屏」地出现的，行高与分页条位置会跟着跳一下。
+const loading = ref(false)
 
 const showAddModal = ref(false)
 const showGroupManage = ref(false)
@@ -855,6 +859,7 @@ function fmtRate(v) {
 
 async function load() {
   if (!visible) return
+  loading.value = true
   loadError.value = ''
   try {
     const [nd, md, gd, pd] = await Promise.all([
@@ -871,6 +876,8 @@ async function load() {
   } catch (e) {
     loadError.value = '数据加载失败：' + (e.message || '未知错误')
     console.error('[HostsView] load error:', e)
+  } finally {
+    loading.value = false
   }
 }
 

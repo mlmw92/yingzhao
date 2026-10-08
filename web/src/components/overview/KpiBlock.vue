@@ -14,6 +14,10 @@
           :option="sparkOption(series(k.label))"
           autoresize
         />
+        <!-- 采样点不足 2 个时曲线画不出来。此前只是不渲染，于是同一行里有的卡有迷你图、
+             有的没有，两行行高不同；等攒够 2 个点后卡片又突然长高约 44px。
+             这里用同高的占位块把高度钉住。 -->
+        <div v-else class="kpi-spark kpi-spark-pending"></div>
       </div>
     </div>
     <div v-if="!kpis || kpis.length === 0" class="kpi-empty">
@@ -200,6 +204,13 @@ function sparkOption(data) {
   width: 100%;
   height: 36px;
   margin-top: 8px;
+}
+/* 曲线还没成形时的占位：与真实曲线同高，只淡到底色 */
+.kpi-spark-pending {
+  height: 36px;
+  margin-top: 8px;
+  border-radius: var(--r-xs);
+  background: var(--fill-1);
 }
 .kpi-empty {
   grid-column: 1 / -1;

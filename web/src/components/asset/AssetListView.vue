@@ -264,7 +264,7 @@
     </div>
 
     <!-- 详情抽屉：原型的三 Tab（属性对比 / 变更历史 / 关联关系） -->
-    <el-drawer v-model="detailVisible" size="780px" :title="detail ? detail.name || detail.naturalKey : '资产详情'">
+    <el-drawer v-model="detailVisible" size="min(780px, 94vw)" :title="detail ? detail.name || detail.naturalKey : '资产详情'">
       <div v-if="detail" class="detail">
         <div class="d-tags">
           <span class="tag" :class="detail.typeKey === 'host' ? 'host' : 'mw'">{{ typeLabel(detail) }}</span>
@@ -304,7 +304,7 @@
           <el-button v-if="canWrite" link type="primary" class="d-labels-edit" @click="openEdit(detail)">编辑标签</el-button>
         </div>
 
-        <el-tabs v-model="tab">
+        <el-tabs v-model="tab" class="detail-tabs">
           <el-tab-pane :label="`属性对比 ${detail.attrs.length}`" name="attr">
             <el-alert
               v-if="detail.conflictCount > 0"
@@ -535,7 +535,7 @@
               </p>
             </template>
             <p class="muted note">
-              这里只列**直接**关系，范围外的对端不返回。要看 N 跳邻域（影响面）用上方「关系图」：
+              这里只列直接关系，范围外的对端不返回。要看 N 跳邻域（影响面）用上方「关系图」：
               点节点即以它为中心重新展开。
             </p>
           </el-tab-pane>
@@ -550,7 +550,7 @@
 
     <!-- 添加关系：方向 × 类型 × 对端。方向做成显式选择而不是让前端猜——
          服务端把 URL 里的资产当作边的基准，direction 决定对端是终点还是起点。 -->
-    <el-dialog v-model="linkAddVisible" title="添加关系" width="560px">
+    <el-dialog v-model="linkAddVisible" title="添加关系" width="min(560px, 94vw)">
       <el-form label-width="90px">
         <el-form-item label="方向">
           <el-radio-group v-model="linkForm.direction">
@@ -590,7 +590,7 @@
     <!-- 新建：手工建档（人工来源）。表单项与列表列一一对应：
          资产名称→「资产名称」，类型+地址→「类型」，归属节点→「归属节点」，责任人→「责任人」；
          自然键由「实例类型 + 地址」自动拼出，不要求用户理解 <类型>:<地址> 的内部约定。 -->
-    <el-dialog v-model="createVisible" title="新建资产" width="640px">
+    <el-dialog v-model="createVisible" title="新建资产" width="min(640px, 94vw)">
       <el-form label-width="100px">
         <el-form-item label="资产类型">
           <!-- 只提供两种：手工**能**建的只有主机与中间件实例。
@@ -683,7 +683,7 @@
     <!-- 编辑：可改资产名称 + 人工属性（采集值不受影响）。与列表对齐：名称 / 责任人 / 其它属性；
          责任人清空提交 = 恢复「未指派」（走 resetAttrs 删除人工值，而不是写入空值）。
          名称已预填当前值，未改动则不会提交（避免"提交了就报无内容可改"）。 -->
-    <el-dialog v-model="editVisible" title="编辑资产" width="640px">
+    <el-dialog v-model="editVisible" title="编辑资产" width="min(640px, 94vw)">
       <el-alert
         type="info"
         :closable="false"
@@ -771,7 +771,7 @@
 
     <!-- 批量转派责任人：留空即报错（要清空请点底部的「清空责任人」），
          避免"输入框忘了填"就把一整批责任人静默清掉。 -->
-    <el-dialog v-model="batchOwner.visible" title="批量转派责任人" width="540px">
+    <el-dialog v-model="batchOwner.visible" title="批量转派责任人" width="min(540px, 94vw)">
       <el-alert
         type="info"
         :closable="false"
@@ -797,7 +797,7 @@
 
     <!-- 批量打标签：写入会覆盖同名标签，删除会移除该键。
          两种方式放在一起，是因为"给这批机器打上 env=prod"与"把打错的 env 摘掉"是同一件事的两面。 -->
-    <el-dialog v-model="batchLabel.visible" title="批量打标签" width="540px">
+    <el-dialog v-model="batchLabel.visible" title="批量打标签" width="min(540px, 94vw)">
       <el-alert
         type="info"
         :closable="false"
@@ -827,7 +827,7 @@
 
     <!-- 批量维护结果：逐条结论。部分成功是常态（范围外的按「不存在」计入），
          因此必须逐条说明原因，而不是只弹一句"成功 3 条"。 -->
-    <el-dialog v-model="batchResultVisible" :title="batchTitle" width="660px">
+    <el-dialog v-model="batchResultVisible" :title="batchTitle" width="min(660px, 94vw)">
       <div v-if="batchResult">
         <el-alert
           :type="batchResult.failed === 0 ? 'success' : batchResult.ok > 0 ? 'warning' : 'error'"
@@ -856,7 +856,7 @@
 
     <!-- 关系图：以本资产为中心的 N 跳邻域（图本身由 TopologyGraph 负责，
          与告警影响面共用同一个组件，两处的范围口径与交互才会一致）。 -->
-    <el-dialog v-model="topoVisible" :title="topoTitle" width="900px">
+    <el-dialog v-model="topoVisible" :title="topoTitle" width="min(900px, 94vw)">
       <TopologyGraph v-if="detail" :asset-id="detail.id" :height="520" />
     </el-dialog>
   </section>
@@ -2074,6 +2074,12 @@ onMounted(async () => {
 }
 .d-labels-edit {
   margin-left: auto;
+}
+/* 三个 Tab 的内容量差异很大（属性对比 = 两张表 + descriptions + 按钮组，
+   变更历史 = 时间线，关联关系 = 两张表 + 说明）。此前切换时抽屉正文高度骤变、
+   滚动位置被重置到不同锚点；给内容区一个下限，切换就不再"塌"一下。 */
+.detail-tabs :deep(.el-tabs__content) {
+  min-height: 320px;
 }
 .label-hint {
   line-height: 18px;

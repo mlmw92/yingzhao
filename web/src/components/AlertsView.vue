@@ -427,7 +427,7 @@
     <RuleModal v-if="editing" :rule="editing" :groups="groups" :channels="channelOptions" @close="editing = null" @saved="onSaved" />
 
     <!-- 抑制规则编辑 -->
-    <el-dialog v-model="inhibitDialog" :title="inhibitEditIndex < 0 ? '新增抑制规则' : '编辑抑制规则'" width="620px">
+    <el-dialog v-model="inhibitDialog" :title="inhibitEditIndex < 0 ? '新增抑制规则' : '编辑抑制规则'" width="min(620px, 94vw)">
       <div class="inh-block">
         <div class="inh-title">源匹配（当该告警处于告警中时）</div>
         <div class="inh-row"><span class="inh-label">规则ID 包含</span><el-input v-model="inhibitForm.sourceRule" placeholder="如 host-offline，留空不限" /></div>
@@ -602,7 +602,7 @@ import PageHeader from './common/PageHeader.vue'
 import SectionCard from './common/SectionCard.vue'
 import EmptyState from './common/EmptyState.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import * as echarts from 'echarts'
+import { initChart } from '../charts/echarts'
 import http, { getToken } from '../api/http'
 import RuleModal from './RuleModal.vue'
 import TopologyGraph from './asset/TopologyGraph.vue'
@@ -1304,7 +1304,7 @@ async function loadTrend(row) {
 }
 function renderChart(points, row) {
   if (chartInstance) { chartInstance.dispose(); chartInstance = null }
-  chartInstance = echarts.init(chartRef.value)
+  chartInstance = initChart(chartRef.value)
   chartInstance.setOption({
     grid: { left: 48, right: 16, top: 24, bottom: 28 },
     tooltip: { trigger: 'axis' },
@@ -1509,7 +1509,9 @@ onUnmounted(() => {
 }
 .event-toolbar-hint {
   font-size: 13px;
-  white-space: nowrap;
+  /* nowrap 让这句提示不可收缩：窄屏时它和单选组、批量确认一起把卡片头撑出横向滚动条，
+     而标题区反而被压没。它只是辅助说明，允许折行即可。 */
+  line-height: 1.4;
 }
 .muted {
   color: var(--text-dim);
@@ -1605,6 +1607,9 @@ onUnmounted(() => {
   margin-top: 16px;
   display: flex;
   gap: 8px;
+  /* 抽屉内容宽约 456px，而这里要放认领/指派/关闭/重开/查看日志/诊断/评论等控件，
+     不换行会被挤压变形甚至溢出抽屉边界。 */
+  flex-wrap: wrap;
 }
 .kpi-value.gray {
   color: var(--text-dim);

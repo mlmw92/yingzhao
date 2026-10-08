@@ -31,7 +31,7 @@
       action-text="新建看板"
       @action="newDash"
     />
-    <div v-else class="grid">
+    <div v-else-if="activePanels.length" class="grid">
       <PanelChart
         v-for="(p, i) in activePanels"
         :key="i"
@@ -40,6 +40,15 @@
         @remove="removePanel(i)"
       />
     </div>
+    <!-- 编辑态下把面板全删掉后 .grid 会塌陷成 0 高，页面看起来像卡住了。
+         非编辑态有「暂无看板」，这里补一个「面板已清空」的空态。 -->
+    <EmptyState
+      v-else
+      title="这个看板还没有面板"
+      :hints="['点上方「添加面板」把指标曲线放进来', '每个面板绑定一个指标与一种图表类型']"
+      action-text="添加面板"
+      @action="addPanel"
+    />
 
     <!-- 面板编辑弹窗 -->
     <el-dialog v-model="panelDlg" title="面板配置" width="460px">

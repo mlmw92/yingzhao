@@ -80,7 +80,7 @@
             <el-switch v-model="form.enabled" />
             <div class="hint">
               关闭时高风险动作直接下发（与开启前一致）。单管理员部署下开启会导致任何动作都无法执行——
-              至少要有一个**别人**能批准。
+              至少要有一个别人能批准。
             </div>
           </el-form-item>
           <el-form-item label="需要审批的动作">
@@ -93,7 +93,7 @@
           </el-form-item>
           <el-form-item label="有效期（分钟）">
             <el-input-number v-model="form.ttlMinutes" :min="1" :max="1440" />
-            <div class="hint">超时未审批即失效，动作**不会执行**，需重新申请。</div>
+            <div class="hint">超时未审批即失效，动作不会执行，需重新申请。</div>
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="saving" @click="saveConfig">保存</el-button>
@@ -102,7 +102,7 @@
       </template>
     </el-card>
 
-    <el-drawer v-model="detailVisible" title="审批详情" size="540px">
+    <el-drawer v-model="detailVisible" title="审批详情" size="min(540px, 94vw)">
       <template v-if="current">
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="单号">{{ current.id }}</el-descriptions-item>
@@ -331,7 +331,7 @@ onMounted(reload)
   gap: 8px;
 }
 .hint {
-  color: #909399;
+  color: var(--t3);
   font-size: 12px;
   line-height: 1.5;
 }
