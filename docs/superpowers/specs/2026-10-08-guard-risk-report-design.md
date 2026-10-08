@@ -131,3 +131,41 @@ Agent 侧：`CheckGuardRisks` 的结论（启动时算一次）存到采集器�
 ## 7. 待评审
 
 D1~D7 若都按建议，则按 §5 的两笔开工；有异议的挑出来（最可能被质疑的是 **D3 要不要进告警**）。
+
+## 8. 实施记录（2026-10-08，1.30.54）
+
+两笔都已落地，D1~D7 全部按建议执行。**改动面：Agent（新增一个上报字段）+ Server + 前端**，两端都要升级。
+
+| 落点 | 实现 |
+|---|---|
+| 类型 | `GuardRisk` 搬到 `internal/model/guardrisk.go`（连 `Describe()`），Agent 侧留 `type GuardRisk = model.GuardRisk` 别名少改调用点；新增 `Summary()` 供事件去重用 |
+| 上报 | `ReportPayload.GuardRisks`（**无 `omitempty`**，见 D2）；Agent 启动时算一次存成包级变量（`guardRisks`），每轮上报带上——**不每轮重算**（判定要跑 `systemctl show`） |
+| 服务端 | `security.Store.guardRisks` 状态表 + `SaveGuardRisks(node, risks, reported)` + `ListGuardRisks/GetGuardRisks`，随 `save()` 落盘 |
+| 接口 | `GET /api/v1/security/guard-risks`（`security:read` + `filterByNodeScope` 范围过滤），响应里每条风险带 **`description`**（服务端用 `Describe()` 生成） |
+| 前端 | 安全中心「护栏组合风险」卡：**无风险时不显示整卡**；未上报的台数单独一行说"未知、不是无风险"；卡片头部给出"怎么消掉"的指引 |
+| 事件 | 首次出现派生 `guard_risk`（critical）事件，去重键 `节点 + 风险摘要`、**不含时间窗**（护栏配置是状态，不是"还在发生的行为"） |
+
+**实施中的三处判断**：
+
+1. **人话必须由服务端给**。第一版接口直接返回 `GuardRisk` 结构体——而 `Describe()` 是方法、**不会序列化**，
+   界面只能自己拼一遍措辞 ✗，那正好违背了"把类型搬进 model"的初衷。改成响应里带 `description`，
+   并加了断言钉住"`description` == `Describe()`"。
+2. **每轮都上报的状态不能每轮都落盘**。这个字段与"变了才写"的防御状态不同，它**每轮都会来**；
+   而 `save()` 要重写整份存储（含最多 2000 条事件）。因此加了"内容没变就不落盘"，
+   比较用**顺序无关**的 `sameGuardRisks`（Agent 的清单顺序由配置遍历决定，顺序变了不等于内容变了）。
+3. **`ReportedAt` 随之停在"最后一次变化"的时刻**——这是上面那条优化的直接后果，已写进注释
+   （界面按"最近上报"理解也说得通）。
+
+**用例 13 条**：`internal/server/security` **8 条**（首次出现派生事件、重复上报不重复派发、
+**收掉配置后状态清空但事件仍在**、**nil 与空切片区分**、重启后状态还在、`sameGuardRisks` 顺序无关、
+多节点各自成事件）；`internal/server/api` **4 条**（返回风险与字段、**未上报与无风险区分**、
+范围过滤、权限）；前端 `SecurityView.test.js` **3 条**（无风险不显示整卡、有风险时用服务端给的人话、
+**未上报显示成「未知」**）。`go test ./...` 全绿；`npm test` 26 文件 **155 项**全过；`npm run build` 通过。
+
+**实施中被测试当场抓到的自身缺陷**：`load()` 里我给快照结构加了 `GuardRisks` 字段，
+却**忘了把它赋回** `s.guardRisks` ✗ —— 后果是**重启后卡片静默变空**（界面显示"未发现风险"，
+而上次报的风险其实还在）。`TestGuardRisks_SurviveReload` 抓到了它。这正是本能力最该避免的失败形态
+（把"不知道"显示成"安全"），值得记一笔。
+
+**未覆盖边界（不得视为通过）**：浏览器实点；`exec` 类风险的实机验证（要造"可写目录覆盖某单元可执行文件"
+且该单元在 units 清单里的组合，需谨慎选择不影响业务的单元）；多实例/HA。
