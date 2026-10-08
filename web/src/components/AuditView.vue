@@ -6,6 +6,7 @@
     >
       <template #actions>
         <el-button size="small" :loading="loading" @click="loadEvents">刷新</el-button>
+        <el-button size="small" :loading="verifying" @click="runVerify">完整性校验</el-button>
         <el-button size="small" type="primary" :loading="exporting" @click="exportCSV">导出 CSV</el-button>
         <el-button size="small" plain @click="printList">打印</el-button>
       </template>
@@ -65,6 +66,32 @@
         <el-button link type="primary" @click="loadEvents">重试</el-button>
       </template>
     </el-alert>
+
+    <!-- 审计完整性校验结果（防篡改链）。
+         三档分开显示，且**都不说"安全"**：未启用/降级模式说"没有完整性保护"，
+         通过时报出**覆盖区间与条数**（"已验证第 X..Y 条"），断裂时逐条列出原因。
+         最下面那行常驻边界说明是刻意的：这不是"不可删除"，不能给人虚假的安全感。 -->
+    <div v-if="verify" class="card audit-verify">
+      <div class="verify-head">
+        <el-tag :type="verifyTone" size="small" effect="dark">{{ verifyTitle }}</el-tag>
+        <span class="verify-summary">{{ verifySummary }}</span>
+        <el-button link size="small" @click="verify = null">收起</el-button>
+      </div>
+      <ul v-if="verify.breaks && verify.breaks.length" class="verify-breaks">
+        <li v-for="(b, i) in verify.breaks" :key="i">
+          第 {{ b.seq }} 条：<strong>{{ b.reason }}</strong> —— {{ b.detail }}
+        </li>
+      </ul>
+      <div v-if="verify.prunedSegments && verify.prunedSegments.length" class="verify-extra">
+        合法裁剪区间：{{ verify.prunedSegments.map((s) => `${s.from}..${s.to}`).join('、') }}
+        （保留策略按时间/条数移除，不算篡改）
+      </div>
+      <div v-if="verify.note" class="verify-note">{{ verify.note }}</div>
+      <div class="verify-caveat">
+        这是「防篡改（**可检测**）」，不是「不可篡改」：拿到该机 root 的人仍能改库、读密钥、清日志。
+        它让"改过 / 删过审计"变得**可检测**，而不是**不可为**。
+      </div>
+    </div>
 
     <div class="card" v-loading="loading">
       <el-table :data="events" style="width: 100%">
@@ -385,6 +412,52 @@ function changePage(next) {
   loadEvents()
 }
 
+// ---- 完整性校验（审计防篡改链）----
+//
+// 三档分开显示，且**都不说"安全"**：未启用/降级模式明说"没有完整性保护"，
+// 通过时报出**覆盖区间与条数**（"已验证第 X..Y 条"），断裂时逐条列出原因。
+// 只显示一个绿色的"通过"是本功能最容易犯的错——历史已被保留策略裁剪过，
+// "全部通过"在这套机制下永远不成立。
+const verifying = ref(false)
+const verify = ref(null)
+
+// 注意取值必须是 el-tag 认的那几个（success/info/warning/danger）。
+// 第一版写了 'error'，Element Plus 会**静默退化成默认样式**——"发现异常"显示成普通灰标签，
+// 而用例只看文案，看不出来。这类"能跑但没效果"的错最容易被漏掉。
+const verifyTone = computed(() => {
+  if (!verify.value) return 'info'
+  if (!verify.value.enabled) return 'warning' // 没启用：既不是通过，也不是失败
+  return verify.value.ok ? 'success' : 'danger'
+})
+const verifyTitle = computed(() => {
+  const v = verify.value
+  if (!v) return ''
+  if (!v.enabled) return '未启用完整性保护'
+  return v.ok ? '校验通过' : '发现异常'
+})
+const verifySummary = computed(() => {
+  const v = verify.value
+  if (!v) return ''
+  if (!v.enabled) return v.mode === 'json' ? '当前为降级模式' : '审计链未启用'
+  const parts = [`已验证第 ${v.verifiedFrom}..${v.verifiedTo} 条（共 ${v.rowsChecked} 条）`]
+  if (v.unchainedRows) parts.push(`${v.unchainedRows} 条启用链之前的历史不可验`)
+  if (v.keyMismatchRows) parts.push(`${v.keyMismatchRows} 条由别的密钥签、不可验`)
+  if (v.linkUnverifiedRows) parts.push(`${v.linkUnverifiedRows} 条跨越裁剪区间、该处续接无法验证`)
+  if (v.truncated) parts.push('只验了最新的部分')
+  if (v.keyFingerprint) parts.push(`密钥指纹 ${v.keyFingerprint}`)
+  return parts.join('；')
+})
+async function runVerify() {
+  verifying.value = true
+  try {
+    verify.value = await http.get('/api/v1/audit/verify')
+  } catch (e) {
+    ElMessage.error(e && e.message ? e.message : '完整性校验失败')
+  } finally {
+    verifying.value = false
+  }
+}
+
 async function exportCSV() {
   exporting.value = true
   try {
@@ -470,6 +543,17 @@ onUnmounted(() => { latestRequest++; latestChanges++ })
 <style scoped>
 .audit-view { display: flex; flex-direction: column; gap: 16px; }
 .audit-error :deep(.el-button--primary) { font-size: 13px; }
+/* 完整性校验结果卡：三档配色由 el-tag 的 type 决定（success/warning/danger） */
+.audit-verify { padding: 12px 16px; }
+.verify-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.verify-summary { font-size: 13px; color: var(--text); }
+.verify-breaks { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--danger, #d9534f); }
+.verify-extra, .verify-note { margin-top: 6px; font-size: 13px; color: var(--text-muted); }
+/* 常驻边界说明：这不是"不可删除"，不能给人虚假的安全感 */
+.verify-caveat {
+  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--bd);
+  font-size: 12px; color: var(--text-muted);
+}
 /* 页头与筛选分离：筛选条独立成一张薄卡，不再和标题挤在同一个容器里 */
 .filter-bar { padding: 12px 16px; }
 .toolbar { display: flex; gap: 8px; }

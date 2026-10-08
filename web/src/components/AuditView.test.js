@@ -294,3 +294,104 @@ describe('AuditView 与资产变更的关联', () => {
     }
   })
 })
+
+// 审计完整性校验（防篡改链）。
+//
+// 只钉三件做错了不会报错、但会**给人虚假安全感**的事：
+//   ① 通过时**必须报出覆盖区间与条数**——历史已被保留策略裁剪过，"全部通过"永远不成立；
+//   ② 未启用/降级模式**不能说成通过**，要明说"没有完整性保护"；
+//   ③ 断裂时逐条给出原因（只看"失败"两个字不知道该去查什么）。
+describe('AuditView 完整性校验', () => {
+  let wrapper
+
+  function stubVerify(payload) {
+    http.get.mockImplementation(async (path) => {
+      if (path.startsWith('/api/v1/audit/verify')) return payload
+      if (path.startsWith('/api/v1/audit/events')) return { events: [oneEvent], total: 1 }
+      return {}
+    })
+  }
+
+  async function clickVerify() {
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('完整性校验'))
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await flushPromises()
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    routeQuery = {}
+  })
+
+  afterEach(() => {
+    if (wrapper) wrapper.unmount()
+    wrapper = undefined
+    document.body.innerHTML = ''
+  })
+
+  it('通过时报出覆盖区间与条数，不只说「通过」', async () => {
+    stubVerify({
+      enabled: true, mode: 'sqlite', ok: true, keyFingerprint: 'a1b2c3d4',
+      verifiedFrom: 1201, verifiedTo: 48213, rowsChecked: 47013,
+      unchainedRows: 12, prunedSegments: [{ from: 1, to: 1200, headHash: 'x', rows: 1200, macValid: true }],
+      breaks: [],
+    })
+    wrapper = mountView()
+    await flushPromises()
+    await clickVerify()
+
+    const text = wrapper.text()
+    expect(text).toContain('校验通过')
+    expect(text).toContain('1201..48213')
+    expect(text).toContain('47013')
+    // 裁剪区间要说明它是"合法移除"，否则看的人会以为有人删过
+    expect(text).toContain('1..1200')
+    expect(text).toContain('不算篡改')
+    // 不可验的部分必须说出来，不能混进"已验证"
+    expect(text).toContain('12 条启用链之前的历史不可验')
+  })
+
+  it('未启用（降级模式）说「没有完整性保护」，绝不能显示成通过', async () => {
+    stubVerify({
+      enabled: false, mode: 'json', ok: false, breaks: [],
+      note: '当前为**降级模式**（台账库不可用，审计落在 JSON 文件里）：**无完整性保护**。',
+    })
+    wrapper = mountView()
+    await flushPromises()
+    await clickVerify()
+
+    const text = wrapper.text()
+    expect(text).toContain('未启用完整性保护')
+    expect(text).toContain('降级模式')
+    expect(text).not.toContain('校验通过')
+  })
+
+  it('断裂时逐条列出原因，并常驻说明「不是不可篡改」', async () => {
+    stubVerify({
+      enabled: true, mode: 'sqlite', ok: false, keyFingerprint: 'a1b2c3d4',
+      verifiedFrom: 1, verifiedTo: 3, rowsChecked: 3, breaks: [
+        { seq: 2, reason: 'hash-mismatch', detail: '这一行的内容与签名对不上' },
+        { seq: 5, reason: 'unattributable-gap', detail: '第 4..4 条不见了，且不在任何合法裁剪记录里' },
+      ],
+      prunedSegments: [],
+    })
+    wrapper = mountView()
+    await flushPromises()
+    await clickVerify()
+
+    const text = wrapper.text()
+    expect(text).toContain('发现异常')
+    expect(text).toContain('第 2 条')
+    expect(text).toContain('hash-mismatch')
+    expect(text).toContain('unattributable-gap')
+    // 边界说明是常驻的：本机制只让篡改"可检测"，不是"不可为"
+    expect(text).toContain('不是「不可篡改」')
+    expect(text).toContain('root')
+    // **标签类型也要钉**：第一版写的是 'error'，Element Plus 只认 success/info/warning/danger，
+    // 于是"发现异常"静默退化成普通灰标签——文案对了、颜色没了，只看文案的断言抓不到。
+    const tag = wrapper.findAll('.el-tag').find((t) => t.text().includes('发现异常'))
+    expect(tag).toBeTruthy()
+    expect(tag.classes().join(' ')).toContain('danger')
+  })
+})
