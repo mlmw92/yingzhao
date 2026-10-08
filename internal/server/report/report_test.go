@@ -7,6 +7,7 @@ import (
 
 	"github.com/nebula/monitor/internal/model"
 	"github.com/nebula/monitor/internal/server/analysis"
+	"github.com/nebula/monitor/internal/server/asset"
 	"github.com/nebula/monitor/internal/server/security"
 )
 
@@ -18,7 +19,8 @@ func TestCollectSecurityInitializesLowScores(t *testing.T) {
 		CheckedAt: time.Now().UnixMilli(),
 	})
 
-	sec := (&Generator{secStore: store}).collectSecurity(0, time.Now().Add(time.Hour).UnixMilli())
+	sec := (&Generator{secStore: store}).collectSecurity(
+		asset.ScopeSnapshot{NodeMode: asset.ScopeModeAll, AssetMode: asset.ScopeModeAll}, 0, time.Now().Add(time.Hour).UnixMilli())
 	if sec == nil {
 		t.Fatal("collectSecurity returned nil")
 	}

@@ -27,7 +27,7 @@ func newTestScheduler(t *testing.T, initial ScheduleConfig) (*Scheduler, string)
 	if err != nil {
 		t.Fatalf("创建调度器失败: %v", err)
 	}
-	s.generate = func(ReportType) (string, error) { return "rpt-test", nil }
+	s.generate = func(GenerateOptions) (string, error) { return "rpt-test", nil }
 	return s, path
 }
 
@@ -76,9 +76,9 @@ func TestSchedulerPersistsAcrossRestart(t *testing.T) {
 // 生成失败要写进结果与状态（而不是只在日志里）。
 func TestSchedulerRunNowRecordsFailure(t *testing.T) {
 	s, _ := newTestScheduler(t, ScheduleConfig{Enabled: true, Type: string(ReportDaily), IntervalHours: 1})
-	s.generate = func(ReportType) (string, error) { return "", errors.New("磁盘只读") }
+	s.generate = func(GenerateOptions) (string, error) { return "", errors.New("磁盘只读") }
 
-	run := s.RunNow(true)
+	run := s.RunNow("tester", true)
 	if run.Error == "" {
 		t.Fatal("生成失败必须写进结果")
 	}
@@ -137,7 +137,7 @@ func TestSchedulerTickRespectsInterval(t *testing.T) {
 func TestSchedulerStatusNextAt(t *testing.T) {
 	s, _ := newTestScheduler(t, ScheduleConfig{Enabled: true, Type: string(ReportDaily), IntervalHours: 6})
 	s.now = func() time.Time { return time.UnixMilli(1_700_000_000_000) }
-	run := s.RunNow(false)
+	run := s.RunNow("", false)
 	if st := s.Status(); st.NextAt != run.At+6*int64(time.Hour/time.Millisecond) {
 		t.Fatalf("下次时间应为上次 + 间隔：%+v", st)
 	}
@@ -157,7 +157,7 @@ func TestSchedulerStatusNextAt(t *testing.T) {
 func TestSchedulerRunStateSurvivesRestart(t *testing.T) {
 	s, path := newTestScheduler(t, ScheduleConfig{Enabled: true, Type: string(ReportDaily), IntervalHours: 24})
 	s.now = func() time.Time { return time.UnixMilli(1_700_000_000_000) }
-	run := s.RunNow(false)
+	run := s.RunNow("", false)
 
 	again, err := NewScheduler(path, ScheduleConfig{Enabled: true, Type: string(ReportDaily), IntervalHours: 24}, newTestGenerator(t))
 	if err != nil {
@@ -203,7 +203,7 @@ func TestSchedulerNilSafe(t *testing.T) {
 	if err := s.Save(ScheduleConfig{}); err == nil {
 		t.Fatal("nil 保存应报错")
 	}
-	if run := s.RunNow(true); !strings.Contains(run.Error, "未启用") {
+	if run := s.RunNow("tester", true); !strings.Contains(run.Error, "未启用") {
 		t.Fatalf("nil 运行应给出明确原因：%+v", run)
 	}
 	s.Run(context.Background()) // 不应 panic

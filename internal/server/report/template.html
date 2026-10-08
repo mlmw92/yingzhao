@@ -102,6 +102,11 @@
     <div class="meta">
       <span><b>统计周期：</b>{{.Period}}</span>
       <span><b>生成时间：</b>{{fmtTime .GeneratedAt}}</span>
+      {{with .Scope}}
+      <span><b>生成者：</b>{{if .Actor}}{{.Actor}}{{else}}—{{end}}</span>
+      <span><b>覆盖范围：</b>{{.Desc}}</span>
+      {{end}}
+      {{if .Skipped}}<span><b>已跳过章节：</b>{{range $i, $s := .Skipped}}{{if $i}}、{{end}}{{$s.Title}}（{{$s.Reason}}）{{end}}</span>{{end}}
     </div>
   </div>
 
@@ -192,6 +197,7 @@
   </div>
   {{end}}
 
+  {{if .Nodes}}
   <div class="section">
     <h2>主机巡检明细</h2>
     <p class="desc">覆盖 CPU、内存、磁盘使用率峰值与系统负载，并给出综合健康评分（满分 100）。</p>
@@ -221,6 +227,7 @@
       </tbody>
     </table>
   </div>
+  {{end}}
 
   {{if .Nodes}}
   <div class="section">
@@ -302,6 +309,101 @@
         {{end}}
       </tbody>
     </table>
+  </div>
+  {{end}}
+
+  {{with .Assets}}
+  <div class="section">
+    <h2>资产与配置</h2>
+    <p class="desc">台账健康度、近 {{.ChangeWindowDays}} 天变更字段数、关系总览与最近一次配置巡检的结论。只给聚合计数，不含属性值与差异明细（要看明细请去「资产与配置」页）。</p>
+    <div class="cards">
+      <div class="stat"><div class="k">资产总数</div><div class="v">{{.Total}}</div></div>
+      <div class="stat"><div class="k">失联</div><div class="v">{{.Missing}}</div></div>
+      <div class="stat"><div class="k">无责任人</div><div class="v">{{.NoOwner}}</div></div>
+      <div class="stat"><div class="k">人工 / 采集冲突</div><div class="v">{{.Conflict}}</div></div>
+      <div class="stat"><div class="k">已忽略</div><div class="v">{{.Ignored}}</div></div>
+      <div class="stat"><div class="k">近 {{.ChangeWindowDays}} 天变更字段</div><div class="v">{{.Changes}}</div></div>
+    </div>
+
+    <h3 style="font-size:14px;margin:16px 0 8px;">关系总览</h3>
+    <p class="desc">共 {{.LinksTotal}} 条关系；{{.NoLinkAssets}} 个资产没有任何关系（纳管了却没接线，是台账质量的信号）。</p>
+    {{if .LinkGroups}}
+    <table>
+      <thead><tr><th>来源类型</th><th>关系</th><th>目标类型</th><th>边来源</th><th>条数</th></tr></thead>
+      <tbody>
+        {{range .LinkGroups}}<tr><td>{{.FromType}}</td><td>{{.Kind}}</td><td>{{.ToType}}</td><td class="muted">{{.Source}}</td><td>{{.Count}}</td></tr>{{end}}
+      </tbody>
+    </table>
+    {{end}}
+
+    {{with .Inspect}}
+    <h3 style="font-size:14px;margin:16px 0 8px;">最近一次配置巡检</h3>
+    <div class="cards">
+      <div class="stat"><div class="k">巡检资产数</div><div class="v">{{.Assets}}</div></div>
+      <div class="stat"><div class="k">差异项</div><div class="v">{{.Findings}}</div></div>
+      <div class="stat"><div class="k">首次建基线</div><div class="v">{{.Baselined}}</div></div>
+      <div class="stat"><div class="k">执行时间</div><div class="v" style="font-size:13px;">{{fmtTime .At}}</div></div>
+    </div>
+    {{if .Truncated}}<p class="desc">本次巡检因资产数超过单次上限而只覆盖了前一部分，计数不是全量。</p>{{end}}
+    {{if .ByLevel}}
+    <table>
+      <thead><tr><th>差异级别</th><th>条数</th></tr></thead>
+      <tbody>
+        {{range $level, $n := .ByLevel}}<tr><td>{{$level}}</td><td>{{$n}}</td></tr>{{end}}
+      </tbody>
+    </table>
+    <p class="desc">分级计数按前 {{.Sampled}} 条差异项统计（有读取上限），与上方差异项总数不等时属正常。</p>
+    {{end}}
+    {{end}}
+  </div>
+  {{end}}
+
+  {{with .Container}}
+  <div class="section">
+    <h2>容器与工作负载</h2>
+    <p class="desc">{{.SnapshotNote}}</p>
+    <div class="cards">
+      <div class="stat"><div class="k">集群（在线 / 总数）</div><div class="v">{{.ClustersUp}} <small>/ {{.ClustersTotal}}</small></div></div>
+      <div class="stat"><div class="k">节点（就绪 / 总数）</div><div class="v">{{.NodesReady}} <small>/ {{.NodesTotal}}</small></div></div>
+      <div class="stat"><div class="k">Pod（运行 / 总数）</div><div class="v">{{.PodsRunning}} <small>/ {{.PodsTotal}}</small></div></div>
+      <div class="stat"><div class="k">Pod 异常</div><div class="v">{{.PodsAbnormal}}</div></div>
+      <div class="stat"><div class="k">Pending / Failed</div><div class="v">{{.PodsPending}} <small>/ {{.PodsFailed}}</small></div></div>
+    </div>
+    {{if .Workloads}}
+    <table>
+      <thead><tr><th>工作负载</th><th>总数</th><th>不健康</th></tr></thead>
+      <tbody>
+        {{range .Workloads}}<tr><td>{{.Kind}}</td><td>{{.Total}}</td><td>{{.Unhealthy}}</td></tr>{{end}}
+      </tbody>
+    </table>
+    {{end}}
+    {{if .AssetCounts}}
+    <p class="desc">台账中的容器类资产：{{range $kind, $n := .AssetCounts}}{{$kind}} {{$n}} 条；{{end}}Pod 与工作负载是短命对象，默认不计入台账首页与健康度摘要。</p>
+    {{end}}
+    <table>
+      <thead><tr><th>集群</th><th>节点</th><th>版本</th><th>分组</th><th>状态</th></tr></thead>
+      <tbody>
+        {{range .Clusters}}<tr><td>{{.Name}}</td><td class="muted">{{.Node}}</td><td class="muted">{{.Version}}</td><td class="muted">{{.Group}}</td><td>{{if .Up}}<span class="badge badge-healthy">在线</span>{{else}}<span class="badge badge-offline">离线</span>{{end}}</td></tr>{{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{with .Logs}}
+  <div class="section">
+    <h2>日志</h2>
+    <p class="desc">日志后端的自述能力与存储现状（由后端自己回答，不由平台按配置推断）。本章不含日志正文。</p>
+    <div class="cards">
+      <div class="stat"><div class="k">后端</div><div class="v" style="font-size:14px;">{{.Backend}}</div></div>
+      <div class="stat"><div class="k">全文索引 / 字段索引</div><div class="v" style="font-size:14px;">{{if .FullTextIndex}}有{{else}}无{{end}} / {{if .FieldIndex}}有{{else}}无{{end}}</div></div>
+      {{if .ScanBudgetLines}}<div class="stat"><div class="k">单次扫描预算</div><div class="v" style="font-size:14px;">{{.ScanBudgetMB}} MiB / {{.ScanBudgetLines}} 行</div></div>{{end}}
+      {{if .Sources}}<div class="stat"><div class="k">来源 / 节点</div><div class="v">{{.Sources}} <small>/ {{.Nodes}}</small></div></div>{{end}}
+      {{if .NewestDay}}<div class="stat"><div class="k">数据跨度</div><div class="v" style="font-size:13px;">{{.OldestDay}} ~ {{.NewestDay}}</div></div>{{end}}
+    </div>
+    {{if .StorageNote}}<p class="desc">{{.StorageNote}}</p>{{end}}
+    {{if .ProbeError}}<p class="desc">存储探测失败：{{.ProbeError}}（这不代表没有日志）。</p>{{end}}
+    {{if .Truncated}}<p class="desc">存储探测触到条目上限，上面的规模是「至少这么多」。</p>{{end}}
+    {{if .Notes}}<ul style="margin:0;padding-left:20px;font-size:13px;">{{range .Notes}}<li>{{.}}</li>{{end}}</ul>{{end}}
   </div>
   {{end}}
 

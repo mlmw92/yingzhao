@@ -1511,12 +1511,27 @@ func (a *API) handleDialtestLatest(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleReportGenerate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Type string `json:"type"`
+		// Sections 省略或为空 = 全选（默认全开）；要少出章节就显式列出要保留的 ID。
+		Sections []string `json:"sections"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	id, err := a.report.Generate(report.ReportType(req.Type))
+	sections, err := normalizeReportSections(req.Sections)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// 范围与权限跳过按**生成者**折算：报告是下载物，不能绕过各域接口的权限校验。
+	res := a.reportScopeFor(Principal(r))
+	id, err := a.report.GenerateWith(report.GenerateOptions{
+		Type:     report.ReportType(req.Type),
+		Sections: sections,
+		Scope:    res.Scope,
+		Skipped:  res.Skipped,
+		Actor:    assetActor(r),
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

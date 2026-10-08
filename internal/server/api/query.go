@@ -79,6 +79,8 @@ type DialtestProvider interface {
 // ReportProvider 提供报告生成与查询（由 report 包实现）。
 type ReportProvider interface {
 	Generate(rt report.ReportType) (string, error)
+	// GenerateWith 按范围与章节选项生成（设计件 2026-10-08-reporting-views-design.md）。
+	GenerateWith(opts report.GenerateOptions) (string, error)
 	GetHTML(id string) (string, error)
 	History() []report.ReportMeta
 }

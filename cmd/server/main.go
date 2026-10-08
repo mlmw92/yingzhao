@@ -419,14 +419,23 @@ func main() {
 	rest.SetRetention(retentionMgr)
 	// 报告周期化调度：仅在调度器建起来时注入（未注入时接口回 503，而不是假装能用）
 	if reportSched != nil {
+		// 范围折算由 API 层提供（它持有身份仓库与节点管理器，而 report 包刻意不依赖 auth 包，
+		// 依赖方向保持清晰）——与周期化巡检的 InspectScopeSnapshot 同一做法。
+		reportSched.SetScopeResolver(rest.ReportScopeSnapshot)
 		rest.SetReportScheduler(reportSched)
 	}
 	// 集中日志检索（C2）：与上行共用同一个后端实例（读写两侧必然是同一个后端）
 	rest.SetLogStore(logBackend)
+	// 报告的「日志」章节也读同一个后端（未接入日志时该章节不渲染）。
+	if logBackend != nil {
+		reportGen.SetLogStore(logBackend)
+	}
 	rest.SetMiddlewareRegistry(mwRegistry)
 	// 资产台账接口：仅在库可用时注入（传 nil 具体值进接口会得到「非 nil 接口」，必须显式判断）
 	if assetSvc != nil {
 		rest.SetAssetService(assetSvc)
+		// 报告的「资产与配置」章节也读台账；未注入时该章节不渲染（库不可用 ≠ 台账为空）。
+		reportGen.SetAssetService(assetSvc)
 		// 周期化巡检：配置与运行状态同文件；范围折算由 API 层提供（它持有身份仓库与节点管理器，
 		// 而 asset 包刻意不依赖 auth 包，依赖方向保持清晰）。
 		// 构造失败**不阻断启动**：它是次要能力，缺它时巡检仍可手动触发。

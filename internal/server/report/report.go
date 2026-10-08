@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -16,6 +17,9 @@ import (
 
 	"github.com/nebula/monitor/internal/model"
 	"github.com/nebula/monitor/internal/server/analysis"
+	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/nebula/monitor/internal/server/logstore"
 	"github.com/nebula/monitor/internal/server/mwreg"
 	"github.com/nebula/monitor/internal/server/node"
 	"github.com/nebula/monitor/internal/server/security"
@@ -47,6 +51,277 @@ type ReportMeta struct {
 	Period    string `json:"period"`
 	Generated int64  `json:"generatedAt"`
 	Path      string `json:"path"`
+	// Scope 是本次报告的生成口径（人读文案）。报告是会被下载转发的文件，
+	// 历史列表里要能一眼看出「这一份覆盖的是谁」。
+	Scope string `json:"scope,omitempty"`
+	// Sections 是实际生成的章节 ID；Skipped 是因权限不足被跳过的章节标题。
+	Sections []string `json:"sections,omitempty"`
+	Skipped  []string `json:"skipped,omitempty"`
+}
+
+// ---- 报告范围与章节（设计件 docs/superpowers/specs/2026-10-08-reporting-views-design.md） ----
+//
+// 报告此前**不接资源范围**：一律 `nodeMgr.ListNodes()` 拉全部节点。本批把范围能力补上，
+// 同时补上「生成者缺某域权限则跳过该章节」——报告是下载物，一旦生成就脱离了原接口的
+// 权限校验，不这么做 `report:export` 就成了读取三域数据的旁路。
+
+// 报告章节 ID：前四个是既有章节，后三个是 2026-10-08 设计件新增的三域章节。
+const (
+	SectionHosts      = "hosts"
+	SectionMiddleware = "middleware"
+	SectionSecurity   = "security"
+	SectionAnalysis   = "analysis"
+	SectionAssets     = "assets"
+	SectionContainer  = "container"
+	SectionLogs       = "logs"
+)
+
+// sectionTitles 章节中文名（「已跳过」提示与历史列表都用它）。
+var sectionTitles = map[string]string{
+	SectionHosts:      "主机巡检明细",
+	SectionMiddleware: "中间件监控明细",
+	SectionSecurity:   "安全中心巡检",
+	SectionAnalysis:   "智能分析与预测",
+	SectionAssets:     "资产与配置",
+	SectionContainer:  "容器与工作负载",
+	SectionLogs:       "日志",
+}
+
+// SectionTitle 返回章节中文名（未知 ID 原样返回）。
+func SectionTitle(id string) string {
+	if t, ok := sectionTitles[id]; ok {
+		return t
+	}
+	return id
+}
+
+// ValidSection 判断章节 ID 是否合法。
+func ValidSection(id string) bool {
+	_, ok := sectionTitles[id]
+	return ok
+}
+
+// SectionPermission 返回章节要求的额外权限点（空串表示只需报告自身的权限）。
+//
+// 只有三域章节有额外要求。既有章节维持原状：本批不改变既有报告的行为，只保证新增的
+// 三域数据不会绕过各自接口的权限校验。
+func SectionPermission(id string) string {
+	switch id {
+	case SectionAssets:
+		return "assets:read"
+	case SectionContainer:
+		return "container:read"
+	case SectionLogs:
+		return "logs:read"
+	}
+	return ""
+}
+
+// ScopeSnapshot 就是台账的范围快照（`asset.ScopeSnapshot`）——报告的范围语义与资产域
+// **同一套实现**（节点维度 + 业务标签维度，三态口径完全一致）。
+//
+// 刻意不在这里另写一份：`all` / `limited`+空 / 缺省按受限这套口径平台里已经定过，
+// 两端各写一份必然漂移（`model/danger.go` 的目录清单就吃过这个亏）。
+type ScopeSnapshot = asset.ScopeSnapshot
+
+// ScopeResolution 是「身份 → 范围 + 权限跳过」的折算结果（由 API 层按 Principal 算出）。
+//
+// 为什么不让 report 包自己取身份：报告还要被**定时器**调用，而定时器没有请求上下文
+// （平台里所有执行入口都靠请求上下文取 Principal）。因此范围必须在「有人」的那一侧折算，
+// 定时侧存快照、执行时再按保存者当前身份取交集（只朝收窄方向变）。
+type ScopeResolution struct {
+	Scope ScopeSnapshot
+	// Skipped 是生成者**无权限**的章节：ID → 原因。由 API 层按身份算出。
+	Skipped map[string]string
+}
+
+// scopeCovers 判断节点是否在范围内（all 恒 true）。
+func scopeCovers(s ScopeSnapshot, node string) bool {
+	if s.NodeMode != asset.ScopeModeLimited {
+		return true
+	}
+	for _, n := range s.Nodes {
+		if n == node {
+			return true
+		}
+	}
+	return false
+}
+
+// GenerateOptions 是一次生成的选项。
+type GenerateOptions struct {
+	Type ReportType
+	// Sections 是要生成的章节；空 = 全选（默认全开）。
+	Sections []string
+	// Scope 是资源范围（节点维度 + 业务标签维度）。
+	Scope ScopeSnapshot
+	// Skipped 是生成者**无权限**的章节（ID → 原因）；由 API 层按身份算出。
+	Skipped map[string]string
+	// Actor 是触发者（手动为登录名，定时为 schedule）。
+	Actor string
+}
+
+// selected 判断某章节是否被选中（Sections 为空 = 全选）。
+func (o GenerateOptions) selected(id string) bool {
+	if len(o.Sections) == 0 {
+		return true
+	}
+	for _, s := range o.Sections {
+		if s == id {
+			return true
+		}
+	}
+	return false
+}
+
+// ScopeInfo 是渲染到报告头部的生成口径。
+type ScopeInfo struct {
+	Actor    string   `json:"actor"`
+	Desc     string   `json:"desc"`
+	Nodes    int      `json:"nodes"`
+	Sections []string `json:"sections"`
+}
+
+// SkippedSection 是一条「因权限不足被跳过」的章节说明。
+type SkippedSection struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Reason string `json:"reason"`
+}
+
+// ---- 资产与配置章节（设计件 §4.2） ----
+
+// AssetsSection 是「资产与配置」章节的数据。
+//
+// 只放**聚合**：属性值、责任人姓名、变更的旧值/新值一律不进报告——报告是会被下载转发的文件，
+// 明细属于「要看就去台账页看」。
+type AssetsSection struct {
+	Total    int `json:"total"`
+	Missing  int `json:"missing"`
+	NoOwner  int `json:"noOwner"`
+	Conflict int `json:"conflict"`
+	Ignored  int `json:"ignored"`
+	// Changes 是窗口内发生变更的字段数（含采集与人工）。
+	Changes int `json:"changes"`
+	// ChangeWindowDays 是上面那个窗口的天数——写进报告，避免「近 N 天」变成猜谜。
+	ChangeWindowDays int `json:"changeWindowDays"`
+
+	LinksTotal   int              `json:"linksTotal"`
+	NoLinkAssets int              `json:"noLinkAssets"`
+	LinkGroups   []AssetLinkGroup `json:"linkGroups,omitempty"`
+
+	Inspect *AssetInspectInfo `json:"inspect,omitempty"`
+}
+
+// AssetLinkGroup 是关系总览的一行（按 来源类型 × 关系种类 × 目标类型 × 边来源 聚合）。
+type AssetLinkGroup struct {
+	FromType string `json:"fromType"`
+	Kind     string `json:"kind"`
+	ToType   string `json:"toType"`
+	Source   string `json:"source"`
+	Count    int    `json:"count"`
+}
+
+// AssetInspectInfo 是最近一次配置巡检的结论摘要。
+//
+// 不给具体差异条目：那是配置巡检页的活，报告只回答「跑了多少、差了多少、什么级别」。
+type AssetInspectInfo struct {
+	At        int64          `json:"at"`
+	Actor     string         `json:"actor"`
+	Assets    int            `json:"assets"`
+	Findings  int            `json:"findings"`
+	Baselined int            `json:"baselined"`
+	Truncated bool           `json:"truncated"`
+	ByLevel   map[string]int `json:"byLevel,omitempty"`
+	// Sampled 是统计分级时实际读到的差异项条数（有上限）；与 Findings 不等时说明这是采样值。
+	Sampled int `json:"sampled,omitempty"`
+}
+
+// assetChangeWindowDays 与台账页「近 7 天变更」同口径。
+const assetChangeWindowDays = 7
+
+// ---- 容器与工作负载章节（设计件 §4.3） ----
+
+// ContainerSection 是「容器与工作负载」章节的数据。
+//
+// **整章是「当前快照」**：集群清单与聚合指标都来自即时查询（`QueryAllLatest`），平台没有它们的
+// 历史留存，因此不做周期对比。报告里必须显式标注，否则那串数字会被读成「这一周的趋势」。
+type ContainerSection struct {
+	// SnapshotNote 是「当前快照」的说明（模板直接渲染它，口径只写一处）。
+	SnapshotNote string `json:"snapshotNote"`
+
+	ClustersTotal int `json:"clustersTotal"`
+	ClustersUp    int `json:"clustersUp"`
+	NodesTotal    int `json:"nodesTotal"`
+	NodesReady    int `json:"nodesReady"`
+	PodsTotal     int `json:"podsTotal"`
+	PodsRunning   int `json:"podsRunning"`
+	PodsPending   int `json:"podsPending"`
+	PodsFailed    int `json:"podsFailed"`
+	// PodsAbnormal 是「有效状态不正常」的 Pod 数（含 phase=Running 但容器 CrashLoopBackOff 的）。
+	// 与上面几个 phase 桶**不是一个口径**：那些是生命周期阶段，这个是健康度。
+	PodsAbnormal int `json:"podsAbnormal"`
+
+	Workloads []ContainerWorkloadStat `json:"workloads,omitempty"`
+	Clusters  []ContainerCluster      `json:"clusters,omitempty"`
+	// AssetCounts 是台账里的容器类资产计数（类型键 → 条数）。
+	AssetCounts map[string]int `json:"assetCounts,omitempty"`
+}
+
+// ContainerCluster 是集群清单的一行。
+type ContainerCluster struct {
+	Node     string `json:"node"`
+	Instance string `json:"instance"`
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	Group    string `json:"group"`
+	Up       bool   `json:"up"`
+}
+
+// ContainerWorkloadStat 是一类工作负载的健康计数。
+type ContainerWorkloadStat struct {
+	Kind      string `json:"kind"`
+	Total     int    `json:"total"`
+	Unhealthy int    `json:"unhealthy"`
+}
+
+// ---- 日志章节（设计件 §4.4） ----
+
+// LogsSection 是「日志」章节的数据：如实转述后端**自己回答**的能力与存储现状。
+//
+// 不放日志正文——报告是会被下载转发的文件；也不新建按天扫描统计（要扫分片，与 P2/M 不符）。
+type LogsSection struct {
+	Backend       string   `json:"backend"`
+	FullTextIndex bool     `json:"fullTextIndex"`
+	FieldIndex    bool     `json:"fieldIndex"`
+	Notes         []string `json:"notes,omitempty"`
+	ScanBudgetMB  int      `json:"scanBudgetMB,omitempty"`
+	ScanBudgetLines int    `json:"scanBudgetLines,omitempty"`
+
+	Sources   int    `json:"sources"`
+	Nodes     int    `json:"nodes"`
+	OldestDay string `json:"oldestDay,omitempty"`
+	NewestDay string `json:"newestDay,omitempty"`
+	Bytes     int64  `json:"bytes,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	// ProbeError 非空表示**探测不到**（不是「没有日志」）。
+	ProbeError string `json:"probeError,omitempty"`
+	// StorageNote 说明为什么存储统计是空的（受限身份下不展示全局口径的统计）。
+	StorageNote string `json:"storageNote,omitempty"`
+}
+
+// allSections 是全部章节 ID（按报告里的出现顺序）。
+var allSections = []string{
+	SectionHosts, SectionMiddleware, SectionSecurity, SectionAnalysis,
+	SectionAssets, SectionContainer, SectionLogs,
+}
+
+// scopeDesc 生成人读的范围描述（报告头部与历史列表都用它）。
+func scopeDesc(s ScopeSnapshot, nodeCount int) string {
+	if s.NodeMode != asset.ScopeModeLimited {
+		return fmt.Sprintf("全部节点（%d 台）", nodeCount)
+	}
+	return fmt.Sprintf("指定 %d 个节点（%d 台在范围内）", len(s.Nodes), nodeCount)
 }
 
 // chartItem 一张概览图表（内联 SVG，以 template.HTML 类型避免被转义）。
@@ -151,6 +426,15 @@ type reportData struct {
 	Comparison   *Comparison          `json:"comparison,omitempty"`
 	Security     *SecuritySection     `json:"security,omitempty"`
 	Intelligence *intelligenceSection `json:"intelligence,omitempty"`
+
+	// 生成口径：这份文件要能解释自己（谁生成的、覆盖谁、跳过了什么）
+	Scope   ScopeInfo        `json:"scope"`
+	Skipped []SkippedSection `json:"skipped,omitempty"`
+
+	// 三域章节（2026-10-08 设计件）：只放聚合，不放明细
+	Assets    *AssetsSection    `json:"assets,omitempty"`
+	Container *ContainerSection `json:"container,omitempty"`
+	Logs      *LogsSection      `json:"logs,omitempty"`
 }
 
 type intelligenceSection struct {
@@ -246,10 +530,33 @@ type Generator struct {
 	analyzer *analysis.Analyzer
 	// mwRegistry 为中间件类型注册表（内置类型 + 模板派生类型）；未注入时退化为内置类型。
 	mwRegistry *mwreg.Registry
+	// assets 是资产台账聚合（未注入时报告不含「资产与配置」章节——库不可用不等于台账为空）。
+	assets assetsReporter
+	// logs 是日志后端（未注入时报告不含「日志」章节——未接入不等于没有日志）。
+	logs logstore.LogStore
 
 	mu      sync.Mutex
 	history []ReportMeta
 }
+
+// assetsReporter 是报告需要的台账聚合能力（由 asset.Service 实现）。
+//
+// 抽成窄接口而不是直接持有 *asset.Service：与 API 包的 AssetProvider 同一取向——只依赖真正
+// 用到的方法集合，测试里也才能用替身钉住「按什么条件取数」。
+type assetsReporter interface {
+	Stats(f asset.ListFilter, changesSince int64) (asset.Stats, error)
+	LinkOverview(scope asset.ChangeScope) (asset.LinkOverview, error)
+	InspectRunsInNodes(limit int, nodes []string) ([]asset.InspectRun, error)
+	InspectFindingsInNodes(runID int64, limit int, nodes []string) ([]asset.InspectFinding, bool, error)
+	// Count 用于容器章节的「台账里有多少容器类资产」——与列表共用条件（含资源范围）。
+	Count(f asset.ListFilter) (int, error)
+}
+
+// SetAssetService 注入资产台账（可选）。
+func (g *Generator) SetAssetService(svc assetsReporter) { g.assets = svc }
+
+// SetLogStore 注入日志后端（可选）。
+func (g *Generator) SetLogStore(s logstore.LogStore) { g.logs = s }
 
 // SetMiddlewareRegistry 注入中间件类型注册表。未注入时报告只含内置类型（行为与改造前一致）。
 func (g *Generator) SetMiddlewareRegistry(r *mwreg.Registry) { g.mwRegistry = r }
@@ -276,8 +583,19 @@ func NewGenerator(store storage.Storage, mgr *node.Manager, secStore *security.S
 // SetAnalyzer 注入可选智能分析服务；分析失败不影响原有巡检报告生成。
 func (g *Generator) SetAnalyzer(analyzer *analysis.Analyzer) { g.analyzer = analyzer }
 
-// Generate 生成指定类型的报告，返回报告 ID。
+// Generate 生成指定类型的报告（全部章节、不限范围），返回报告 ID。
+//
+// 保留这个签名是为了不打扰既有调用方（调度器与测试）；需要范围或章节选择时用 GenerateWith。
 func (g *Generator) Generate(rt ReportType) (string, error) {
+	return g.GenerateWith(GenerateOptions{Type: rt})
+}
+
+// GenerateWith 按给定选项生成报告，返回报告 ID。
+func (g *Generator) GenerateWith(opts GenerateOptions) (string, error) {
+	rt := opts.Type
+	if rt == "" {
+		rt = ReportDaily
+	}
 	now := time.Now()
 	var start, end time.Time
 	switch rt {
@@ -291,7 +609,7 @@ func (g *Generator) Generate(rt ReportType) (string, error) {
 		end = now
 		start = now.AddDate(0, 0, -1)
 	}
-	data := g.collectData(start, end, string(rt))
+	data := g.collectData(opts, start, end, string(rt))
 	html := renderHTML(data)
 	id := fmt.Sprintf("%s-%s", string(rt), now.Format("20060102-150405"))
 	path := filepath.Join(g.dir, id+".html")
@@ -304,6 +622,11 @@ func (g *Generator) Generate(rt ReportType) (string, error) {
 		Period:    data.Period,
 		Generated: data.GeneratedAt,
 		Path:      path,
+		Scope:     data.Scope.Desc,
+		Sections:  data.Scope.Sections,
+	}
+	for _, s := range data.Skipped {
+		meta.Skipped = append(meta.Skipped, s.Title)
 	}
 	g.mu.Lock()
 	g.history = append(g.history, meta)
@@ -435,12 +758,28 @@ func (g *Generator) persistHistoryLocked() {
 
 // ---- 数据收集 ----
 
-func (g *Generator) collectData(start, end time.Time, period string) reportData {
+func (g *Generator) collectData(opts GenerateOptions, start, end time.Time, period string) reportData {
 	startMs := start.UnixMilli()
 	endMs := end.UnixMilli()
 	step := oneHourMs
+	scope := opts.Scope
 
-	nodes := g.nodeMgr.ListNodes()
+	// 章节要生成 = 用户选了它 **且** 生成者有权看它。权限不足的章节在这里就断掉，
+	// 而不是「先生成了再隐藏」——报告是会被下载转发的文件。
+	denied := func(id string) bool {
+		_, bad := opts.Skipped[id]
+		return bad
+	}
+	want := func(id string) bool { return opts.selected(id) && !denied(id) }
+
+	// 资源范围：报告此前一律拉全部节点，本批起按范围收窄。
+	all := g.nodeMgr.ListNodes()
+	nodes := make([]model.Node, 0, len(all))
+	for _, n := range all {
+		if scopeCovers(scope, n.Hostname) {
+			nodes = append(nodes, n)
+		}
+	}
 	online, offline := 0, 0
 	for _, n := range nodes {
 		if n.Status == "online" {
@@ -518,9 +857,30 @@ func (g *Generator) collectData(start, end time.Time, period string) reportData 
 		DiskMax: round1(sumDiskMax / float64(onlineN)),
 	}
 
-	mw := g.collectMiddleware(startMs, endMs, step)
-	charts := buildCharts(nodeStats, trends)
-	sec := g.collectSecurity(startMs, endMs)
+	var mw []mwInstance
+	if want(SectionMiddleware) {
+		mw = g.collectMiddleware(scope, startMs, endMs, step)
+	}
+	var charts []chartItem
+	if want(SectionHosts) {
+		charts = buildCharts(nodeStats, trends)
+	}
+	var sec *SecuritySection
+	if want(SectionSecurity) {
+		sec = g.collectSecurity(scope, startMs, endMs)
+	}
+	var assets *AssetsSection
+	if want(SectionAssets) {
+		assets = g.collectAssets(scope)
+	}
+	var container *ContainerSection
+	if want(SectionContainer) {
+		container = g.collectContainer(scope)
+	}
+	var logs *LogsSection
+	if want(SectionLogs) {
+		logs = g.collectLogs(scope)
+	}
 	findings := buildFindings(nodeStats, mw)
 	findings = append(findings, buildSecurityFindings(sec)...)
 	sevOrder := map[string]int{"critical": 0, "warning": 1, "info": 2}
@@ -530,13 +890,36 @@ func (g *Generator) collectData(start, end time.Time, period string) reportData 
 	conclusion := g.buildConclusion(nodeStats, findings, sec)
 	comparison := g.buildComparison(start, end, nodeStats, summary)
 	var intelligence *intelligenceSection
-	if g.analyzer != nil {
+	if want(SectionAnalysis) && g.analyzer != nil {
 		result := g.analyzer.Summary(7*24*time.Hour, false)
+		// 智能分析的 Hosts 也要按范围收窄：它是逐主机的结论，不能漏出范围外的主机。
+		hosts := make([]analysis.HostResult, 0, len(result.Hosts))
+		for _, h := range result.Hosts {
+			if scopeCovers(scope, h.Node) {
+				hosts = append(hosts, h)
+			}
+		}
 		intelligence = &intelligenceSection{
 			WindowHours: result.WindowHours, ReadyNodeCount: result.ReadyNodeCount, InsufficientNodeCount: result.InsufficientNodeCount,
-			RiskCount: result.RiskCount, AnomalyCount: result.AnomalyCount, UrgentCapacityCount: result.UrgentCapacityCount, Hosts: result.Hosts,
+			RiskCount: result.RiskCount, AnomalyCount: result.AnomalyCount, UrgentCapacityCount: result.UrgentCapacityCount, Hosts: hosts,
 		}
 	}
+
+	// 生成口径：谁生成的、覆盖谁、实际出了哪些章节、哪些被跳过
+	sections := make([]string, 0, len(allSections))
+	for _, id := range allSections {
+		if want(id) {
+			sections = append(sections, id)
+		}
+	}
+	skipped := make([]SkippedSection, 0, len(opts.Skipped))
+	for id, reason := range opts.Skipped {
+		// 只报「确实被跳过」的：用户自己没选的章节不算被跳过
+		if opts.selected(id) {
+			skipped = append(skipped, SkippedSection{ID: id, Title: SectionTitle(id), Reason: reason})
+		}
+	}
+	sort.Slice(skipped, func(i, j int) bool { return skipped[i].ID < skipped[j].ID })
 
 	return reportData{
 		Period:       fmt.Sprintf("%s ~ %s", start.Format("2006-01-02 15:04"), end.Format("2006-01-02 15:04")),
@@ -550,6 +933,16 @@ func (g *Generator) collectData(start, end time.Time, period string) reportData 
 		Comparison:   comparison,
 		Security:     sec,
 		Intelligence: intelligence,
+		Assets:       assets,
+		Container:    container,
+		Logs:         logs,
+		Scope: ScopeInfo{
+			Actor:    opts.Actor,
+			Desc:     scopeDesc(scope, len(nodes)),
+			Nodes:    len(nodes),
+			Sections: sections,
+		},
+		Skipped: skipped,
 	}
 }
 
@@ -713,33 +1106,299 @@ func (g *Generator) collectPartitions(node string, startMs, endMs int64) []diskP
 	return out
 }
 
+// ---- 资产与配置聚合 ----
+
+// collectAssets 汇总「资产与配置」章节；台账未注入（库不可用）时返回 nil，章节不渲染。
+//
+// 三项都复用台账已有的聚合实现（`Stats` / `LinkOverview` / 巡检记录），报告这边不新增查询逻辑，
+// 因此不会出现「报告里的数字与台账页不一致」。
+func (g *Generator) collectAssets(scope ScopeSnapshot) *AssetsSection {
+	if g.assets == nil {
+		return nil
+	}
+	since := time.Now().AddDate(0, 0, -assetChangeWindowDays).UnixMilli()
+	// Apply 保留三态：all → nil（该维度不生效），limited → 非 nil（空即恒不匹配）。
+	f := scope.Apply(asset.ListFilter{})
+	stats, err := g.assets.Stats(f, since)
+	if err != nil {
+		slog.Warn("报告：统计资产摘要失败（本章节跳过）", "err", err)
+		return nil
+	}
+	sec := &AssetsSection{
+		Total: stats.Total, Missing: stats.Missing, NoOwner: stats.NoOwner,
+		Conflict: stats.Conflict, Ignored: stats.Ignored, Changes: stats.Changes,
+		ChangeWindowDays: assetChangeWindowDays,
+	}
+	// 关系总览与台账页共用 LinkOverview：边的**两端**都要在范围内（只判一端会泄露范围外对象）。
+	if ov, err := g.assets.LinkOverview(asset.ChangeScope{Nodes: f.Nodes, LabelSelectors: f.LabelSelectors}); err == nil {
+		sec.LinksTotal = ov.TotalLinks
+		sec.NoLinkAssets = ov.AssetsWithoutLinks
+		for _, gp := range ov.Groups {
+			sec.LinkGroups = append(sec.LinkGroups, AssetLinkGroup{
+				FromType: gp.FromType, Kind: string(gp.Kind), ToType: gp.ToType,
+				Source: string(gp.Source), Count: gp.Count,
+			})
+		}
+	} else {
+		slog.Warn("报告：统计关系总览失败（该小节跳过）", "err", err)
+	}
+	// 最近一次配置巡检：只取结论计数与分级，不给具体差异条目。
+	if runs, err := g.assets.InspectRunsInNodes(1, f.Nodes); err == nil && len(runs) > 0 {
+		run := runs[0]
+		info := &AssetInspectInfo{
+			At: run.StartedAt, Actor: run.Actor, Assets: run.Assets, Findings: run.Findings,
+			Baselined: run.Baselined, Truncated: run.Truncated,
+		}
+		if findings, _, err := g.assets.InspectFindingsInNodes(run.ID, 500, f.Nodes); err == nil && len(findings) > 0 {
+			byLevel := make(map[string]int, 3)
+			for _, fd := range findings {
+				byLevel[string(fd.Level)]++
+			}
+			info.ByLevel = byLevel
+			info.Sampled = len(findings)
+		}
+		sec.Inspect = info
+	}
+	return sec
+}
+
+// ---- 容器与工作负载聚合 ----
+
+// collectContainer 汇总「容器与工作负载」章节。
+//
+// 与容器页共用同一批指标名（`k8s_*`）与同一个集群注册表（`instancereg`），因此不会出现
+// 「报告里的数字与容器页不一致」。整章是当前快照，不做周期对比。
+func (g *Generator) collectContainer(scope ScopeSnapshot) *ContainerSection {
+	if g.store == nil {
+		return nil
+	}
+	sec := &ContainerSection{
+		SnapshotNote: "当前快照：容器指标与集群清单都是即时查询，平台不留存其历史，因此不做周期对比。",
+	}
+	// ① 集群清单：up 指标优先，注册表补全——Agent 离线时 up 指标会缺，
+	// 不能因此把「已配置的集群」判成「不存在」。
+	clusters := make(map[string]*ContainerCluster)
+	var keys []string
+	if series, err := g.store.QueryAllLatest("k8s_cluster_up", nil); err == nil {
+		for _, s := range series {
+			node, inst := s.Labels["node"], s.Labels["instance"]
+			if node == "" || inst == "" || len(s.Points) == 0 || !scopeCovers(scope, node) {
+				continue
+			}
+			key := node + "|" + inst
+			if _, ok := clusters[key]; ok {
+				continue
+			}
+			clusters[key] = &ContainerCluster{
+				Node: node, Instance: inst, Name: s.Labels["name"],
+				Version: s.Labels["version"], Group: s.Labels["group"],
+				Up: s.Points[len(s.Points)-1].Value > 0,
+			}
+			keys = append(keys, key)
+		}
+	} else {
+		slog.Warn("报告：查询 K8s 集群失败（容器章节的集群清单可能不全）", "err", err)
+	}
+	for _, ki := range instancereg.Default.K8sInstances() {
+		if !scopeCovers(scope, ki.Node) {
+			continue
+		}
+		key := ki.Node + "|" + ki.Instance
+		if _, ok := clusters[key]; ok {
+			continue
+		}
+		clusters[key] = &ContainerCluster{
+			Node: ki.Node, Instance: ki.Instance, Name: ki.Name, Version: ki.Version, Group: ki.Group,
+		}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		// 一个 K8s 集群都没有：章节不渲染，而不是给一份空表（那看起来像"采集坏了"）。
+		return nil
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		c := clusters[k]
+		if c.Up {
+			sec.ClustersUp++
+		}
+		sec.Clusters = append(sec.Clusters, *c)
+	}
+	sec.ClustersTotal = len(keys)
+
+	// ② 聚合指标：按 node|instance 归集
+	type k8sAgg struct {
+		nodesTotal, nodesReady                       float64
+		podsTotal, podsRunning, podsPending, podsFailed, podsAbnormal float64
+		depTotal, depUnhealthy, stsTotal, stsUnhealthy, dsTotal, dsUnhealthy float64
+	}
+	aggs := make(map[string]*k8sAgg)
+	get := func(key string) *k8sAgg {
+		a := aggs[key]
+		if a == nil {
+			a = &k8sAgg{}
+			aggs[key] = a
+		}
+		return a
+	}
+	setters := map[string]func(a *k8sAgg, v float64){
+		"k8s_nodes_total":            func(a *k8sAgg, v float64) { a.nodesTotal = v },
+		"k8s_nodes_ready":            func(a *k8sAgg, v float64) { a.nodesReady = v },
+		"k8s_pods_total":             func(a *k8sAgg, v float64) { a.podsTotal = v },
+		"k8s_pods_running":           func(a *k8sAgg, v float64) { a.podsRunning = v },
+		"k8s_pods_pending":           func(a *k8sAgg, v float64) { a.podsPending = v },
+		"k8s_pods_failed":            func(a *k8sAgg, v float64) { a.podsFailed = v },
+		"k8s_deployments_total":      func(a *k8sAgg, v float64) { a.depTotal = v },
+		"k8s_deployments_unhealthy":  func(a *k8sAgg, v float64) { a.depUnhealthy = v },
+		"k8s_statefulsets_total":     func(a *k8sAgg, v float64) { a.stsTotal = v },
+		"k8s_statefulsets_unhealthy": func(a *k8sAgg, v float64) { a.stsUnhealthy = v },
+		"k8s_daemonsets_total":       func(a *k8sAgg, v float64) { a.dsTotal = v },
+		"k8s_daemonsets_unhealthy":   func(a *k8sAgg, v float64) { a.dsUnhealthy = v },
+	}
+	for metric, set := range setters {
+		series, err := g.store.QueryAllLatest(metric, nil)
+		if err != nil {
+			slog.Warn("报告：K8s 聚合指标查询失败", "metric", metric, "err", err)
+			continue
+		}
+		for _, s := range series {
+			node, inst := s.Labels["node"], s.Labels["instance"]
+			if node == "" || inst == "" || len(s.Points) == 0 || !scopeCovers(scope, node) {
+				continue
+			}
+			set(get(node+"|"+inst), s.Points[len(s.Points)-1].Value)
+		}
+	}
+	// 异常 Pod 单独查一次：要区分「值为 0」与「指标不存在」（旧 Agent）——后者必须退回
+	// pending+failed 口径，否则升级服务端后"异常 Pod"会直接变 0，把已存在的异常悄悄藏起来。
+	abnormalSeen := make(map[string]bool)
+	if series, err := g.store.QueryAllLatest("k8s_pods_abnormal", nil); err == nil {
+		for _, s := range series {
+			node, inst := s.Labels["node"], s.Labels["instance"]
+			if node == "" || inst == "" || len(s.Points) == 0 || !scopeCovers(scope, node) {
+				continue
+			}
+			key := node + "|" + inst
+			abnormalSeen[key] = true
+			get(key).podsAbnormal = s.Points[len(s.Points)-1].Value
+		}
+	}
+	var depTotal, depUnhealthy, stsTotal, stsUnhealthy, dsTotal, dsUnhealthy int
+	for key, a := range aggs {
+		sec.NodesTotal += int(a.nodesTotal)
+		sec.NodesReady += int(a.nodesReady)
+		sec.PodsTotal += int(a.podsTotal)
+		sec.PodsRunning += int(a.podsRunning)
+		sec.PodsPending += int(a.podsPending)
+		sec.PodsFailed += int(a.podsFailed)
+		if abnormalSeen[key] {
+			sec.PodsAbnormal += int(a.podsAbnormal)
+		} else {
+			sec.PodsAbnormal += int(a.podsPending + a.podsFailed)
+		}
+		depTotal += int(a.depTotal)
+		depUnhealthy += int(a.depUnhealthy)
+		stsTotal += int(a.stsTotal)
+		stsUnhealthy += int(a.stsUnhealthy)
+		dsTotal += int(a.dsTotal)
+		dsUnhealthy += int(a.dsUnhealthy)
+	}
+	for _, w := range []ContainerWorkloadStat{
+		{Kind: "Deployment", Total: depTotal, Unhealthy: depUnhealthy},
+		{Kind: "StatefulSet", Total: stsTotal, Unhealthy: stsUnhealthy},
+		{Kind: "DaemonSet", Total: dsTotal, Unhealthy: dsUnhealthy},
+	} {
+		if w.Total > 0 || w.Unhealthy > 0 {
+			sec.Workloads = append(sec.Workloads, w)
+		}
+	}
+
+	// ③ 台账里的容器类资产计数（Docker 容器以 middleware-instance 落库、自然键带 docker: 前缀，
+	// 现有筛选没有"自然键前缀"这个条件，因此宁缺勿错：不列 Docker 一行）。
+	if g.assets != nil {
+		f := scope.Apply(asset.ListFilter{})
+		counts := make(map[string]int)
+		for _, tk := range []string{"pod", "workload", "service"} {
+			ff := f
+			ff.TypeKey = tk
+			if n, err := g.assets.Count(ff); err == nil {
+				counts[tk] = n
+			}
+		}
+		if len(counts) > 0 {
+			sec.AssetCounts = counts
+		}
+	}
+	return sec
+}
+
+// ---- 日志聚合 ----
+
+// collectLogs 汇总「日志」章节：如实转述后端**自己回答**的能力与存储现状。
+//
+// 存储统计是**全局口径**（后端不掌握按节点分片的统计能力），因此受限身份下不展示它——
+// 只给能力说明，避免"来源数/节点数"把范围外的规模透出去。
+func (g *Generator) collectLogs(scope ScopeSnapshot) *LogsSection {
+	if g.logs == nil {
+		return nil
+	}
+	c := g.logs.Capability()
+	sec := &LogsSection{
+		Backend: c.Backend, FullTextIndex: c.FullTextIndex, FieldIndex: c.FieldIndex, Notes: c.Notes,
+	}
+	if c.ScanBudget != nil {
+		sec.ScanBudgetMB = int(c.ScanBudget.Bytes / (1024 * 1024))
+		sec.ScanBudgetLines = c.ScanBudget.Lines
+	}
+	if scope.NodeMode == asset.ScopeModeLimited {
+		sec.StorageNote = "受限身份下不展示日志存储统计：它按全局口径统计，无法按资源范围收窄。"
+		return sec
+	}
+	sec.Sources = c.Storage.Sources
+	sec.Nodes = c.Storage.Nodes
+	sec.OldestDay = c.Storage.OldestDay
+	sec.NewestDay = c.Storage.NewestDay
+	sec.Bytes = c.Storage.Bytes
+	sec.Truncated = c.Storage.Truncated
+	sec.ProbeError = c.Storage.Err
+	return sec
+}
+
 // ---- 安全中心聚合 ----
 
 // collectSecurity 汇总巡检周期内的安全基线评分与告警事件。
-func (g *Generator) collectSecurity(startMs, endMs int64) *SecuritySection {
+func (g *Generator) collectSecurity(scope ScopeSnapshot, startMs, endMs int64) *SecuritySection {
 	if g.secStore == nil {
 		return nil
 	}
 	baselines := g.secStore.Baselines()
 	events := g.secStore.Events(0, "", "")
 	sec := &SecuritySection{
-		HasData:   len(baselines) > 0 || len(events) > 0,
 		LowScores: make(map[string]float64),
 	}
 	var sumScore float64
+	scored := 0
 	for _, b := range baselines {
+		// 安全章节同样受资源范围约束：范围外的节点不能因为「出了一份报告」被看见。
+		if !scopeCovers(scope, b.Node) {
+			continue
+		}
+		scored++
 		sumScore += b.Score
 		if b.Score < 70 {
 			sec.RiskNodes = append(sec.RiskNodes, b.Node)
 			sec.LowScores[b.Node] = b.Score
 		}
 	}
-	if len(baselines) > 0 {
-		sec.NodeCount = len(baselines)
-		sec.AvgScore = round1(sumScore / float64(len(baselines)))
+	if scored > 0 {
+		sec.NodeCount = scored
+		sec.AvgScore = round1(sumScore / float64(scored))
 	}
 	sec.LowScoreNodes = len(sec.RiskNodes)
 	for _, e := range events {
+		if !scopeCovers(scope, e.Node) {
+			continue
+		}
 		if e.Timestamp < startMs || e.Timestamp > endMs {
 			continue
 		}
@@ -757,6 +1416,8 @@ func (g *Generator) collectSecurity(startMs, endMs int64) *SecuritySection {
 	if len(sec.Events) > 20 {
 		sec.Events = sec.Events[:20]
 	}
+	// 「有数据」同样按范围内的口径算：范围外有基线不能让本章节看起来有内容。
+	sec.HasData = scored > 0 || len(sec.Events) > 0
 	return sec
 }
 
@@ -915,7 +1576,7 @@ func (g *Generator) buildComparison(start, end time.Time, nodes []nodeStat, summ
 // 原先这里的 mwDefs 与 api 的 middlewareTypes/mwSummarySpecs、alert 的 serviceMetric 各自维护，
 // 已经漂移出三处不一致（见 mwreg/builtin.go 的说明）。报告通过 SetMiddlewareRegistry 注入读取。
 
-func (g *Generator) collectMiddleware(startMs, endMs, step int64) []mwInstance {
+func (g *Generator) collectMiddleware(scope ScopeSnapshot, startMs, endMs, step int64) []mwInstance {
 	var out []mwInstance
 	for _, d := range g.mwTypes() {
 		// 模板派生类型的存活指标是所有模板共用的 template_target_up，必须带上类型自身的标签过滤
@@ -930,6 +1591,10 @@ func (g *Generator) collectMiddleware(startMs, endMs, step int64) []mwInstance {
 		tp := d.ReportThroughputMetric
 		for _, s := range upSeries {
 			node := s.Labels["node"]
+			// 中间件实例按它所属的 Agent 节点收窄：范围外的实例不能进报告。
+			if !scopeCovers(scope, node) {
+				continue
+			}
 			inst := s.Labels["instance"]
 			up := false
 			if len(s.Points) > 0 {
