@@ -253,7 +253,7 @@ type AIConfig struct {
 **已完成**：前端诊断入口（主机 + 告警）+ e2e 脚本 + 打包。
 
 - `web/src/components/ai/AiDiagnosePanel.vue`（新）：可复用的「AI 诊断」按钮 + 结果弹窗。**做成组件而不是在三处各写一遍**——上下文组装在服务端，前端只做"传对象标识 + 展示结果"这一件事。结果直接显示原始文本（**不渲染 markdown**：不引依赖，也避免把模型输出的 HTML 当代码执行）。
-- 入口**两处**（设计件写三处）：智能分析页的主机详情抽屉（`IntelligenceView.vue`）、告警详情抽屉（`AlertsView.vue`）。**资产详情入口未做**——该文件改动最大而边际价值最低（主机与告警已覆盖主要排障场景），后端已支持 `kind=asset`，需要时按同一组件插一行即可。
+- 入口**三处**：智能分析页的主机详情抽屉（`IntelligenceView.vue`）、告警详情抽屉（`AlertsView.vue`）、资产详情抽屉（`AssetListView.vue`）。资产那处是后补的（用户 2026-10-08 确认需要）——**组件化的收益在这里体现**：补一处只花了"插一行 + 一个 import"。
 - `web/src/api/http.js`：`diagnoseAI`。
 - `dist/ai-e2e.py`（新）：**自带假 OpenAI 兼容端点**（照 `build/template-fakes/fakevm` 的先例）——不依赖外网，且能捕获"平台到底把什么发出去了"。
 
@@ -268,7 +268,7 @@ type AIConfig struct {
 
 **打包**：`1.30.59`（full 201 MiB / upgrade 81 MiB）。已手工核对：6 个二进制齐全、manifest 引用的 8 个 component（含 `deploy/agent-install.sh`）全在包内、`web/index.html` 在包内、**新增 `web/assets/AiDiagnosePanel-*.js` 与 `.css`**、server 二进制内嵌 `1.30.59`。
 
-**未做**：资产详情入口。
+**未做**：无（三处入口已齐：主机 / 告警 / 资产）。
 
 **已实机验证（2026-10-08，dev-server 1.30.60）**：`dist/ai-e2e.py core` **33 项全过、0 失败**（脚本自带假 OpenAI 兼容端点，并**捕获实际发出的请求体**）。六组判据：
 
