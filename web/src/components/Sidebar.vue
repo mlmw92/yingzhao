@@ -122,6 +122,10 @@ import {
   TopRight,
   Tools,
   Share,
+  // 收起/展开按钮的图标：此前模板用了 Fold/Expand 但没导入，
+  // 渲染时解析不到组件，按钮上是个空图标（只在控制台留一条 warn）。
+  Fold,
+  Expand,
 } from '@element-plus/icons-vue'
 import http from '../api/http'
 import { useBrand } from '../composables/useBrand'
@@ -251,9 +255,12 @@ const visibleGroups = computed(() => groups.filter((g) => g.items.some(isItemVis
 // 这里只记录"用户手动收起过"的分组（false），未记录的一律视为展开。
 const openGroups = ref({})
 
+// 高亮按**精确路径**判定：此前用 startsWith，于是 /assets 把 /assets/topology、
+// /assets/model 一并点亮（两个菜单同时高亮）。菜单项都是一级页面，没有需要靠前缀
+// 覆盖的详情路由，精确比较即可；详情路由（如 /node/:name）不在菜单里。
 function isActiveItem(item) {
   if (item.key === 'overview') return route.path === '/'
-  return route.path.startsWith(item.to)
+  return route.path === item.to
 }
 
 function isGroupActive(g) {
