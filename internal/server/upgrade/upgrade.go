@@ -87,7 +87,6 @@ type Config struct {
 	AgentBinDir     string // agent 自带 CDN 根目录（含 agent/linux/<arch>/agent）
 	AgentScriptPath string // Agent 安装脚本目标路径（apply 时写入，如 dataDir/agent-dist/agent-install.sh）
 	BackupKeep      int    // 保留备份份数
-	ArchiveKeep     int    // 保留已上传升级包（版本归档）的份数；默认 5
 	UseSystemd      bool   // 是否用 systemd 重启 server
 	Service         string // systemd 服务名
 	CurrentVersion  string // 当前运行版本，用于普通升级的 SemVer 校验
@@ -128,9 +127,6 @@ func New(cfg Config, nodeMgr *node.Manager) (*Manager, error) {
 	if cfg.BackupKeep <= 0 {
 		cfg.BackupKeep = 3
 	}
-	if cfg.ArchiveKeep <= 0 {
-		cfg.ArchiveKeep = 5
-	}
 	if cfg.Service == "" {
 		cfg.Service = "monitor-server.service"
 	}
@@ -144,6 +140,10 @@ func New(cfg Config, nodeMgr *node.Manager) (*Manager, error) {
 			return nil, fmt.Errorf("创建升级目录失败 %s: %w", d, err)
 		}
 	}
+	// 启动时清空 unpacked：解压目录只在「上传 → 应用」这一个周期内有用，而待应用任务
+	// （Manager.current）仅存在于内存中、且每次应用升级都会重启进程，所以进程启动后
+	// unpacked 下的内容一律是上一次升级的残留（每个约 160MB，长期累积会撑满磁盘）。
+	pruneUnpacked(cfg.Dir)
 	m := &Manager{
 		cfg:        cfg,
 		nodeMgr:    nodeMgr,
@@ -515,6 +515,12 @@ func (m *Manager) applyCore(id, version string, components []Component, unpackRo
 
 	m.pruneBackups()
 
+	// 替换成功后解压目录即无用，立即删除：它只在本次替换中被读取，留着会随每次升级
+	// 累积（每个约 160MB）。失败时保留，便于直接重试应用而无需重新上传。
+	if len(applyErrors) == 0 {
+		_ = os.RemoveAll(unpackRoot)
+	}
+
 	// 4) 重启 server（仅在确实替换了 server 二进制时）
 	if serverApplied && len(applyErrors) == 0 {
 		if err := m.restart(); err != nil {
@@ -589,17 +595,53 @@ func (m *Manager) RollbackTo(version, operator string) (*Task, error) {
 	return m.applyCore(id, mf.Version, mf.Components, unpackDir, operator, "rollback_to")
 }
 
-// Archive 返回已归档（已上传）的升级包列表，按上传时间倒序，供 Web 端选择回退。
+// Archive 返回已归档（已上传）的升级包列表，按上传时间倒序，供 Web 端选择切换。
+// 只返回归档文件仍存在的条目：升级包一旦被删除（Web 端删除或磁盘上被清掉），
+// 该版本就不再出现在可切换清单里，也就无法再切换/回退到它。
 func (m *Manager) Archive() []ArchiveEntry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]ArchiveEntry, len(m.archive))
-	copy(out, m.archive)
+	out := make([]ArchiveEntry, 0, len(m.archive))
+	for _, e := range m.archive {
+		if _, err := os.Stat(filepath.Join(m.archiveDir, sanitizeVersion(e.Version)+".tar.gz")); err == nil {
+			out = append(out, e)
+		}
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UploadedAt.After(out[j].UploadedAt) })
 	return out
 }
 
-// archivePackage 把上传的原始 tar.gz 按版本归档，并保留最近 ArchiveKeep 个版本。
+// DeleteArchive 删除指定版本的归档升级包（含归档记录）。
+// 删除后该版本不再可切换/回退；需要恢复该能力只能重新上传对应版本的升级包。
+func (m *Manager) DeleteArchive(version string) error {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return errors.New("缺少版本号")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := -1
+	for i := range m.archive {
+		if m.archive[i].Version == version {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return fmt.Errorf("未找到版本 %s 的升级包", version)
+	}
+	path := filepath.Join(m.archiveDir, sanitizeVersion(version)+".tar.gz")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("删除升级包失败: %w", err)
+	}
+	m.archive = append(m.archive[:idx], m.archive[idx+1:]...)
+	m.saveArchive()
+	slog.Info("升级包已删除", "version", version)
+	return nil
+}
+
+// archivePackage 把上传的原始 tar.gz 按版本归档，供 Web 端随时切换回该版本。
+// 归档不再自动清理（旧版本保留到被显式删除为止），是否删除由管理员在 Web 端决定。
 func (m *Manager) archivePackage(version, srcTar string) error {
 	dst := filepath.Join(m.archiveDir, sanitizeVersion(version)+".tar.gz")
 	if err := copyFile(srcTar, dst); err != nil {
@@ -625,22 +667,9 @@ func (m *Manager) archivePackage(version, srcTar string) error {
 			Size:       sz,
 		})
 	}
-	m.pruneArchive()
 	m.saveArchive()
 	m.mu.Unlock()
 	return nil
-}
-
-// pruneArchive 仅保留最近 ArchiveKeep 个归档版本，删除更旧的归档文件。
-func (m *Manager) pruneArchive() {
-	if m.cfg.ArchiveKeep <= 0 || len(m.archive) <= m.cfg.ArchiveKeep {
-		return
-	}
-	sort.Slice(m.archive, func(i, j int) bool { return m.archive[i].UploadedAt.After(m.archive[j].UploadedAt) })
-	for _, e := range m.archive[m.cfg.ArchiveKeep:] {
-		_ = os.Remove(filepath.Join(m.archiveDir, sanitizeVersion(e.Version)+".tar.gz"))
-	}
-	m.archive = m.archive[:m.cfg.ArchiveKeep]
 }
 
 func (m *Manager) saveArchive() {
@@ -671,6 +700,22 @@ func (m *Manager) loadArchive() {
 		}
 	}
 	m.archive = kept
+}
+
+// pruneUnpacked 清空升级解压目录（<Dir>/unpacked）。解压目录只在「上传 → 应用」
+// 这一个周期内有用，而待应用任务仅存在于内存中、且应用升级必然重启进程，
+// 因此进程启动后残留的目录一律可删。
+func pruneUnpacked(dir string) {
+	root := filepath.Join(dir, "unpacked")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
+			slog.Warn("清理升级解压残留失败", "name", e.Name(), "err", err)
+		}
+	}
 }
 
 // sanitizeVersion 把版本号转成安全的文件名片段。

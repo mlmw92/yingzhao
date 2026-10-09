@@ -345,7 +345,6 @@ func main() {
 			AgentBinDir:      cfg.AgentBinDir,
 			AgentScriptPath:  cfg.AgentScriptPath,
 			BackupKeep:       cfg.Upgrade.BackupKeep,
-			ArchiveKeep:      cfg.Upgrade.ArchiveKeep,
 			UseSystemd:       cfg.Upgrade.UseSystemd,
 			Service:          cfg.Upgrade.Service,
 			CurrentVersion:   version.Version,

@@ -259,6 +259,7 @@
 | POST | `/api/v1/system/upgrade/apply` | `system:upgrade`（高风险） | — |
 | GET | `/api/v1/system/upgrade/history` | `system:upgrade`（高风险） | — |
 | GET | `/api/v1/system/upgrade/archive` | `system:upgrade`（高风险） | — |
+| POST | `/api/v1/system/upgrade/archive/delete` | `system:upgrade`（高风险） | — |
 | POST | `/api/v1/system/upgrade/rollback-to` | `system:upgrade`（高风险） | — |
 | GET | `/api/v1/system/geoip` | `system:config`（新增） | — |
 | POST | `/api/v1/system/geoip/upload` | `system:config`（新增） | — |

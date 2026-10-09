@@ -565,7 +565,9 @@ sudo bash deploy/install-server.sh --upgrade --tsdb-addr http://<tsdb>:8428
 
 ### 切换到指定版本
 
-每次通过 Web 端上传的升级包都会被自动归档（保留最近 5 个版本，可在 `server.yaml` 的 `upgrade.archiveKeep` 调整）。在「系统升级」页「升级历史」表格中，凡是仍存在于归档且非当前运行版本的记录，其行尾都带有「切换」按钮：点击后服务端会解压该版本的归档包并按其 `manifest.json` 重新执行备份 → 替换 Server/Web/Agent → 重启，使运行版本变为该归档版本（既可切换回旧版本，也可从旧版本切换回较新的版本）。切换同样会生成备份，因此可继续向后切换或回退。当前运行版本对应的「切换」按钮为禁用状态。
+每次通过 Web 端上传的升级包都会归档到升级目录，并一直保留到被删除为止。在「系统升级」页的「升级包」列表中，每个保留的升级包都带有「切换」按钮：点击后服务端会解压该版本的归档包并按其 `manifest.json` 重新执行备份 → 替换 Server/Web/Agent → 重启，使运行版本变为该版本（既可切换回旧版本，也可从旧版本切换回较新的版本）。切换同样会生成备份，因此可继续向后切换或回退。当前运行版本对应的「切换」按钮为禁用状态。
+
+不再需要的升级包可在「升级包」列表中点击「删除」清理，列表顶部显示已保留升级包的合计占用。**升级包一旦删除，该版本就无法再切换回来**，需要恢复该能力只能重新上传对应版本的升级包；「升级历史」表格中对应记录的「切换」按钮也会随之变为禁用状态。
 
 > 归档包位于升级目录下的 `archive/` 子目录，记录保存在 `archive.json`；归档文件缺失的版本不会在列表中展示。
 
@@ -1829,6 +1831,7 @@ journalctl -u monitor-proxy-hub -f
 | POST | `/api/v1/system/upgrade/apply` | 立即应用升级并重启 |
 | GET | `/api/v1/system/upgrade/history` | 升级历史 |
 | GET | `/api/v1/system/upgrade/archive` | 已归档（可切换）版本列表 |
+| POST | `/api/v1/system/upgrade/archive/delete` | 删除指定版本的升级包（删除后不可再切换回该版本） |
 | POST | `/api/v1/system/upgrade/rollback-to` | 切换到指定归档版本 |
 | GET | `/api/v1/system/retention` | 数据保留策略与各类数据现状（`system:config`） |
 | PUT | `/api/v1/system/retention` | 保存数据保留策略（热生效） |

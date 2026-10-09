@@ -400,7 +400,6 @@ type UpgradeConfig struct {
 	Dir         string `yaml:"dir"`         // 升级工作目录（上传包、解压、备份）；默认 <DataDir>/upgrades
 	BinDir      string `yaml:"binDir"`      // server 二进制安装目录；默认 /usr/local/bin
 	BackupKeep  int    `yaml:"backupKeep"`  // 保留最近几次备份；默认 3
-	ArchiveKeep int    `yaml:"archiveKeep"` // 保留最近几个已上传升级包（可回退版本）；默认 5
 	UseSystemd  bool   `yaml:"useSystemd"`  // 是否用 systemd 重启 server；默认 true
 	Service     string `yaml:"service"`     // systemd 服务名；默认 monitor-server.service
 }
@@ -453,7 +452,6 @@ func Default() *Config {
 			Dir:         "/var/lib/monitor-server/upgrades",
 			BinDir:      "/usr/local/bin",
 			BackupKeep:  3,
-			ArchiveKeep: 5,
 			UseSystemd:  true,
 			Service:     "monitor-server.service",
 		},

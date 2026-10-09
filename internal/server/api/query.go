@@ -410,6 +410,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/system/upgrade/apply", a.permit(a.handleSystemUpgradeApply, "system:upgrade"))
 	mux.HandleFunc("GET /api/v1/system/upgrade/history", a.permit(a.handleSystemUpgradeHistory, "system:upgrade"))
 	mux.HandleFunc("GET /api/v1/system/upgrade/archive", a.permit(a.handleSystemUpgradeArchive, "system:upgrade"))
+	mux.HandleFunc("POST /api/v1/system/upgrade/archive/delete", a.permit(a.handleSystemUpgradeArchiveDelete, "system:upgrade"))
 	mux.HandleFunc("POST /api/v1/system/upgrade/rollback-to", a.permit(a.handleSystemUpgradeRollbackTo, "system:upgrade"))
 
 	// IP 地理库更新（独立于系统升级：只替换 ip2region 库文件并热加载，不重启服务）→ system:config

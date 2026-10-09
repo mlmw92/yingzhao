@@ -101,6 +101,36 @@ func (a *API) handleSystemUpgradeArchive(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"versions": a.upgrader.Archive()})
 }
 
+// handleSystemUpgradeArchiveDelete 删除指定版本的归档升级包。
+// 升级包一旦删除，该版本就不再出现在可切换清单里（也就无法再切换/回退到该版本）；
+// 需要恢复该能力只能重新上传对应版本的升级包。
+func (a *API) handleSystemUpgradeArchiveDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "方法不允许"})
+		return
+	}
+	if a.upgrader == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "升级功能未启用"})
+		return
+	}
+	var body struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请求体解析失败: " + err.Error()})
+		return
+	}
+	if body.Version == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少 version 参数"})
+		return
+	}
+	if err := a.upgrader.DeleteArchive(body.Version); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"versions": a.upgrader.Archive()})
+}
+
 // handleSystemUpgradeRollbackTo 回退到指定的已归档版本。
 func (a *API) handleSystemUpgradeRollbackTo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

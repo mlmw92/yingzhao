@@ -13,7 +13,12 @@ vi.mock('element-plus', () => ({
   ElMessageBox: { confirm: vi.fn(async () => true) },
 }))
 
-const ButtonStub = { name: 'ElButton', template: '<button><slot /></button>' }
+// 透出 disabled，便于断言按钮可用性（Element Plus 的 el-button 用 prop 而非原生属性）
+const ButtonStub = {
+  name: 'ElButton',
+  props: ['disabled'],
+  template: '<button :disabled="disabled"><slot /></button>',
+}
 const NoopStub = { name: 'Noop', template: '<div />' }
 
 function mountView() {
@@ -127,5 +132,66 @@ describe('UpgradeView 升级请求收到 502 时确认实际结果', () => {
 
     expect(ElMessage.error).toHaveBeenCalledWith('升级失败：替换 server 失败')
     expect(ElMessage.success).not.toHaveBeenCalled()
+  })
+})
+
+describe('UpgradeView 升级包：未删除则可切换，删除后不可切换', () => {
+  let wrapper
+  let archive
+
+  function pkgRow(version) {
+    return wrapper.findAll('.pkg-row').find((r) => r.text().includes('v' + version))
+  }
+  function buttonOf(row, label) {
+    return row.findAll('button').find((b) => b.text().includes(label))
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    archive = [
+      { id: 'a1', version: '1.28.0', size: 1024 * 1024, uploadedAt: '2026-10-08T10:00:00Z' },
+      { id: 'a2', version: '1.27.1', size: 2 * 1024 * 1024, uploadedAt: '2026-10-07T10:00:00Z' },
+    ]
+    http.get.mockImplementation(async (path) => {
+      if (path === '/api/v1/version') return { server: '1.27.1', buildTime: '' }
+      if (path === '/api/v1/system/upgrade/current') return { current: null }
+      if (path === '/api/v1/system/upgrade/history') return { history: [] }
+      if (path === '/api/v1/system/upgrade/archive') return { versions: archive }
+      if (path === '/api/v1/system/geoip') return { source: 'builtin' }
+      throw new Error(`未知路径: ${path}`)
+    })
+  })
+
+  afterEach(() => {
+    if (wrapper) wrapper.unmount()
+    wrapper = undefined
+  })
+
+  it('已保留的升级包均可切换，当前运行版本的切换按钮禁用', async () => {
+    wrapper = mountView()
+    await flushPromises()
+
+    expect(pkgRow('1.28.0')).toBeTruthy()
+    expect(buttonOf(pkgRow('1.28.0'), '切换').attributes('disabled')).toBeUndefined()
+    expect(buttonOf(pkgRow('1.27.1'), '切换').attributes('disabled')).toBeDefined()
+  })
+
+  it('删除升级包后该版本从清单消失，也不再提供切换', async () => {
+    http.post.mockImplementation(async (path, body) => {
+      if (path === '/api/v1/system/upgrade/archive/delete' && body.version === '1.28.0') {
+        archive = archive.filter((p) => p.version !== '1.28.0')
+        return { versions: archive }
+      }
+      throw new Error('未知请求: ' + path)
+    })
+    wrapper = mountView()
+    await flushPromises()
+
+    await buttonOf(pkgRow('1.28.0'), '删除').trigger('click')
+    await flushPromises()
+
+    expect(http.post).toHaveBeenCalledWith('/api/v1/system/upgrade/archive/delete', { version: '1.28.0' })
+    expect(pkgRow('1.28.0')).toBeUndefined()
+    expect(pkgRow('1.27.1')).toBeTruthy()
   })
 })

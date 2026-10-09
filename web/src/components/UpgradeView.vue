@@ -115,6 +115,48 @@
       />
     </SectionCard>
 
+    <!-- 已归档升级包：未删除的版本都可以直接切换回去 -->
+    <SectionCard title="升级包">
+      <template #actions>
+        <span v-if="archiveList.length" class="pkg-total">合计 {{ fmtSize(archiveTotalSize) }}</span>
+        <el-button size="small" link @click="loadArchive">刷新</el-button>
+      </template>
+      <EmptyState
+        v-if="!archiveList.length"
+        title="暂无升级包"
+        :hints="['上传升级包后会自动归档并保留，可随时切换回该版本', '删除升级包后该版本将无法再切换回来']"
+      />
+      <div v-else class="pkg-list" v-loading="archiveLoading">
+        <div v-for="p in archiveList" :key="p.id || p.version" class="pkg-row">
+          <span class="pkg-ver">v{{ p.version }}</span>
+          <el-tag v-if="p.version === currentVersion.server" type="success" size="small" effect="plain">当前运行</el-tag>
+          <span class="pkg-meta">{{ fmtSize(p.size) }}</span>
+          <span class="pkg-meta">{{ fmtTime(p.uploadedAt) }}</span>
+          <span class="pkg-actions">
+            <el-button
+              size="small"
+              type="warning"
+              plain
+              :loading="rollingBack"
+              :disabled="!canRollbackTo(p.version) || rollingBack || deletingVersion !== '' || cooldown > 0"
+              @click="rollbackTo(p.version)"
+            >{{ cooldown > 0 ? `请等待 ${cooldown}s` : '切换' }}</el-button>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :loading="deletingVersion === p.version"
+              :disabled="deletingVersion !== '' || rollingBack"
+              @click="deleteArchive(p.version)"
+            >删除</el-button>
+          </span>
+        </div>
+      </div>
+      <div v-if="archiveList.length" class="pkg-tip">
+        升级包保留到被删除为止；删除后该版本不再出现在此列表中，也无法再切换回来（需要时重新上传该版本的升级包即可恢复）。
+      </div>
+    </SectionCard>
+
     <!-- 历史 -->
     <SectionCard title="升级历史">
       <template #actions>
@@ -334,18 +376,41 @@ async function loadHistory() {
   loadingHistory.value = false
 }
 
-// 已归档版本列表（供升级历史表格判断哪些版本可切换）。
-const archiveVersions = ref([])
+// 已归档升级包：只要没被删除，对应版本就能切换回去；删除后即从清单消失。
+const archiveList = ref([])
+const archiveVersions = computed(() => archiveList.value.map((p) => p.version))
+const archiveTotalSize = computed(() => archiveList.value.reduce((sum, p) => sum + (p.size || 0), 0))
 const archiveLoading = ref(false)
 const rollingBack = ref(false)
+const deletingVersion = ref('')
 
 async function loadArchive() {
   archiveLoading.value = true
   try {
     const r = await http.get('/api/v1/system/upgrade/archive')
-    archiveVersions.value = r.versions || []
+    archiveList.value = r.versions || []
   } catch (e) { /* ignore */ }
   archiveLoading.value = false
+}
+
+async function deleteArchive(version) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除 v${version} 的升级包？删除后该版本将无法再切换回来，需要时只能重新上传该版本的升级包。`,
+      '删除升级包',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  deletingVersion.value = version
+  try {
+    const r = await http.post('/api/v1/system/upgrade/archive/delete', { version })
+    archiveList.value = r.versions || []
+    ElMessage.success(`已删除 v${version} 的升级包`)
+  } catch (e) {
+    ElMessage.error('删除失败：' + e.message)
+  } finally {
+    deletingVersion.value = ''
+  }
 }
 
 // 切换/升级会重启当前 Server，HTTP 请求可能在响应返回前被主动断开，
@@ -399,10 +464,10 @@ function isRestartDisconnect(error) {
   return /Failed to fetch|网络错误|NetworkError|fetch|HTTP 502/i.test(error?.message || '')
 }
 
-// 该版本是否可回退：必须是已归档版本、且不是当前运行版本。
+// 该版本是否可切换：升级包仍保留（未被删除）、且不是当前运行版本。
 function canRollbackTo(version) {
   if (!version || version === currentVersion.value.server) return false
-  return archiveVersions.value.some(a => a.version === version)
+  return archiveVersions.value.includes(version)
 }
 
 async function rollbackTo(version) {
@@ -451,6 +516,7 @@ async function onUpload(option) {
     })
     uploadProgress.value = 100
     pending.value = task
+    await loadArchive()
     ElMessage.success('升级包解析成功：v' + task.version)
     option.onSuccess && option.onSuccess(task)
   } catch (e) {
@@ -462,8 +528,8 @@ async function onUpload(option) {
 }
 
 function cancelPending() {
-  // 后端暂未提供取消已上传包的接口，重新上传会覆盖；
-  // 这里仅清空本地预览
+  // 仅清空本地预览：升级包已归档并保留在「升级包」列表中（不再自动清理），
+  // 需要放弃它时到该列表里删除即可。
   pending.value = null
   applyError.value = ''
 }
@@ -720,6 +786,47 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+.pkg-total {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 8px;
+}
+.pkg-list {
+  display: flex;
+  flex-direction: column;
+}
+.pkg-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--bd);
+}
+.pkg-row:last-child {
+  border-bottom: none;
+}
+.pkg-ver {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--accent);
+  min-width: 88px;
+}
+.pkg-meta {
+  color: var(--text-muted);
+  min-width: 96px;
+}
+.pkg-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.pkg-tip {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
 }
 .hist-pager {
   display: flex;
