@@ -99,6 +99,9 @@ function gradientSeries(name, color, data, area = true) {
     type: 'line',
     smooth: true,
     showSymbol: false,
+    // 图例图标与提示框圆点取的是 itemStyle.color，不是 lineStyle.color：
+    // 只设 lineStyle 会让它们落回 ECharts 默认调色板，表现为「图例是绿的、线是紫的」。
+    itemStyle: { color },
     lineStyle: { color, width: 2, shadowColor: color, shadowBlur: 10 },
     data: data || [],
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { echarts, areaOption, areaMultiOption, rateFull } from './echarts'
+import { echarts, areaOption, areaMultiOption, monitorOption, rateFull } from './echarts'
 
 describe('实时趋势图提示框数值格式化', () => {
   it('速率类（磁盘/网络 IO）按 KB/s 展示两位小数，不暴露浮点误差', () => {
@@ -22,6 +22,50 @@ describe('实时趋势图提示框数值格式化', () => {
     expect(rateFull(1536)).toBe('1.50 KB/s')
     expect(rateFull(2 * 1024 * 1024)).toBe('2.00 MB/s')
     expect(rateFull(512)).toBe('512 B/s')
+  })
+})
+
+// 图例与提示框的小圆点取的是 itemStyle.color（不是 lineStyle.color）：
+// 只设 lineStyle 会让它们落回 ECharts 默认调色板 —— 表现为「图例是绿的，线是紫的」。
+describe('折线系列颜色（图例/提示框圆点必须与线一致）', () => {
+  it('monitorOption（历史趋势图）系列带 itemStyle.color', () => {
+    const opt = monitorOption({
+      unit: 'B/s',
+      series: [
+        { name: '接收', color: '#22c55e', data: [] },
+        { name: '发送', color: '#a855f7', data: [] },
+      ],
+    })
+    expect(opt.series[0].itemStyle.color).toBe('#22c55e')
+    expect(opt.series[1].itemStyle.color).toBe('#a855f7')
+    expect(opt.series[0].lineStyle.color).toBe('#22c55e')
+  })
+
+  it('实时趋势图（areaMultiOption）系列同样带 itemStyle.color', () => {
+    const opt = areaMultiOption(
+      [{ name: '接收', color: '#22c55e' }, { name: '发送', color: '#a855f7' }],
+      { unit: 'B/s' },
+    )
+    expect(opt.series.map((s) => s.itemStyle.color)).toEqual(['#22c55e', '#a855f7'])
+  })
+
+  it('渲染后图例图标用的是系列色，不是默认调色板', () => {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const chart = echarts.init(el, null, { renderer: 'svg', width: 480, height: 240 })
+    chart.setOption(monitorOption({
+      unit: 'B/s',
+      series: [
+        { name: '接收', color: '#22c55e', data: [[Date.now(), 1000]] },
+        { name: '发送', color: '#a855f7', data: [[Date.now(), 2000]] },
+      ],
+    }))
+    // 折线用 stroke 画，面积用渐变 url(#...)：出现纯色 fill 的只可能是图例图标
+    const fills = [...el.querySelectorAll('svg [fill]')].map((n) => n.getAttribute('fill'))
+    expect(fills).toContain('#22c55e')
+    expect(fills).toContain('#a855f7')
+    chart.dispose()
+    el.remove()
   })
 })
 
