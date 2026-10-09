@@ -14,8 +14,8 @@
       </el-checkbox-group>
       <template #footer>
         <el-button @click="viewDialog = false">取消</el-button>
-        <el-button @click="saveViewConfig">恢复全部</el-button>
-        <el-button type="primary" :loading="savingView" @click="applyViewConfig">保存</el-button>
+        <el-button @click="restoreAllViewConfig">恢复全部</el-button>
+        <el-button type="primary" :loading="savingView" @click="saveViewConfig">保存</el-button>
       </template>
     </el-dialog>
 
@@ -192,12 +192,15 @@ const builtinTabList = [
 // enabled 为空 = 全部展示；非空 = 只展示清单内的类型
 const viewDialog = ref(false)
 const viewAvailable = ref([])
+// 展示名由服务端注册表给出（与卡片/Tab 同源）；此前这里引用了一个不存在的映射，
+// 渲染期抛错会让整个勾选列表渲染不出来（弹窗只剩说明与按钮）。
+const viewLabels = ref({})
 const enabledTypes = ref([])
 const viewSelection = ref([])
 const savingView = ref(false)
 
 function viewLabel(key) {
-  return builtinSpecs[key]?.label || key
+  return viewLabels.value[key] || key
 }
 const enabledList = computed(() => (enabledTypes.value.length ? enabledTypes.value : null))
 function typeVisible(key) {
@@ -210,11 +213,17 @@ async function loadViewConfig() {
   try {
     const data = await http.get('/api/v1/middleware/view-config')
     viewAvailable.value = data.available || []
+    viewLabels.value = data.labels || {}
     enabledTypes.value = data.enabled || []
     viewSelection.value = [...enabledTypes.value]
   } catch (e) {
     console.error('加载展示配置失败', e)
   }
+}
+// 「恢复全部」= 清空勾选（空清单表示展示全部，与弹窗提示语一致）后立即保存。
+async function restoreAllViewConfig() {
+  viewSelection.value = []
+  await saveViewConfig()
 }
 async function saveViewConfig() {
   savingView.value = true

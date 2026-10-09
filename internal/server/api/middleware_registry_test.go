@@ -64,6 +64,38 @@ func TestMiddlewareOverview_WithoutRegistry(t *testing.T) {
 	}
 }
 
+// TestMiddlewareViewConfig_Labels 展示类型开关必须带上 key → 展示名。
+// 前端此前自己维护这份映射（且引用了一个不存在的对象），渲染期抛错会让整个勾选列表
+// 渲染不出来——弹窗只剩说明与按钮，看起来像"没有类型可选"。
+func TestMiddlewareViewConfig_Labels(t *testing.T) {
+	a := scopeTestAPI(t)
+	a.store = &seriesStore{}
+	a.alerts = &alertStoreStub{}
+	rec := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(rec, reqWith(globalPrincipal("middleware:read"), http.MethodGet, "/api/v1/middleware/view-config", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d（body=%s）", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Available []string          `json:"available"`
+		Labels    map[string]string `json:"labels"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("响应解析失败：%v", err)
+	}
+	if len(resp.Available) != 15 {
+		t.Fatalf("available 应为内置 15 类，got %d", len(resp.Available))
+	}
+	for _, k := range resp.Available {
+		if resp.Labels[k] == "" {
+			t.Errorf("类型 %s 缺少展示名（弹窗里会只剩 key）", k)
+		}
+	}
+	if resp.Labels["postgres"] != "PostgreSQL" {
+		t.Errorf("postgres 的展示名 = %q，want PostgreSQL", resp.Labels["postgres"])
+	}
+}
+
 // TestMiddlewareTypeInstances_UnknownType 未注册的类型应 404。
 func TestMiddlewareTypeInstances_UnknownType(t *testing.T) {
 	a := scopeTestAPI(t)

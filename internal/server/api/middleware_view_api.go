@@ -9,14 +9,19 @@ import (
 
 // handleMiddlewareViewConfigGET 返回展示配置：
 //   - available：类型注册表中的全部类型 key（内置 + 模板派生）
+//   - labels：key → 展示名（与卡片/Tab 同源，前端不要自己再维护一份映射）
 //   - enabled：当前启用清单（空 = 全部展示）
 func (a *API) handleMiddlewareViewConfigGET(w http.ResponseWriter, r *http.Request) {
-	available := make([]string, 0)
-	for _, t := range a.middlewareRegistry().Types() {
+	types := a.middlewareRegistry().Types()
+	available := make([]string, 0, len(types))
+	labels := make(map[string]string, len(types))
+	for _, t := range types {
 		available = append(available, t.Key)
+		labels[t.Key] = t.Label
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"available": available,
+		"labels":    labels,
 		"enabled":   mwview.Default.Enabled(),
 	})
 }
