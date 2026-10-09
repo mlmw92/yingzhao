@@ -111,7 +111,13 @@ export function areaOption(color, unit) {
   const isPct = unit === '%'
   return {
     grid: { left: 42, right: 14, top: 10, bottom: 6 },
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(11,17,32,0.9)', borderColor: color, textStyle: { color: '#e5edf7' } },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(11,17,32,0.9)',
+      borderColor: color,
+      textStyle: { color: '#e5edf7' },
+      valueFormatter: (v) => tipValue(v, unit),
+    },
     xAxis: { type: 'time', show: false },
     yAxis: {
       type: 'value',
@@ -127,12 +133,19 @@ export function areaOption(color, unit) {
 
 // 实时多序列折线图（如 磁盘 IO=读取/写入、网络 IO=接收/发送）
 // opts.showXAxis: true 时显示横坐标时间轴（用于较大的网络流量组件）
+// opts.unit: 数值单位（如 'B/s'），决定提示框的格式化方式；opts.tipFormatter 可完全自定义
 export function areaMultiOption(defs, opts) {
-  const showX = !!(opts && opts.showXAxis)
+  const o = opts || {}
+  const showX = !!o.showXAxis
   const names = defs.map((d) => d.name)
   return {
     grid: { left: 48, right: 14, top: 22, bottom: showX ? 26 : 6 },
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(11,17,32,0.9)', textStyle: { color: '#e5edf7' } },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(11,17,32,0.9)',
+      textStyle: { color: '#e5edf7' },
+      valueFormatter: o.tipFormatter || ((v) => tipValue(v, o.unit)),
+    },
     xAxis: showX
       ? { type: 'time', axisLine: { lineStyle: { color: axisColor() } }, axisLabel: { color: axisColor(), fontSize: 11, hideOverlap: true }, splitLine: { show: false } }
       : { type: 'time', show: false },
@@ -176,11 +189,21 @@ export function historyOption() {
 }
 
 // 速率短格式（坐标轴标签）：B/s -> KB/s -> MB/s -> GB/s
+// 坐标轴标签空间有限，这里取整；提示框与卡片数值请用 rateFull（保留两位小数）。
 export function rateShort(v) {
   const b = Number(v || 0)
   if (b >= _1GB) return (b / _1GB).toFixed(1) + ' GB/s'
   if (b >= _1MB) return (b / _1MB).toFixed(1) + ' MB/s'
   if (b >= _1KB) return (b / _1KB).toFixed(0) + ' KB/s'
+  return b.toFixed(0) + ' B/s'
+}
+
+// 速率完整格式（提示框 / 卡片数值）：与 rateShort 同分级，但保留两位小数
+export function rateFull(v) {
+  const b = Number(v || 0)
+  if (b >= _1GB) return (b / _1GB).toFixed(2) + ' GB/s'
+  if (b >= _1MB) return (b / _1MB).toFixed(2) + ' MB/s'
+  if (b >= _1KB) return (b / _1KB).toFixed(2) + ' KB/s'
   return b.toFixed(0) + ' B/s'
 }
 
@@ -238,6 +261,17 @@ function axisValueFormatter(value, unit) {
   if (value >= 1000000) return (value / 1e6).toFixed(1) + 'M'
   if (value >= 10000) return (value / 1000).toFixed(1) + 'k'
   return Number(value).toLocaleString()
+}
+
+// 提示框数值格式化。
+// ECharts 默认把原始数值直接拼进提示框，浮点误差会原样显示
+// （如网络速率 77617.62999999999），因此所有提示框都必须显式指定格式化函数。
+function tipValue(value, unit) {
+  const v = Number(value)
+  if (!Number.isFinite(v)) return '-'
+  if (unit === '%') return v.toFixed(1) + '%'
+  if (unit === 'B/s') return rateFull(v)
+  return axisValueFormatter(v, unit)
 }
 
 // 基础监控面板通用配置。

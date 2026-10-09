@@ -508,7 +508,7 @@ import StatusPill from './common/StatusPill.vue'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
 import http from '../api/http'
-import { initChart, areaOption, areaMultiOption, monitorOption, gaugeOption, COLORS, rateShort } from '../charts/echarts'
+import { initChart, areaOption, areaMultiOption, monitorOption, gaugeOption, COLORS, rateShort, rateFull } from '../charts/echarts'
 
 let socket = null
 let reconnectTimer = null
@@ -730,13 +730,6 @@ function fallbackCopy(text, prefix) {
 
 function num(v) { const n = Number(v); return isFinite(n) ? n : 0 }
 function round1(v) { return Number((Number(v) || 0).toFixed(1)) }
-function fmtRate(bps) {
-  const b = Number(bps || 0)
-  if (b >= 1 << 30) return (b / (1 << 30)).toFixed(2) + ' GB/s'
-  if (b >= 1 << 20) return (b / (1 << 20)).toFixed(2) + ' MB/s'
-  if (b >= 1 << 10) return (b / (1 << 10)).toFixed(2) + ' KB/s'
-  return b.toFixed(0) + ' B/s'
-}
 function fmtBytes(bytes) {
   const b = Number(bytes || 0)
   if (b >= 1 << 30) return (b / (1 << 30)).toFixed(2) + ' GB'
@@ -796,7 +789,7 @@ function connectWS(name) {
         const key = nameToKey[d.name]
         if (!key) return
         const val = d.value
-        if (ioKeys.includes(key)) rt[key] = fmtRate(val)
+        if (ioKeys.includes(key)) rt[key] = rateFull(val)
         else if (byteKeys.includes(key)) rt[key] = fmtBytes(val)
         else rt[key] = round1(val)
         if (buffers[key]) {
@@ -1187,7 +1180,7 @@ async function loadMonitor(name, onlyKey) {
         : p.type === 'rate' ? rateShort
         : (v) => round1(v)
       const tipFmt = p.type === 'percent' ? (v) => (v == null ? '-' : round1(v) + '%')
-        : p.type === 'rate' ? (v) => (v == null ? '-' : fmtRate(v))
+        : p.type === 'rate' ? (v) => (v == null ? '-' : rateFull(v))
         : (v) => (v == null ? '-' : round1(v))
       chart.setOption(monitorOption({
         yMin: 0,
@@ -1272,14 +1265,14 @@ function initRealtimeCharts() {
   const defs = {
     cpu: { multi: false, color: COLORS.cyan, unit: '%' },
     mem: { multi: false, color: COLORS.purple, unit: '%' },
-    diskio: { multi: true, defs: [{ name: '读取', color: COLORS.blue }, { name: '写入', color: COLORS.amber }] },
-    netio: { multi: true, defs: [{ name: '接收', color: COLORS.green }, { name: '发送', color: COLORS.purple }] },
+    diskio: { multi: true, unit: 'B/s', defs: [{ name: '读取', color: COLORS.blue }, { name: '写入', color: COLORS.amber }] },
+    netio: { multi: true, unit: 'B/s', defs: [{ name: '接收', color: COLORS.green }, { name: '发送', color: COLORS.purple }] },
   }
   for (const k of rtChartKeys) {
     if (refs[k]) {
       charts[k] = initChart(refs[k])
       const d = defs[k]
-      charts[k].setOption(d.multi ? areaMultiOption(d.defs) : areaOption(d.color, d.unit))
+      charts[k].setOption(d.multi ? areaMultiOption(d.defs, { unit: d.unit }) : areaOption(d.color, d.unit))
     }
   }
   const gaugeColors = { cpuGauge: COLORS.green, memGauge: COLORS.green, diskGauge: COLORS.green, swapGauge: COLORS.green }
