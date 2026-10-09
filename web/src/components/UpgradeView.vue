@@ -148,14 +148,15 @@
               type="danger"
               plain
               :loading="deletingVersion === p.version"
-              :disabled="deletingVersion !== '' || rollingBack"
+              :disabled="deletingVersion !== '' || rollingBack || p.version === currentVersion.server"
+              :title="p.version === currentVersion.server ? '当前运行版本的升级包不能删除' : ''"
               @click="deleteArchive(p.version)"
             >删除</el-button>
           </span>
         </div>
       </div>
       <div v-if="archiveList.length" class="pkg-tip">
-        升级包保留到被删除为止；删除后该版本不再出现在此列表中，也无法再切换回来（需要时重新上传该版本的升级包即可恢复）。
+        升级包保留到被删除为止；删除后该版本不再出现在此列表中，也无法再切换回来（需要时重新上传该版本的升级包即可恢复）。当前运行版本的升级包不能删除。
       </div>
     </SectionCard>
 
@@ -396,6 +397,11 @@ async function loadArchive() {
 }
 
 async function deleteArchive(version) {
+  // 当前运行版本不允许删除：删掉它就没有「正在跑的这一版」的升级包了（服务端同样会拒）
+  if (version === currentVersion.value.server) {
+    ElMessage.warning('当前运行版本的升级包不能删除')
+    return
+  }
   try {
     await ElMessageBox.confirm(
       `确认删除 v${version} 的升级包？删除后该版本将无法再切换回来，需要时只能重新上传该版本的升级包。`,

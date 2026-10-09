@@ -194,6 +194,19 @@ describe('UpgradeView 升级包：未删除则可切换，删除后不可切换'
     expect([...other.element.children][0].textContent.trim()).toBe('')
   })
 
+  it('当前运行版本的升级包不能删除', async () => {
+    wrapper = mountView()
+    await flushPromises()
+
+    const del = buttonOf(pkgRow('1.27.1'), '删除')
+    expect(del.attributes('disabled')).toBeDefined()
+    await del.trigger('click')
+    await flushPromises()
+    expect(http.post).not.toHaveBeenCalled()
+
+    expect(buttonOf(pkgRow('1.28.0'), '删除').attributes('disabled')).toBeUndefined()
+  })
+
   it('删除升级包后该版本从清单消失，也不再提供切换', async () => {
     http.post.mockImplementation(async (path, body) => {
       if (path === '/api/v1/system/upgrade/archive/delete' && body.version === '1.28.0') {

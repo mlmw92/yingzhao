@@ -613,10 +613,14 @@ func (m *Manager) Archive() []ArchiveEntry {
 
 // DeleteArchive 删除指定版本的归档升级包（含归档记录）。
 // 删除后该版本不再可切换/回退；需要恢复该能力只能重新上传对应版本的升级包。
+// 当前运行版本的升级包不允许删除：删掉它就没有「正在跑的这一版」的包了。
 func (m *Manager) DeleteArchive(version string) error {
 	version = strings.TrimSpace(version)
 	if version == "" {
 		return errors.New("缺少版本号")
+	}
+	if m.cfg.CurrentVersion != "" && version == m.cfg.CurrentVersion {
+		return fmt.Errorf("版本 %s 正在运行，其升级包不能删除", version)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

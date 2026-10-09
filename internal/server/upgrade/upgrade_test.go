@@ -86,6 +86,43 @@ func TestDeleteArchiveRemovesPackageAndSwitchTarget(t *testing.T) {
 	}
 }
 
+// 当前运行版本的升级包不允许删除：删掉它就没有「正在跑的这一版」的包了。
+func TestDeleteArchiveRefusesCurrentVersion(t *testing.T) {
+	dir := t.TempDir()
+	m, err := New(Config{
+		Dir:            filepath.Join(dir, "upgrades"),
+		BinDir:         filepath.Join(dir, "bin"),
+		WebDir:         filepath.Join(dir, "web"),
+		AgentBinDir:    filepath.Join(dir, "agent-dist"),
+		CurrentVersion: "1.0.1",
+	}, nil)
+	if err != nil {
+		t.Fatalf("创建升级管理器失败: %v", err)
+	}
+	src := filepath.Join(t.TempDir(), "pkg.tar.gz")
+	writeFakePackage(t, src)
+	if err := m.archivePackage("1.0.1", src); err != nil {
+		t.Fatalf("归档失败: %v", err)
+	}
+	if err := m.DeleteArchive("1.0.1"); err == nil {
+		t.Fatal("当前运行版本的升级包不应允许删除")
+	}
+	if _, err := os.Stat(filepath.Join(m.cfg.Dir, "archive", "1.0.1.tar.gz")); err != nil {
+		t.Fatalf("拒绝删除后归档文件应保留: %v", err)
+	}
+	if got := len(m.Archive()); got != 1 {
+		t.Fatalf("拒绝删除后清单应仍有 1 条，实际 %d", got)
+	}
+
+	// 非当前运行版本仍可删除
+	if err := m.archivePackage("1.0.0", src); err != nil {
+		t.Fatalf("归档失败: %v", err)
+	}
+	if err := m.DeleteArchive("1.0.0"); err != nil {
+		t.Fatalf("非当前运行版本应可删除: %v", err)
+	}
+}
+
 // 磁盘上的归档文件被外部清掉时，清单不应再列出该版本（列表以实际存在的包为准）。
 func TestArchiveSkipsMissingFile(t *testing.T) {
 	m := newTestManager(t)
