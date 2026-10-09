@@ -20,6 +20,8 @@ const ButtonStub = {
   template: '<button :disabled="disabled"><slot /></button>',
 }
 const NoopStub = { name: 'Noop', template: '<div />' }
+// el-tag 渲染插槽：升级包列表要断言「当前运行」标记的位置与文字
+const TagStub = { name: 'ElTag', template: '<span><slot /></span>' }
 
 function mountView() {
   return mount(UpgradeView, {
@@ -30,7 +32,7 @@ function mountView() {
         'el-table': NoopStub,
         'el-table-column': NoopStub,
         'el-pagination': NoopStub,
-        'el-tag': NoopStub,
+        'el-tag': TagStub,
         'el-alert': NoopStub,
         'el-input': NoopStub,
         'el-progress': NoopStub,
@@ -174,6 +176,22 @@ describe('UpgradeView 升级包：未删除则可切换，删除后不可切换'
     expect(pkgRow('1.28.0')).toBeTruthy()
     expect(buttonOf(pkgRow('1.28.0'), '切换').attributes('disabled')).toBeUndefined()
     expect(buttonOf(pkgRow('1.27.1'), '切换').attributes('disabled')).toBeDefined()
+  })
+
+  it('「当前运行」标记在版本号之前，且各行版本号起点对齐', async () => {
+    wrapper = mountView()
+    await flushPromises()
+
+    const running = pkgRow('1.27.1')
+    const children = [...running.element.children]
+    // 标记列必须是第一个子元素（在版本号之前），且宽度固定，否则只有一行有标记会逐行错位
+    expect(children[0].classList.contains('pkg-flag')).toBe(true)
+    expect(children[0].textContent).toContain('当前运行')
+    expect(children[1].classList.contains('pkg-ver')).toBe(true)
+
+    const other = pkgRow('1.28.0')
+    expect([...other.element.children][0].classList.contains('pkg-flag')).toBe(true)
+    expect([...other.element.children][0].textContent.trim()).toBe('')
   })
 
   it('删除升级包后该版本从清单消失，也不再提供切换', async () => {

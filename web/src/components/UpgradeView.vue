@@ -128,8 +128,10 @@
       />
       <div v-else class="pkg-list" v-loading="archiveLoading">
         <div v-for="p in archiveList" :key="p.id || p.version" class="pkg-row">
+          <span class="pkg-flag">
+            <el-tag v-if="p.version === currentVersion.server" type="success" size="small" effect="plain">当前运行</el-tag>
+          </span>
           <span class="pkg-ver">v{{ p.version }}</span>
-          <el-tag v-if="p.version === currentVersion.server" type="success" size="small" effect="plain">当前运行</el-tag>
           <span class="pkg-meta">{{ fmtSize(p.size) }}</span>
           <span class="pkg-meta">{{ fmtTime(p.uploadedAt) }}</span>
           <span class="pkg-actions">
@@ -806,6 +808,13 @@ onUnmounted(() => {
 }
 .pkg-row:last-child {
   border-bottom: none;
+}
+/* 运行中标记占固定宽度：只有一行有标记，不定宽会让后面的版本号/大小/时间逐行错位 */
+.pkg-flag {
+  display: flex;
+  align-items: center;
+  width: 68px;
+  flex-shrink: 0;
 }
 .pkg-ver {
   font-family: var(--mono);
