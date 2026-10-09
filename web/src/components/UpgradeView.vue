@@ -115,96 +115,86 @@
       />
     </SectionCard>
 
-    <!-- 已归档升级包：未删除的版本都可以直接切换回去 -->
-    <SectionCard title="升级包">
+    <!-- 升级历史与升级包合成一张表：每行既是"这次升级做了什么"，也直接显示该版本的
+         升级包还在不在，并就地切换/删除 —— 分成两块时同一版本会出现两行、两个按钮。 -->
+    <SectionCard title="升级历史">
       <template #actions>
-        <span v-if="archiveList.length" class="pkg-total">合计 {{ fmtSize(archiveTotalSize) }}</span>
-        <el-button size="small" link @click="loadArchive">刷新</el-button>
+        <span v-if="archiveList.length" class="pkg-total">
+          已保留 {{ archiveList.length }} 个升级包 · 合计 {{ fmtSize(archiveTotalSize) }}
+        </span>
+        <el-button size="small" link @click="refreshAll">刷新</el-button>
       </template>
-      <EmptyState
-        v-if="!archiveList.length"
-        title="暂无升级包"
-        :hints="['上传升级包后会自动归档并保留，可随时切换回该版本', '删除升级包后该版本将无法再切换回来']"
-      />
-      <div v-else class="pkg-list" v-loading="archiveLoading">
-        <div v-for="p in archiveList" :key="p.id || p.version" class="pkg-row">
-          <span class="pkg-flag">
-            <el-tag v-if="p.version === currentVersion.server" type="success" size="small" effect="plain">当前运行</el-tag>
-          </span>
-          <span class="pkg-ver">v{{ p.version }}</span>
-          <span class="pkg-meta">{{ fmtSize(p.size) }}</span>
-          <span class="pkg-meta">{{ fmtTime(p.uploadedAt) }}</span>
-          <span class="pkg-actions">
+      <el-table :data="pagedRows" v-loading="loadingHistory || archiveLoading">
+        <template #empty>
+          <EmptyState
+            title="暂无升级记录"
+            :hints="[
+              '上传升级包并应用后，这里会记录每一次升级与回退',
+              '升级包保留到被删除为止，删除后该版本无法再切换回来',
+            ]"
+          />
+        </template>
+        <el-table-column label="时间" width="170">
+          <template #default="{ row }">{{ fmtTime(row.at) }}</template>
+        </el-table-column>
+        <el-table-column label="动作" width="88">
+          <template #default="{ row }">
+            <el-tag :type="actionTagType(row.action)" size="small" effect="plain">{{ actionLabel(row.action) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="版本" width="164">
+          <template #default="{ row }">
+            <span class="ver-cell">
+              <el-tag v-if="row.version === currentVersion.server" type="success" size="small" effect="plain">当前运行</el-tag>
+              <span class="mono">v{{ row.version }}</span>
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="升级包" width="168">
+          <template #default="{ row }">
+            <el-tag
+              v-if="row.pkg"
+              type="success"
+              size="small"
+              effect="plain"
+              :title="'上传于 ' + fmtTime(row.pkg.uploadedAt)"
+            >已保留 {{ fmtSize(row.pkg.size) }}</el-tag>
+            <span v-else class="muted">已删除</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="结果" width="88">
+          <template #default="{ row }">
+            <el-tag :type="resultTagType(row.result)" size="small" effect="dark">{{ resultLabel(row.result) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="detail" label="详情" min-width="180" show-overflow-tooltip />
+        <el-table-column label="操作" width="156" fixed="right">
+          <template #default="{ row }">
             <el-button
               size="small"
               type="warning"
               plain
               :loading="rollingBack"
-              :disabled="!canRollbackTo(p.version) || rollingBack || deletingVersion !== '' || cooldown > 0"
-              @click="rollbackTo(p.version)"
+              :disabled="!canRollbackTo(row.version) || rollingBack || deletingVersion !== '' || cooldown > 0"
+              @click="rollbackTo(row.version)"
             >{{ cooldown > 0 ? `请等待 ${cooldown}s` : '切换' }}</el-button>
             <el-button
               size="small"
               type="danger"
               plain
-              :loading="deletingVersion === p.version"
-              :disabled="deletingVersion !== '' || rollingBack || p.version === currentVersion.server"
-              :title="p.version === currentVersion.server ? '当前运行版本的升级包不能删除' : ''"
-              @click="deleteArchive(p.version)"
+              :loading="deletingVersion === row.version"
+              :disabled="!row.pkg || deletingVersion !== '' || rollingBack || row.version === currentVersion.server"
+              :title="deleteHint(row)"
+              @click="deleteArchive(row.version)"
             >删除</el-button>
-          </span>
-        </div>
-      </div>
-      <div v-if="archiveList.length" class="pkg-tip">
-        升级包保留到被删除为止；删除后该版本不再出现在此列表中，也无法再切换回来（需要时重新上传该版本的升级包即可恢复）。当前运行版本的升级包不能删除。
-      </div>
-    </SectionCard>
-
-    <!-- 历史 -->
-    <SectionCard title="升级历史">
-      <template #actions>
-        <el-button size="small" link @click="loadHistory">刷新</el-button>
-      </template>
-      <el-table :data="pagedHistory" v-loading="loadingHistory">
-        <template #empty>
-          <EmptyState
-            title="暂无升级记录"
-            :hints="['上传升级包并应用后，这里会记录每一次升级与回退']"
-          />
-        </template>
-        <el-table-column label="时间" width="180">
-          <template #default="{ row }">{{ fmtTime(row.at) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.action === 'rollback' ? 'warning' : 'primary'" size="small" effect="plain">{{ actionLabel(row.action) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="version" label="版本" width="120" />
-        <el-table-column label="结果" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.result === 'success' ? 'success' : 'danger'" size="small" effect="dark">{{ resultLabel(row.result) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="detail" label="详情" />
-        <el-table-column label="回退" width="100" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              size="small"
-              type="warning"
-              plain
-              :loading="rollingBack"
-              :disabled="!canRollbackTo(row.version) || rollingBack || cooldown > 0"
-              @click="rollbackTo(row.version)"
-            >{{ cooldown > 0 ? `请等待 ${cooldown}s` : '切换' }}</el-button>
           </template>
         </el-table-column>
       </el-table>
       <el-pagination
-        v-if="history.length"
+        v-if="mergedRows.length"
         class="hist-pager"
         layout="total, sizes, prev, pager, next"
-        :total="history.length"
+        :total="mergedRows.length"
         :page-size="historyPageSize"
         :current-page="historyPage"
         :page-sizes="[10, 20, 50]"
@@ -212,6 +202,9 @@
         @current-change="(p) => (historyPage = p)"
         @size-change="(s) => { historyPageSize = s; historyPage = 1 }"
       />
+      <div v-if="archiveList.length" class="pkg-tip">
+        升级包保留到被删除为止；删除后该版本不再可切换回来（需要时重新上传该版本的升级包即可恢复）。当前运行版本的升级包不能删除。
+      </div>
     </SectionCard>
 
     <!-- IP 地理库（独立入口：只替换归属地数据，不影响 Server/Web/Agent，不重启服务） -->
@@ -352,9 +345,34 @@ const history = ref([])
 const loadingHistory = ref(false)
 const historyPage = ref(1)
 const historyPageSize = ref(10)
-const pagedHistory = computed(() => {
+// 历史事件 + 「已上传但从未应用」的升级包，合成一张表：后者保证每个保留的包都有行可切换/删除
+// （上传本身不写历史，若只按历史出行，这类包就会无处可删）。
+const mergedRows = computed(() => {
+  const pkgByVersion = {}
+  for (const p of archiveList.value) pkgByVersion[p.version] = p
+  const rows = history.value.map((h) => ({
+    ...h,
+    key: h.id || `${h.action}-${h.version}-${h.at}`,
+    pkg: pkgByVersion[h.version] || null,
+  }))
+  const seen = new Set(history.value.map((h) => h.version))
+  for (const p of archiveList.value) {
+    if (seen.has(p.version)) continue
+    rows.push({
+      key: 'pkg-' + p.version,
+      action: 'upload',
+      version: p.version,
+      at: p.uploadedAt,
+      result: 'pending',
+      detail: '已上传，尚未应用',
+      pkg: p,
+    })
+  }
+  return rows.sort((a, b) => new Date(b.at) - new Date(a.at))
+})
+const pagedRows = computed(() => {
   const start = (historyPage.value - 1) * historyPageSize.value
-  return history.value.slice(start, start + historyPageSize.value)
+  return mergedRows.value.slice(start, start + historyPageSize.value)
 })
 const uploading = ref(false)
 const uploadProgress = ref(0)
@@ -394,6 +412,11 @@ async function loadArchive() {
     archiveList.value = r.versions || []
   } catch (e) { /* ignore */ }
   archiveLoading.value = false
+}
+
+// 历史与升级包是同一张表的两个数据源，单独刷一个会出现「行在、包状态是旧的」
+async function refreshAll() {
+  await Promise.all([loadHistory(), loadArchive()])
 }
 
 async function deleteArchive(version) {
@@ -587,15 +610,34 @@ function fmtBuildTime(s) {
     return s
   }
 }
+// 动作串来自服务端：apply / rollback_to（rollback 为历史值），合成行为 upload
 function actionLabel(a) {
   if (a === 'apply') return '升级'
-  if (a === 'rollback') return '回滚'
+  if (a === 'rollback' || a === 'rollback_to') return '回退'
+  if (a === 'upload') return '上传'
   return a || '-'
+}
+function actionTagType(a) {
+  if (a === 'apply') return 'primary'
+  if (a === 'rollback' || a === 'rollback_to') return 'warning'
+  return 'info'
 }
 function resultLabel(r) {
   if (r === 'success') return '成功'
   if (r === 'failed') return '失败'
+  if (r === 'pending') return '待应用'
   return r || '-'
+}
+function resultTagType(r) {
+  if (r === 'success') return 'success'
+  if (r === 'failed') return 'danger'
+  return 'info'
+}
+// 删除按钮禁用时的原因（禁用态看不出原因就只能猜）
+function deleteHint(row) {
+  if (!row.pkg) return '该版本的升级包已删除'
+  if (row.version === currentVersion.value.server) return '当前运行版本的升级包不能删除'
+  return ''
 }
 function fmtSize(b) {
   if (!b) return '-'
@@ -800,42 +842,19 @@ onUnmounted(() => {
   color: var(--text-muted);
   margin-right: 8px;
 }
-.pkg-list {
-  display: flex;
-  flex-direction: column;
-}
-.pkg-row {
-  display: flex;
+/* 版本列：「当前运行」标记在版本号之前，且与版本号同排不换行 */
+.ver-cell {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-  font-size: 13px;
-  border-bottom: 1px solid var(--bd);
+  gap: 6px;
+  white-space: nowrap;
 }
-.pkg-row:last-child {
-  border-bottom: none;
-}
-/* 运行中标记占固定宽度：只有一行有标记，不定宽会让后面的版本号/大小/时间逐行错位 */
-.pkg-flag {
-  display: flex;
-  align-items: center;
-  width: 68px;
-  flex-shrink: 0;
-}
-.pkg-ver {
+.ver-cell .mono {
   font-family: var(--mono);
-  font-size: 14px;
   color: var(--accent);
-  min-width: 88px;
 }
-.pkg-meta {
+.muted {
   color: var(--text-muted);
-  min-width: 96px;
-}
-.pkg-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
 }
 .pkg-tip {
   margin-top: 10px;

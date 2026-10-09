@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ElMessage } from 'element-plus'
+import ElementPlus, { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import UpgradeView from './UpgradeView.vue'
 
@@ -8,41 +8,24 @@ vi.mock('../api/http', () => ({
   default: { get: vi.fn(), post: vi.fn(), upload: vi.fn() },
 }))
 
-vi.mock('element-plus', () => ({
-  ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
-  ElMessageBox: { confirm: vi.fn(async () => true) },
-}))
-
-// 透出 disabled，便于断言按钮可用性（Element Plus 的 el-button 用 prop 而非原生属性）
-const ButtonStub = {
-  name: 'ElButton',
-  props: ['disabled'],
-  template: '<button :disabled="disabled"><slot /></button>',
-}
-const NoopStub = { name: 'Noop', template: '<div />' }
-// el-tag 渲染插槽：升级包列表要断言「当前运行」标记的位置与文字
-const TagStub = { name: 'ElTag', template: '<span><slot /></span>' }
+// 用真实 Element Plus 挂载（要断言表格行）；只把消息提示换成间谍，避免测试里弹提示。
+const msgSuccess = vi.spyOn(ElMessage, 'success').mockImplementation(() => {})
+const msgError = vi.spyOn(ElMessage, 'error').mockImplementation(() => {})
+const msgWarning = vi.spyOn(ElMessage, 'warning').mockImplementation(() => {})
+vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue(true)
 
 function mountView() {
   return mount(UpgradeView, {
     global: {
-      stubs: {
-        'el-button': ButtonStub,
-        'el-upload': NoopStub,
-        'el-table': NoopStub,
-        'el-table-column': NoopStub,
-        'el-pagination': NoopStub,
-        'el-tag': TagStub,
-        'el-alert': NoopStub,
-        'el-input': NoopStub,
-        'el-progress': NoopStub,
-        'el-link': NoopStub,
-        'el-icon': NoopStub,
-      },
-      directives: { loading: {} },
+      plugins: [ElementPlus],
+      stubs: { 'el-upload': { template: '<div />' } },
     },
   })
 }
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 describe('UpgradeView 升级请求收到 502 时确认实际结果', () => {
   let wrapper
@@ -50,7 +33,6 @@ describe('UpgradeView 升级请求收到 502 时确认实际结果', () => {
   let runningVersion
 
   beforeEach(() => {
-    vi.clearAllMocks()
     history = []
     runningVersion = '1.27.1'
     http.get.mockImplementation(async (path) => {
@@ -88,8 +70,8 @@ describe('UpgradeView 升级请求收到 502 时确认实际结果', () => {
 
     await vi.advanceTimersByTimeAsync(1200)
 
-    expect(ElMessage.success).toHaveBeenCalledWith('升级已完成，正在刷新页面…')
-    expect(ElMessage.error).not.toHaveBeenCalled()
+    expect(msgSuccess).toHaveBeenCalledWith('升级已完成，正在刷新页面…')
+    expect(msgError).not.toHaveBeenCalled()
   })
 
   it('502 后版本未变化且升级历史记录失败时展示真实失败原因', async () => {
@@ -98,8 +80,8 @@ describe('UpgradeView 升级请求收到 502 时确认实际结果', () => {
 
     await vi.advanceTimersByTimeAsync(41000)
 
-    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('磁盘空间不足'))
-    expect(ElMessage.success).not.toHaveBeenCalled()
+    expect(msgError).toHaveBeenCalledWith(expect.stringContaining('磁盘空间不足'))
+    expect(msgSuccess).not.toHaveBeenCalled()
   })
 
   it('502 后版本未变化且任务记录失败时展示任务错误', async () => {
@@ -114,8 +96,8 @@ describe('UpgradeView 升级请求收到 502 时确认实际结果', () => {
 
     await vi.advanceTimersByTimeAsync(41000)
 
-    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('权限不足'))
-    expect(ElMessage.success).not.toHaveBeenCalled()
+    expect(msgError).toHaveBeenCalledWith(expect.stringContaining('权限不足'))
+    expect(msgSuccess).not.toHaveBeenCalled()
   })
 
   it('502 后既无目标版本也无失败记录时提示结果待确认', async () => {
@@ -123,41 +105,50 @@ describe('UpgradeView 升级请求收到 502 时确认实际结果', () => {
 
     await vi.advanceTimersByTimeAsync(41000)
 
-    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining('无法确认升级结果'))
-    expect(ElMessage.error).not.toHaveBeenCalled()
-    expect(ElMessage.success).not.toHaveBeenCalled()
+    expect(msgWarning).toHaveBeenCalledWith(expect.stringContaining('无法确认升级结果'))
+    expect(msgError).not.toHaveBeenCalled()
+    expect(msgSuccess).not.toHaveBeenCalled()
   })
 
   it('普通服务端 500 错误直接提示失败，不进入重启确认流程', async () => {
     http.post.mockRejectedValue(new Error('替换 server 失败'))
     await applyUpgrade()
 
-    expect(ElMessage.error).toHaveBeenCalledWith('升级失败：替换 server 失败')
-    expect(ElMessage.success).not.toHaveBeenCalled()
+    expect(msgError).toHaveBeenCalledWith('升级失败：替换 server 失败')
+    expect(msgSuccess).not.toHaveBeenCalled()
   })
 })
 
-describe('UpgradeView 升级包：未删除则可切换，删除后不可切换', () => {
+// 升级历史与升级包已合并成一张表：一行同时给出「这次做了什么」与「该版本的包还在不在」。
+describe('UpgradeView 升级历史与升级包（合并为一张表）', () => {
   let wrapper
   let archive
+  let history
 
-  function pkgRow(version) {
-    return wrapper.findAll('.pkg-row').find((r) => r.text().includes('v' + version))
+  function rowFor(version) {
+    return wrapper.findAll('.el-table__row').find((r) => r.text().includes('v' + version))
   }
   function buttonOf(row, label) {
     return row.findAll('button').find((b) => b.text().includes(label))
   }
 
   beforeEach(() => {
-    vi.clearAllMocks()
+    history = [
+      { id: 'h1', version: '1.28.0', action: 'apply', result: 'success', detail: '', at: '2026-10-08T10:00:00Z' },
+      { id: 'h2', version: '1.27.1', action: 'apply', result: 'success', detail: '', at: '2026-10-07T10:00:00Z' },
+      // 包已被删除的历史版本：只能看记录，不能再切换
+      { id: 'h3', version: '1.26.0', action: 'rollback_to', result: 'success', detail: '', at: '2026-10-06T10:00:00Z' },
+    ]
     archive = [
-      { id: 'a1', version: '1.28.0', size: 1024 * 1024, uploadedAt: '2026-10-08T10:00:00Z' },
-      { id: 'a2', version: '1.27.1', size: 2 * 1024 * 1024, uploadedAt: '2026-10-07T10:00:00Z' },
+      { id: 'a1', version: '1.28.0', size: 1024 * 1024, uploadedAt: '2026-10-08T09:00:00Z' },
+      { id: 'a2', version: '1.27.1', size: 2 * 1024 * 1024, uploadedAt: '2026-10-07T09:00:00Z' },
+      // 已上传但从未应用（历史里没有）：合并后也必须有一行，否则这个包无处可删
+      { id: 'a3', version: '1.29.0', size: 3 * 1024 * 1024, uploadedAt: '2026-10-09T09:00:00Z' },
     ]
     http.get.mockImplementation(async (path) => {
       if (path === '/api/v1/version') return { server: '1.27.1', buildTime: '' }
       if (path === '/api/v1/system/upgrade/current') return { current: null }
-      if (path === '/api/v1/system/upgrade/history') return { history: [] }
+      if (path === '/api/v1/system/upgrade/history') return { history }
       if (path === '/api/v1/system/upgrade/archive') return { versions: archive }
       if (path === '/api/v1/system/geoip') return { source: 'builtin' }
       throw new Error(`未知路径: ${path}`)
@@ -169,45 +160,47 @@ describe('UpgradeView 升级包：未删除则可切换，删除后不可切换'
     wrapper = undefined
   })
 
-  it('已保留的升级包均可切换，当前运行版本的切换按钮禁用', async () => {
+  it('每行都带该版本的升级包状态；包已删除的历史行不能再切换', async () => {
     wrapper = mountView()
     await flushPromises()
 
-    expect(pkgRow('1.28.0')).toBeTruthy()
-    expect(buttonOf(pkgRow('1.28.0'), '切换').attributes('disabled')).toBeUndefined()
-    expect(buttonOf(pkgRow('1.27.1'), '切换').attributes('disabled')).toBeDefined()
+    expect(rowFor('1.28.0').text()).toContain('已保留')
+    expect(rowFor('1.26.0').text()).toContain('已删除')
+    expect(buttonOf(rowFor('1.26.0'), '切换').attributes('disabled')).toBeDefined()
+    expect(buttonOf(rowFor('1.26.0'), '删除').attributes('disabled')).toBeDefined()
+    expect(buttonOf(rowFor('1.28.0'), '切换').attributes('disabled')).toBeUndefined()
   })
 
-  it('「当前运行」标记在版本号之前，且各行版本号起点对齐', async () => {
+  it('已上传未应用的升级包也有独立一行，可切换可删除', async () => {
     wrapper = mountView()
     await flushPromises()
 
-    const running = pkgRow('1.27.1')
-    const children = [...running.element.children]
-    // 标记列必须是第一个子元素（在版本号之前），且宽度固定，否则只有一行有标记会逐行错位
-    expect(children[0].classList.contains('pkg-flag')).toBe(true)
-    expect(children[0].textContent).toContain('当前运行')
-    expect(children[1].classList.contains('pkg-ver')).toBe(true)
-
-    const other = pkgRow('1.28.0')
-    expect([...other.element.children][0].classList.contains('pkg-flag')).toBe(true)
-    expect([...other.element.children][0].textContent.trim()).toBe('')
+    const row = rowFor('1.29.0')
+    expect(row).toBeTruthy()
+    expect(row.text()).toContain('上传')
+    expect(row.text()).toContain('待应用')
+    expect(buttonOf(row, '切换').attributes('disabled')).toBeUndefined()
+    expect(buttonOf(row, '删除').attributes('disabled')).toBeUndefined()
   })
 
-  it('当前运行版本的升级包不能删除', async () => {
+  it('当前运行版本：标记在版本号之前，且不能切换、不能删除', async () => {
     wrapper = mountView()
     await flushPromises()
 
-    const del = buttonOf(pkgRow('1.27.1'), '删除')
+    const row = rowFor('1.27.1')
+    const cells = [...row.find('.ver-cell').element.children]
+    expect(cells[0].textContent).toContain('当前运行')
+    expect(cells[1].textContent).toContain('v1.27.1')
+
+    expect(buttonOf(row, '切换').attributes('disabled')).toBeDefined()
+    const del = buttonOf(row, '删除')
     expect(del.attributes('disabled')).toBeDefined()
     await del.trigger('click')
     await flushPromises()
     expect(http.post).not.toHaveBeenCalled()
-
-    expect(buttonOf(pkgRow('1.28.0'), '删除').attributes('disabled')).toBeUndefined()
   })
 
-  it('删除升级包后该版本从清单消失，也不再提供切换', async () => {
+  it('删除升级包后该行的包状态变为已删除，操作随之禁用', async () => {
     http.post.mockImplementation(async (path, body) => {
       if (path === '/api/v1/system/upgrade/archive/delete' && body.version === '1.28.0') {
         archive = archive.filter((p) => p.version !== '1.28.0')
@@ -218,11 +211,21 @@ describe('UpgradeView 升级包：未删除则可切换，删除后不可切换'
     wrapper = mountView()
     await flushPromises()
 
-    await buttonOf(pkgRow('1.28.0'), '删除').trigger('click')
+    await buttonOf(rowFor('1.28.0'), '删除').trigger('click')
     await flushPromises()
 
     expect(http.post).toHaveBeenCalledWith('/api/v1/system/upgrade/archive/delete', { version: '1.28.0' })
-    expect(pkgRow('1.28.0')).toBeUndefined()
-    expect(pkgRow('1.27.1')).toBeTruthy()
+    const row = rowFor('1.28.0')
+    expect(row.text()).toContain('已删除')
+    expect(buttonOf(row, '切换').attributes('disabled')).toBeDefined()
+    expect(buttonOf(row, '删除').attributes('disabled')).toBeDefined()
+  })
+
+  it('回退动作显示为「回退」而不是原始动作串', async () => {
+    wrapper = mountView()
+    await flushPromises()
+
+    expect(rowFor('1.26.0').text()).toContain('回退')
+    expect(rowFor('1.26.0').text()).not.toContain('rollback_to')
   })
 })
