@@ -107,7 +107,7 @@ var catalog = []Action{
 		},
 	},
 	{
-		Kind: KindSvcRestart, Title: "重启服务（写操作）", Group: "服务", ReadOnly: false,
+		Kind: KindSvcRestart, Title: "重启服务", Group: "服务", ReadOnly: false,
 		Desc: "重启某个 systemd 单元。默认不可用：需要目标机器在 agent.yaml 的 guards.ops 里显式开启写操作并列出该单元",
 		Params: []Param{
 			{Name: "unit", Title: "服务单元", Required: true, Pattern: unitPattern.String(),
@@ -177,7 +177,9 @@ var catalog = []Action{
 		},
 	},
 	{
-		Kind: KindFilePush, Title: "分发文件（写操作）", Group: "文件", ReadOnly: false,
+		// 标题只写动作名：「是不是写操作」由 ReadOnly 字段表达，界面按它渲染标记。
+		// 标题里再写一遍会在动作列与下拉里与标记重复（审批单标题另在 api 侧补上标记）。
+		Kind: KindFilePush, Title: "分发文件", Group: "文件", ReadOnly: false,
 		Desc: fmt.Sprintf("把一个已上传的文件写到目标机器的指定路径：先校验内容摘要，把原文件改名备份，再原子替换（不会留下半截文件）。默认不可用——需要目标机器在 agent.yaml 的 guards.ops.file 里显式开启并列出允许写入的目录。单文件上限 %d KiB，指令延迟约一个上报周期", model.OpsFileMaxBytes>>10),
 		Params: []Param{
 			{Name: "path", Title: "目标路径", Required: true, Pattern: filePathPattern.String(),

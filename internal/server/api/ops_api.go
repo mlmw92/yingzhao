@@ -199,7 +199,9 @@ func (a *API) handleOpsCreate(w http.ResponseWriter, r *http.Request) {
 	if action, params, err := ops.Validate(body.Kind, body.Params); err == nil && !action.ReadOnly {
 		if a.approvalGate(w, r, approval.EntryOpsWrite, body.Kind, action.ReadOnly, &approval.Request{
 			Node: nd.Hostname, Params: params, Reason: body.Reason,
-			Title: fmt.Sprintf("%s @ %s", action.Title, nd.Hostname),
+			// 审批人看到的是"要不要批准这个动作"，「写」这个性质必须在单子上写明
+			// （动作标题本身已不含该词，界面上的标记在审批页没有对应位置）。
+			Title: fmt.Sprintf("%s（写操作） @ %s", action.Title, nd.Hostname),
 		}) {
 			return
 		}
@@ -349,7 +351,7 @@ func (a *API) handleOpsCreateBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.approvalGate(w, r, approval.EntryOpsWrite, body.Kind, action.ReadOnly, &approval.Request{
 			Node: eligible[0], Nodes: eligible, Params: params, Reason: body.Reason, Extra: extra,
-			Title: fmt.Sprintf("%s @ %d 个节点", action.Title, len(eligible)),
+			Title: fmt.Sprintf("%s（写操作） @ %d 个节点", action.Title, len(eligible)),
 		}) {
 			return
 		}

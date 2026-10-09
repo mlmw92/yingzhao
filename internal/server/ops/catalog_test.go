@@ -78,6 +78,16 @@ func TestCatalog_WriteActionsAreNotReadOnly(t *testing.T) {
 	}
 }
 
+// 标题只写动作名：「是不是写操作」由 ReadOnly 表达，界面按它渲染标记。
+// 标题里再写一遍会在动作列与下拉里与标记重复（用户看到"分发文件（写操作） 写操作"）。
+func TestCatalog_TitleDoesNotRepeatWriteMarker(t *testing.T) {
+	for _, a := range Catalog() {
+		if strings.Contains(a.Title, "写操作") {
+			t.Errorf("动作 %s 的标题不应重复表达写性质（由 ReadOnly 表达）：%q", a.Kind, a.Title)
+		}
+	}
+}
+
 // 同一个分组内，只读动作必须排在写动作前面（界面顺序即风险顺序）。
 //
 // 只要求"组内"：界面是按分组展示的，跨组比较没有意义；而分组顺序由 groupOrder 固定，
