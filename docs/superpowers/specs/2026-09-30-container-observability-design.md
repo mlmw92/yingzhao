@@ -4,6 +4,8 @@
 上位文档：`2026-09-30-ops-platform-evolution-design.md`（总体设计）、`2026-09-30-ops-platform-capability-map.md`（全景对照表 §3.8、§3.9、§3.10）
 决策记录：`docs/adr/0002-log-backend-abstraction.md`、`docs/adr/0003-container-management-downlink.md`
 
+> **2026-10-10 重规划（本件部分内容已被取代）**：本件 §3 的「**只读**管理面」已扩为覆盖 K8s 与 Docker 的**管理面**，并把「指标展示（中间件监控 K8s/Docker Tab）」与「对象管理（容器与工作负载）」两个菜单定界。新信息架构、Docker 管理动作/通路/护栏、K8s 排障写操作见 `2026-10-10-container-workload-management-design.md` 与 `docs/adr/0005-docker-management-channel.md`。**凡本件与新设计件冲突处，以新设计件为准**；本件 §3.2 的 kind 表与 §3.3 的护栏命名保留为历史设计记录（下方已就地加注）。
+
 ## 意图与边界
 
 **意图**（两条线）：
@@ -75,6 +77,8 @@ sequenceDiagram
 | `container.logs` | 拉取 Pod/容器日志（tail 行数、since、上一实例） | ✅ | 与集中日志的边界见 §4.4 |
 | `container.exec` | 交互式终端 | ❌（P2） | 需显式开启 + 独立权限点 + 审计 + 会话时长限制 |
 
+> **2026-10-10 就地加注**：上表是「首批只读」的原始设计记录。重规划后 kind 清单扩为：**K8s 排障写操作** `container.restart` / `container.scale` / `container.delete`（走异步下行，权限点 `container:write`），以及**一整套 Docker 动作** `docker.info` / `docker.containers` / `docker.inspect` / `docker.logs` / `docker.images` + 写 `docker.start` / `docker.stop` / `docker.restart` / `docker.rm` / `docker.image.rm`（Docker socket 只在 Agent 本机，只走异步下行，见 ADR-0005）。完整清单与参数见 `2026-10-10-container-workload-management-design.md` §4.1。`container.exec` 的「不做」结论**不变**。
+
 ### 3.3 安全边界（四道护栏）
 
 沿用既有"本机护栏 → 能力协商 → 中心授权 + 审计"思想，落地为四道（与总体设计 §下行操作通道 一致）：
@@ -85,6 +89,8 @@ sequenceDiagram
 4. **默认只读 + 过期作废**：复用 `Take/ExpireOverdue` 语义，未领取/超时任务自动作废，避免堆积。
 
 **脱敏规则**：`container.describe` 返回的 YAML 中，`Secret`、`ServiceAccount` token、`dockerconfigjson` 等敏感字段一律以占位符替换；日志拉取不返回环境变量全文。
+
+> **2026-10-10 就地加注（护栏命名与落点）**：本节描述的抽象在实现中落地为 `internal/agent/config/config.go` 的 `OpsGuards`——`readOnly *bool`、`write bool`、`units []string`、`container *bool`（三态，默认放行）、`file{write,dirs}`。重规划后**再增一个独立子护栏 `docker{read,write}`**（写默认关闭），**不复用** `container`：与 `file.push` 不复用 `ops.write/units` 同一个取向（「愿意交出集群结构」与「愿意被启停容器」是两件不同的同意）。`container.describe` 的**白名单投影**原则（不做原始 YAML）**不变**，`docker.inspect` 沿用同一原则。
 
 ### 3.4 前端信息架构（借 headlamp，不抄代码）
 
@@ -219,6 +225,8 @@ GET    /api/v1/logs?from=&to=&q=&regex=&nodes=&sources=&fields=key:value&limit=&
 - `web/src/components/LogsView.vue` 增强：字段过滤条、命中行展开（字段 + 上下文行）、"由本次查询创建规则"入口。
 - 菜单挂载遵循现有 `Sidebar` 分组方式；**不新增一级菜单**，容器归入「中间件/容器」，资产归入「资产」（与 D2 的 `asset/` 一致）。
 
+> **2026-10-10 就地加注（信息架构定界）**：重规划后菜单**仍不新增一级菜单**，但两个既有菜单的职责被明确切开——「中间件监控 → Kubernetes / Docker Tab」只做**指标展示**（移除对象级明细：`K8sTab.vue` 异常 Pod 明细、`DockerTab.vue` 容器列表与详情抽屉），对象级管理集中在「容器与工作负载」并新增**平台切换**（Kubernetes / Docker）。定界规则与逐块收窄清单见 `2026-10-10-container-workload-management-design.md` §一、§二。
+
 ## 文档与验证
 
 - 术语新增并写入 `CONTEXT.md`：`工作负载`、`下行操作（Ops 指令）`、`高危操作护栏`、`日志后端`、`结构化解析`、`字段检索`（含 `_避免_` 同义词）。
@@ -327,3 +335,21 @@ ADR-0002 的"接口与第二适配器同时落地"：本批把日志存储抽成
 **未覆盖**：浏览器端到端（真实点击 → 跳转 → 检索结果的视觉确认）、目标节点**未开** `podLogs`
 时跳过去看到的空态文案、以及多节点下同名 Pod 会被一并命中（`pods=` 不含节点维度——这是刻意的
 "宁可多给也不漏"，但未实测）。
+
+### 批次 5（2026-10-10）：信息架构重规划（**设计件，未实施**）
+
+本件此前把「容器与可观测」的容器侧定为**只读**管理面，且只覆盖 K8s；Docker 只在「中间件监控」里以指标形式存在。用户 2026-10-10 要求把两个菜单的职责切开，并让容器与工作负载同时管理 K8s 与 Docker。
+
+本批**只产出规划，未改任何代码**：
+
+| 产物 | 位置 |
+|---|---|
+| 新设计件 | `2026-10-10-container-workload-management-design.md`（定界规则与定界表、新信息架构、两条数据通路、动作清单与护栏、脱敏、权限点、分批实施与验收） |
+| 新决策 | `docs/adr/0005-docker-management-channel.md`（Docker 只走 Agent 异步下行、写操作另设 `guards.ops.docker`） |
+| 本件就地加注 | 顶部重规划提示 + §3.2 kind 表、§3.3 护栏命名、§前端与菜单 三处 |
+| 全景表 | §3.8 新增两个功能点（Docker 管理面、K8s 排障写操作），合计 99/70/4/25 → **101/70/4/27** |
+| 术语 | `CONTEXT.md` 的「容器只读管理面」扩为「容器管理面」并新增「Docker 管理面」 |
+
+**四条待评审决策点**（见新设计件 §十）：D1 写操作是否进双人复核；D2 删除 Pod 的门控强度；D3 `docker:write` 是否只给超管；D4「按 kind 叠加域权限点」的落点（倾向给 `Action` 加 `Perm` 字段，保持「新增动作只改目录」）。
+
+**实施时的三条不变量**（评审通过后按 §九 分批）：① 操作面上限仍是**参数化动作白名单**，不开任意命令 / 终端；② K8s 的 Server 侧实时代理（ADR-0004）**保持只读、白名单不外扩**，写操作只走异步下行；③ 写动作**另开动作分组**——`internal/server/ops/catalog_test.go:269-299` 断言「容器」分组内不得含写动作，这条守卫**不放松**。

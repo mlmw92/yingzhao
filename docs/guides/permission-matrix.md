@@ -34,7 +34,7 @@
 | 公开白名单 | `isPublicPath`（`auth.go:141`）：`/`、`/assets/*`、`/api/v1/login`、`/api/v1/report`、`/api/v1/agent/check`、`/install/*`、`/bin/*`；另有 `GET /api/v1/ui/settings` 匿名只读（`auth.go:172`） |
 | 授权 | `api.authz(next, perm)`（`auth.go:226`）当前仅用于 **14 条** 权限管理路由（`users:manage` 8 条、`roles:manage` 3 条、`roles:read` 3 条） |
 | 权限点目录 | `auth.PermissionCatalog()`（`internal/server/auth/model.go:195`），**27 个**权限点 / 13 个域 |
-| 高风险权限点 | `auth.HighRiskPermissions`（`internal/server/auth/policy.go:71`），**8 个**：`system:upgrade`、`agent:secret:read`、`agent:upgrade`、`security:write`、`notify:write`、`users:manage`、`roles:manage`、`audit:export` |
+| 高风险权限点 | `auth.HighRiskPermissions`（`internal/server/auth/policy.go:187-206`），**11 个**：`system:upgrade`、`agent:secret:read`、`agent:upgrade`、`security:write`、`notify:write`、`users:manage`、`roles:manage`、`audit:export`、`assets:export`、`assets:write`、`ops:exec`。**注**：本行原写「8 个 / `policy.go:71`」是 1.25.0 基线快照，未随 `assets:*` 与 `ops:exec` 新增同步，已于 2026-10-10 更正 |
 | 资源范围工具 | `auth.FilterGroups`（列表过滤）、`auth.FilterByGroup[T]`（泛型项过滤）、`auth.CheckBatchGroups`（写操作批量校验）、`Principal.CanAccessGroup`（单条校验） |
 | 范围语义 | `Scope.Mode` 为 `global` 或 `restricted`；`restricted` 且分组为空 = **无资源权限**（不放大为全部） |
 
@@ -87,6 +87,24 @@
 > 于是只有超级管理员能用，而这类遗漏不会报错。现已把守卫从"手工清单"改为**遍历目录**
 > （`TestEveryCatalogKeyIsGrantedBySomeRole`）：目录里每个权限点都必须被某个非超级管理员的内置角色覆盖，
 > 例外必须写进 `superAdminOnlyKeys` 并注明理由。该守卫上线时顺带发现了 `system:upgrade` 属未记录的例外。
+
+### 3.4 规划中（2026-10-10，容器与工作负载管理面，**未实施**）
+
+> 来源：`docs/superpowers/specs/2026-10-10-container-workload-management-design.md` §五、`docs/adr/0005-docker-management-channel.md`。
+
+| 域 | 权限点 | 授予的内置角色 | 备注 |
+|---|---|---|---|
+| 容器 | `container:write` | **仅超管**（进 `superAdminOnlyKeys`） | K8s 排障写操作：重启工作负载 / 扩缩容 / 删除 Pod；入高风险。**三项合成一个权限点**——初稿曾单列「删除 Pod」，但三项既然都只给超管，拆开就不再表达任何差异（用户 2026-10-10 拍板） |
+| 容器 | `docker:read` | 运维管理员 | Docker 管理面只读（引擎概览 / 容器列表 / 详情 / 日志 / 镜像列表） |
+| 容器 | `docker:write` | **仅超管**（进 `superAdminOnlyKeys`） | Docker 写操作（启停 / 重启 / 删除容器、删除镜像）；入高风险；**执行还须目标机器 `guards.ops.docker.write` 放行**（两道门独立：权限点先拦，本机护栏再拦） |
+
+**写操作不进双人复核**（用户 2026-10-10 拍板）：与 `ops:exec` 现状一致——`IsHighRisk` 目前是**声明式标记**（不额外拦截），门控靠「权限点 + 本机护栏 + 界面二次确认 + 审计」。
+
+**为什么 Docker 不并入 `container:read`**：Docker 管理面读的是**本机（或可达网段）的容器运行时**，K8s 管理面读的是**集群内部对象**——授权面不同（一台机器可能只跑 Docker 不接集群，反之亦然）。这延续 `container:read` 与 `middleware:read` 分开的同一取舍。
+
+**路由登记口径**：管理面的写操作复用既有 `POST /api/v1/ops/tasks` 通道（入口权限点仍是 `ops:exec`），**不新增路由**；域权限点按动作 `kind` 叠加校验，落点**已定**：给动作目录的 `Action` 增加 `Perm` 字段（设计件 §六 决策点 D4，保持「新增动作只改目录」的既有承诺）。Docker 主机清单需新增 `GET /api/v1/container/docker/hosts`（`docker:read`）。
+
+> **本文档的事实基线提醒**：本文的「路由清点 / 权限点目录 / 高风险清单」是 **1.25.0 基线快照**，此后新增的容器（`container:*`）、下行操作（`ops:read` / `ops:exec`）、资产（`assets:*` / `inspect:*`）、集中日志（`logs:read`）、报告（`report:*`）、AI（`ai:*`）、审批（`approval:*`）等权限点与对应路由**未逐条登记在 §4**。行级权威以 `internal/server/auth/model.go` 的 `PermissionCatalog()` 与 `internal/server/api/query.go` 的 `RegisterRoutes` 为准；本文档的完整重新基线化是独立任务，不在 2026-10-10 这次改动范围内（本次只更正了高风险清单这一处过期事实并登记了 3.4 的规划项）。
 
 ## 4. 路由 → 权限点 → 资源范围
 
@@ -431,7 +449,7 @@
 | 已生效（现状 `authz`） | 14（`users:manage` 8 + `roles:manage` 3 + `roles:read` 3） |
 | **需校验项** | **107** = 136 − 9 − 6 − 14（B1 实施覆盖 100 条；F3 新增 1 条 `dashboard:read`；D4 新增 3 条 `alerts:write`；A3 新增 3 条 `system:config`） |
 | 新增权限点 | 2（`dashboard:write`、`system:config`） |
-| 高风险权限点 | 8（现状） |
+| 高风险权限点 | 11（现状；`internal/server/auth/policy.go:187-206`） |
 
 分批校验：23（B）+ 13（C）+ 26（D）+ 38（E，含新增的 audit/export）= 100 ✓
 
