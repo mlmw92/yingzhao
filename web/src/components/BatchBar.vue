@@ -26,7 +26,7 @@ defineEmits(['clear'])
   flex-wrap: wrap;
   margin-top: 8px;
   padding: 8px 12px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--bd-strong);
   border-radius: 8px;
   background: var(--accent-dim);
   font-size: 13px;

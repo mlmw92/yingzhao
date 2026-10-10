@@ -260,7 +260,7 @@ watch(
 .hl-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 8px;
   letter-spacing: 0.04em;
 }
@@ -273,9 +273,9 @@ watch(
   font-size: 13px;
 }
 .hl-head {
-  color: var(--text-muted);
+  color: var(--t3);
   padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--bd);
   margin-bottom: 2px;
 }
 .hl-body {
@@ -297,7 +297,7 @@ watch(
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--text);
+  color: var(--t1);
   overflow: hidden;
   white-space: nowrap;
 }
@@ -313,7 +313,7 @@ watch(
 }
 .host-text-ip {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   font-family: var(--mono);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -329,15 +329,15 @@ watch(
   box-shadow: 0 0 6px var(--chart-green);
 }
 .dot.off {
-  background: var(--text-muted);
+  background: var(--t3);
 }
 .hl-val {
   font-family: var(--mono);
-  color: var(--text);
+  color: var(--t1);
   text-align: right;
 }
 .hl-val.dim {
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 13px;
 }
 .hl-row.offline {
@@ -347,7 +347,7 @@ watch(
   background: rgba(239, 68, 68, 0.2);
 }
 .hl-row.offline .host-text-name {
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .offline-badge {
   font-size: 13px;
@@ -367,14 +367,14 @@ watch(
 }
 .hl-sub {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   font-family: var(--mono);
   white-space: nowrap;
 }
 .hl-empty {
   padding: 18px 0;
   text-align: center;
-  color: var(--text-muted);
+  color: var(--t3);
   font-size: 13px;
 }
 
@@ -400,7 +400,7 @@ watch(
 }
 .trend-title {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   letter-spacing: 0.03em;
 }
 .trend-cur {

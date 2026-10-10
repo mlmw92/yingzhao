@@ -152,3 +152,72 @@ describe('安全中心 · 护栏组合风险', () => {
     expect(w.text()).toContain('Agent 需升级')
   })
 })
+
+// 错误拆分（B4）+ 加载态（B5）。
+//
+// 原实现五块共用一个 loadError：Promise.all 并发下任一模块成功就把它清空 →
+// 部分失败被静默吞掉（界面看起来"全绿"，其实有一块根本没拿到数据）。
+// 只钉住"一个模块失败时，错误出现在**它自己**那张卡上，且不影响其他卡"。
+describe('安全中心 · 错误拆分与加载态', () => {
+  it('单个模块失败时错误只落在该卡，其他卡照常渲染（B4：部分失败不被吞掉）', async () => {
+    getSecuritySummary.mockRejectedValue(new Error('安全概览接口 500'))
+    getSecurityEvents.mockResolvedValue({ events: [] })
+    const w = await mountView()
+
+    // 概览卡显示自己的错误
+    expect(w.text()).toContain('安全概览接口 500')
+    // 事件卡不受牵连：仍显示空态而不是错误
+    expect(w.text()).toContain('暂无安全事件')
+  })
+
+  it('多个模块失败时页面级提示给出失败模块数（一眼看到几块挂了）', async () => {
+    getSecuritySummary.mockRejectedValue(new Error('概览挂了'))
+    getSecurityBaselines.mockRejectedValue(new Error('基线挂了'))
+    const w = await mountView()
+
+    expect(w.text()).toContain('2 个模块加载失败')
+    expect(w.text()).toContain('概览挂了')
+    expect(w.text()).toContain('基线挂了')
+  })
+})
+
+// 修复建议：从"知道有问题"推进到"知道怎么改"。
+describe('安全中心 · 修复建议', () => {
+  it('基线未通过项给出整改指引（不再只有"未通过"）', async () => {
+    getSecurityBaselines.mockResolvedValue({
+      enabled: true,
+      baselines: [{
+        node: 'web-01',
+        score: 60,
+        items: [{ key: 'firewall_enabled', name: '防火墙已启用', pass: false }],
+      }],
+    })
+    const w = await mountView()
+
+    expect(w.text()).toContain('未通过')
+    expect(w.text()).toContain('整改：')
+    expect(w.text()).toContain('ufw enable')
+  })
+
+  it('通过项不显示整改指引', async () => {
+    getSecurityBaselines.mockResolvedValue({
+      enabled: true,
+      baselines: [{ node: 'web-01', score: 100, items: [{ key: 'firewall_enabled', name: '防火墙已启用', pass: true }] }],
+    })
+    const w = await mountView()
+
+    expect(w.text()).not.toContain('整改：')
+  })
+
+  it('安全事件按类别挂处置建议（可 hover 查看）', async () => {
+    getSecurityEvents.mockResolvedValue({
+      events: [{
+        id: 'e1', node: 'web-01', category: 'ssh_bruteforce', severity: 'critical',
+        message: 'SSH 暴力破解', timestamp: 1700000000000,
+      }],
+    })
+    const w = await mountView()
+
+    expect(w.find('.cat-tag.has-fix').exists()).toBe(true)
+  })
+})

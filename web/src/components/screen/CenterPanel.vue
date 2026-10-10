@@ -291,7 +291,7 @@ watch(
 }
 .kpi-label {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   margin-bottom: 4px;
@@ -310,12 +310,12 @@ watch(
 }
 .kpi-unit {
   font-size: 14px;
-  color: var(--text-muted);
+  color: var(--t3);
   font-weight: 600;
 }
 .kpi-sub {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 4px;
   font-family: var(--mono);
 }
@@ -353,13 +353,13 @@ watch(
 .cb-head span:nth-child(2) {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   letter-spacing: 0.04em;
 }
 .cb-cur {
   margin-left: auto;
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   font-family: var(--mono);
 }
 .cb-chart {
@@ -382,7 +382,7 @@ watch(
 }
 .mini-label {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   margin-bottom: 4px;
   letter-spacing: 0.04em;
 }

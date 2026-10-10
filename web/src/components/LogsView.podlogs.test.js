@@ -122,15 +122,10 @@ describe('LogsView 容器日志（Pod 日志）', () => {
     expect(last).toContain('pods=nebula-demo%7Cweb-1')
 
     // 过滤条件必须看得见、删得掉（否则"日志怎么少了"会变成下一个问题）
-    const chip = w.findAll('.field-tag').find((t) => t.text().includes('nebula-demo/web-1'))
+    const chip = w.findAll('.fc-chip').find((t) => t.text().includes('nebula-demo/web-1'))
     expect(chip).toBeTruthy()
-    await chip.find('.el-tag__close').trigger('click')
-    await flushPromises()
-
-    // 与字段过滤同一行为：删除条件**不自动重查**（用户可能还要再删几个），
-    // 因此这里显式再点一次「查询」，断言条件确实被去掉了。
-    const button = w.findAll('button').find((b) => b.text().includes('查询'))
-    await button.trigger('click')
+    // FilterChips 的删除控件是 .fc-x；撤销后**立即重查**（chips 与结果必须一致）
+    await chip.find('.fc-x').trigger('click')
     await flushPromises()
 
     const after = logsQueries().at(-1)
@@ -155,7 +150,7 @@ describe('LogsView 容器日志（Pod 日志）', () => {
     const w = mountView()
     await flushPromises()
 
-    const chip = w.findAll('.field-tag').find((t) => t.text().includes('nebula-demo/web-1'))
+    const chip = w.findAll('.fc-chip').find((t) => t.text().includes('nebula-demo/web-1'))
     expect(chip).toBeTruthy()
     expect(logsQueries().at(-1)).toContain('pods=nebula-demo%7Cweb-1')
   })
@@ -173,7 +168,7 @@ describe('LogsView 容器日志（Pod 日志）', () => {
       expect(last).not.toContain(bad)
     }
     // 生效中的条件只有那一条合法的
-    const podChips = w.findAll('.field-tag').filter((t) => t.text().includes('容器'))
+    const podChips = w.findAll('.fc-chip').filter((t) => t.text().includes('容器'))
     expect(podChips.length).toBe(1)
   })
 

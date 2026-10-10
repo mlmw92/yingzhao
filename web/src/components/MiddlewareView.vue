@@ -259,7 +259,7 @@ onMounted(async () => {
 .middleware-view {
   padding: 4px 0 16px;
 }
-.view-config-tip { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
+.view-config-tip { font-size: 13px; color: var(--t2); margin-bottom: 12px; }
 .view-cb { display: block; margin: 0 0 4px 0; }
 .tab-emoji { font-size: 15px; }
 /* 下划线型 Tab 不再需要外层圆角盒子；底部留一条分隔线，
@@ -286,7 +286,7 @@ onMounted(async () => {
   font-size: 14px;
 }
 .tab-label.disabled {
-  color: var(--text-muted);
+  color: var(--t3);
   cursor: not-allowed;
 }
 .tab-icon {
@@ -297,7 +297,7 @@ onMounted(async () => {
 .tab-loading {
   padding: 40px 0;
   text-align: center;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 14px;
 }
 .tab-dot {
@@ -320,12 +320,12 @@ onMounted(async () => {
 }
 :deep(.el-tabs--border-card) {
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   box-shadow: none;
 }
 :deep(.el-tabs__header) {
   background: var(--fill-1);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--bd);
 }
 :deep(.el-tabs__item) {
   border: none !important;

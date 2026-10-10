@@ -9,51 +9,54 @@
       </div>
     </template>
     <template v-else>
-      <div
+      <!-- 整卡可点 → 用 <button>：此前是 <div @click>，键盘与读屏都够不着 -->
+      <button
         v-for="s in summaries"
         :key="s.key"
+        type="button"
         class="mw-card"
         :class="{ disabled: s.total === 0 }"
+        :title="`前往 ${s.label} 页面`"
         @click="goTab(s.tab)"
       >
-      <div class="mw-head">
-        <!-- 模板派生类型若未提供图标则不渲染，避免出现坏图 -->
-        <img v-if="s.icon" class="mw-icon" :src="s.icon" :alt="s.label" />
-        <span class="mw-name">{{ s.label }}</span>
-        <span v-if="s.total > 0" class="mw-total">{{ s.total }}</span>
-        <span v-else class="mw-badge">未配置</span>
-      </div>
-
-      <div v-if="s.total > 0" class="mw-body">
-        <div class="mw-donut" :style="donutStyle(s)">
-          <div class="mw-donut-inner">
-            <span class="mw-online">{{ s.online }}</span>
-            <span class="mw-donut-label">在线</span>
-          </div>
+        <div class="mw-head">
+          <!-- 模板派生类型若未提供图标则不渲染，避免出现坏图 -->
+          <img v-if="s.icon" class="mw-icon" :src="s.icon" :alt="s.label" />
+          <span class="mw-name">{{ s.label }}</span>
+          <span v-if="s.total > 0" class="mw-total">{{ s.total }}</span>
+          <span v-else class="mw-badge">未配置</span>
         </div>
-        <div class="mw-meta">
-          <div class="mw-stat">
-            <span class="mw-stat-val off" v-if="s.offline">{{ s.offline }}</span>
-            <span class="mw-stat-val ok" v-else>0</span>
-            <span class="mw-stat-label">离线/异常</span>
+
+        <div v-if="s.total > 0" class="mw-body">
+          <div class="mw-donut" :style="donutStyle(s)">
+            <div class="mw-donut-inner">
+              <span class="mw-online">{{ s.online }}</span>
+              <span class="mw-donut-label">在线</span>
+            </div>
           </div>
-          <div class="mw-top">
-            <div class="mw-top-title">Top 实例</div>
-            <div v-for="(t, i) in s.topN" :key="i" class="mw-top-row">
-              <span class="mw-top-label" :title="t.label">{{ t.label }}</span>
-              <span class="mw-top-val">{{ t.valueText }}</span>
+          <div class="mw-meta">
+            <div class="mw-stat">
+              <span class="mw-stat-val off" v-if="s.offline">{{ s.offline }}</span>
+              <span class="mw-stat-val ok" v-else>0</span>
+              <span class="mw-stat-label">离线/异常</span>
+            </div>
+            <div class="mw-top">
+              <div class="mw-top-title">Top 实例</div>
+              <div v-for="(t, i) in s.topN" :key="i" class="mw-top-row">
+                <span class="mw-top-label" :title="t.label">{{ t.label }}</span>
+                <span class="mw-top-val">{{ t.valueText }}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div v-else class="mw-empty">
-        <el-icon :size="20"><InfoFilled /></el-icon>
-        <!-- 空状态文案可被覆盖：模板类型「已配置但无数据」与内置类型「尚未配置」的排查方向不同 -->
-        <div class="mw-empty-title">{{ s.emptyTitle || '尚未配置监控' }}</div>
-        <div class="mw-empty-sub">{{ s.emptySub || `点击前往 ${s.label} 页面了解接入方式` }}</div>
-      </div>
-      </div>
+        <div v-else class="mw-empty">
+          <el-icon :size="20"><InfoFilled /></el-icon>
+          <!-- 空状态文案可被覆盖：模板类型「已配置但无数据」与内置类型「尚未配置」的排查方向不同 -->
+          <div class="mw-empty-title">{{ s.emptyTitle || '尚未配置监控' }}</div>
+          <div class="mw-empty-sub">{{ s.emptySub || `点击前往 ${s.label} 页面了解接入方式` }}</div>
+        </div>
+      </button>
     </template>
   </div>
 </template>
@@ -73,7 +76,7 @@ const router = useRouter()
 function donutStyle(s) {
   const onlinePct = s.total > 0 ? (s.online / s.total) * 100 : 0
   return {
-    background: `conic-gradient(var(--chart-green) 0 ${onlinePct}%, var(--danger) ${onlinePct}% 100%)`,
+    background: `conic-gradient(var(--ok) 0 ${onlinePct}%, var(--danger) ${onlinePct}% 100%)`,
   }
 }
 function goTab(tab) {
@@ -86,39 +89,50 @@ function goTab(tab) {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
+  /* 卡片嵌在区块卡内部（外层已是 --s1），用 s2 亮一级表达层级 */
+  --mw-bg: var(--s2);
 }
 /* 卡内是 64px 甜甜圈 + 14px gap + 文字列，4 列在 1400px 以下就开始挤：
    Top 实例的名称列会被 max-width 截断到只剩几个字。逐级降列而不是一步到单列。 */
-@media (max-width: 1400px) {
+@media (max-width: 1280px) {
   .mw-grid { grid-template-columns: repeat(3, 1fr); }
 }
-@media (max-width: 1100px) {
+@media (max-width: 1024px) {
   .mw-grid { grid-template-columns: repeat(2, 1fr); }
 }
-@media (max-width: 680px) {
+@media (max-width: 768px) {
   .mw-grid { grid-template-columns: 1fr; }
 }
 .mw-card {
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--mw-bg);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-lg);
   padding: 14px;
   cursor: pointer;
   transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
   display: flex;
   flex-direction: column;
+  /* button 复位：整卡可点但仍要保持卡片的排版与文字对齐 */
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  width: 100%;
 }
 .mw-card:hover {
   transform: translateY(-2px);
   border-color: var(--accent);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--sh-3);
+}
+.mw-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .mw-card.disabled {
   opacity: 0.78;
 }
 .mw-card.disabled:hover {
   transform: none;
-  border-color: var(--border);
+  border-color: var(--bd);
   box-shadow: none;
 }
 .mw-head {
@@ -133,24 +147,24 @@ function goTab(tab) {
   object-fit: contain;
 }
 .mw-name {
-  font-size: 14px;
+  font-size: var(--fs-base);
   font-weight: 700;
   flex: 1;
 }
 .mw-total {
-  font-size: 13px;
-  color: var(--text-dim);
-  background: var(--bg-card);
-  border-radius: 10px;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  background: var(--s3);
+  border-radius: var(--r-pill);
   padding: 1px 8px;
 }
 .mw-badge {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--text-muted);
-  background: var(--bg-card);
-  border: 1px dashed var(--border);
-  border-radius: 10px;
+  color: var(--t3);
+  background: var(--s3);
+  border: 1px dashed var(--bd);
+  border-radius: var(--r-pill);
   padding: 1px 7px;
   letter-spacing: 0.04em;
 }
@@ -173,7 +187,7 @@ function goTab(tab) {
   content: '';
   position: absolute;
   inset: 6px;
-  background: var(--bg-elev);
+  background: var(--mw-bg);
   border-radius: 50%;
 }
 .mw-donut-inner {
@@ -183,13 +197,13 @@ function goTab(tab) {
   align-items: center;
 }
 .mw-online {
-  font-size: 18px;
+  font-size: var(--fs-lg);
   font-weight: 800;
   line-height: 1;
 }
 .mw-donut-label {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
 }
 .mw-meta {
   flex: 1;
@@ -203,32 +217,32 @@ function goTab(tab) {
   flex-direction: column;
 }
 .mw-stat-val {
-  font-size: 16px;
+  font-size: var(--fs-md);
   font-weight: 700;
 }
 .mw-stat-val.ok {
-  color: var(--chart-green);
+  color: var(--ok);
 }
 .mw-stat-val.off {
   color: var(--danger);
 }
 .mw-stat-label {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
 }
 .mw-top-title {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
   margin-bottom: 4px;
 }
 .mw-top-row {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   padding: 1px 0;
 }
 .mw-top-label {
-  color: var(--text);
+  color: var(--t1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -246,17 +260,17 @@ function goTab(tab) {
   justify-content: center;
   gap: 6px;
   padding: 18px 0 8px;
-  color: var(--text-muted);
+  color: var(--t3);
   text-align: center;
 }
 .mw-empty-title {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .mw-empty-sub {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
   line-height: 1.5;
 }
 </style>

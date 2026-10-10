@@ -53,7 +53,7 @@ const segments = computed(() => {
   const t = stats.total || 1
   const list = [
     { key: 'running', label: '运行中', value: stats.running, color: 'var(--accent)' },
-    { key: 'stopped', label: '停止', value: stats.stopped, color: 'var(--text-dim)' },
+    { key: 'stopped', label: '停止', value: stats.stopped, color: 'var(--t2)' },
     { key: 'abnormal', label: '异常', value: stats.abnormal, color: 'var(--danger)' },
   ]
   let acc = 0
@@ -118,7 +118,7 @@ onUnmounted(() => {
 .sc-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 8px;
 }
 .sc-empty {
@@ -126,7 +126,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 13px;
 }
 .sc-body {
@@ -160,12 +160,12 @@ onUnmounted(() => {
   font-size: 24px;
   font-weight: 800;
   font-family: var(--mono);
-  color: var(--text);
+  color: var(--t1);
   line-height: 1;
 }
 .sc-total-l {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 2px;
 }
 .sc-legend {
@@ -180,7 +180,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .sc-leg .d {
   width: 8px;
@@ -189,11 +189,11 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .sc-leg-name {
-  color: var(--text);
+  color: var(--t1);
 }
 .sc-leg b {
   margin-left: auto;
-  color: var(--text);
+  color: var(--t1);
 }
 .sc-leg-pct {
   width: 34px;

@@ -128,7 +128,7 @@ onMounted(() => {
   background: transparent;
   border: none;
   border-radius: 14px;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 13px;
   font-family: var(--font);
   letter-spacing: 0.06em;
@@ -140,7 +140,7 @@ onMounted(() => {
 }
 
 .tab-item:hover {
-  color: var(--text);
+  color: var(--t1);
   background: rgba(56, 189, 248, 0.08);
 }
 

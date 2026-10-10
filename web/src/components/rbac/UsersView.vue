@@ -5,15 +5,36 @@
       desc="管理可登录系统的账号及其角色与数据范围；删除 / 禁用最后一个超级管理员会被服务端拒绝"
     >
       <template #actions>
-        <el-button type="primary" :icon="Plus" @click="openCreate" v-if="auth.can('users:manage')">新建用户</el-button>
+        <el-button v-if="auth.can('users:manage')" type="primary" :icon="Plus" @click="openCreate">新建用户</el-button>
       </template>
     </PageHeader>
 
-    <el-card class="glass table-card" shadow="never">
-      <el-table :data="users" v-loading="loading" stripe style="width: 100%">
+    <SectionCard title="用户列表" dense>
+      <template #actions>
+        <span v-if="users.length" class="u-total">共 {{ users.length }} 个账号</span>
+      </template>
+
+      <div class="filter-bar">
+        <el-input
+          v-model="keyword"
+          size="small"
+          clearable
+          :prefix-icon="Search"
+          placeholder="搜索用户名 / 昵称 / 角色"
+          class="u-search"
+        />
+      </div>
+
+      <el-table :data="pagedUsers" v-loading="loading" stripe>
+        <template #empty>
+          <EmptyState
+            :title="keyword.trim() ? '没有匹配的用户' : '暂无用户'"
+            :hints="keyword.trim() ? ['换个关键词再试'] : ['账号可由具备 users:manage 权限的管理员在右上角创建']"
+          />
+        </template>
         <el-table-column prop="username" label="用户名" min-width="120" />
-        <el-table-column prop="display_name" label="昵称" min-width="120" />
-        <el-table-column label="角色" min-width="180">
+        <el-table-column prop="display_name" label="昵称" min-width="110" />
+        <el-table-column label="角色" min-width="150">
           <template #default="{ row }">
             <el-tag v-for="r in row.roles" :key="r" size="small" class="role-tag" effect="dark" type="info">
               {{ roleLabel(r) }}
@@ -21,19 +42,21 @@
             <span v-if="!row.roles || !row.roles.length" class="muted">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="数据范围" min-width="200">
+        <!-- 数据范围拆成两列：节点维度与业务维度是"且"的关系，挤在一格很难扫读 -->
+        <el-table-column label="节点范围" min-width="130">
           <template #default="{ row }">
             <template v-if="row.scope && row.scope.mode === 'restricted'">
               <el-tag size="small" type="warning" effect="plain">受限</el-tag>
-              <span class="scope-groups">
-                <el-tag v-for="g in row.scope.groups" :key="g" size="small" class="grp-tag">{{ g }}</el-tag>
-                <span v-if="!row.scope.groups || !row.scope.groups.length" class="muted">（无分组，无可见资源）</span>
-              </span>
+              <el-tag v-for="g in row.scope.groups" :key="g" size="small" class="grp-tag">{{ g }}</el-tag>
+              <span v-if="!row.scope.groups || !row.scope.groups.length" class="muted">（无分组，无可见资源）</span>
             </template>
             <el-tag v-else size="small" type="success" effect="plain">全部</el-tag>
-            <!-- 业务范围是第二个维度，与节点范围取交集；没配就不显示，避免把「全部」
-                 读成「业务上也不限」（实际语义是"该维度不生效"）。 -->
-            <span v-if="row.scope && row.scope.asset_mode === 'limited'" class="scope-groups">
+          </template>
+        </el-table-column>
+        <!-- 业务范围是第二个维度，与节点范围取交集；没配就不显示值（语义是"该维度不生效"） -->
+        <el-table-column label="业务范围" min-width="140">
+          <template #default="{ row }">
+            <template v-if="row.scope && row.scope.asset_mode === 'limited'">
               <el-tag
                 v-for="l in (row.scope.asset_labels || [])"
                 :key="l.key + '=' + l.value"
@@ -45,33 +68,45 @@
               <el-tag v-if="!(row.scope.asset_labels || []).length" size="small" type="danger" effect="plain" class="grp-tag">
                 业务范围为空 → 无可见资产
               </el-tag>
-            </span>
+            </template>
+            <span v-else class="muted">不限</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="90">
+        <el-table-column label="状态" width="84">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'disabled'" size="small" type="info" effect="plain">已禁用</el-tag>
             <el-tag v-else size="small" type="success" effect="plain">启用</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="创建时间" min-width="160">
+        <el-table-column label="创建时间" min-width="140">
           <template #default="{ row }">{{ fmtDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" min-width="220" fixed="right" v-if="auth.can('users:manage')">
+        <el-table-column v-if="auth.can('users:manage')" label="操作" min-width="252" fixed="right" class-name="op-col">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button link type="warning" size="small" @click="openReset(row)">重置密码</el-button>
+            <!-- 禁用/启用、删除直接平铺：此前收进「更多」下拉，反而多一次点击才能看到
+                 （用户要求把「更多」里的按钮都放回操作列） -->
             <el-button v-if="row.status !== 'disabled'" link type="info" size="small" @click="disableUser(row)">禁用</el-button>
             <el-button v-else link type="success" size="small" @click="enableUser(row)">启用</el-button>
-            <el-popconfirm title="确认删除该用户？" @confirm="removeUser(row)">
-              <template #reference>
-                <el-button link type="danger" size="small">删除</el-button>
-              </template>
-            </el-popconfirm>
+            <el-button link type="danger" size="small" @click="confirmRemove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
-    </el-card>
+
+      <el-pagination
+        v-if="filteredUsers.length"
+        class="u-pager"
+        layout="total, sizes, prev, pager, next"
+        :total="filteredUsers.length"
+        :page-size="pageSize"
+        :current-page="page"
+        :page-sizes="[10, 20, 50]"
+        background
+        @current-change="(p) => (page = p)"
+        @size-change="(s) => { pageSize = s; page = 1 }"
+      />
+    </SectionCard>
 
     <!-- 新建 / 编辑用户 -->
     <el-dialog v-model="formVisible" :title="editing ? '编辑用户' : '新建用户'" width="min(560px, 94vw)">
@@ -83,10 +118,10 @@
           <el-input v-model="form.displayName" placeholder="可选，展示用名称" />
         </el-form-item>
         <el-form-item label="密码" :required="!editing">
-          <el-input v-model="form.password" type="password" show-password :placeholder="editing ? '留空则不修改' : '登录密码'" />
+          <el-input v-model="form.password" type="password" show-password autocomplete="new-password" :placeholder="editing ? '留空则不修改' : '登录密码'" />
         </el-form-item>
         <el-form-item label="角色" required>
-          <el-select v-model="form.roles" multiple placeholder="选择角色" style="width: 100%">
+          <el-select v-model="form.roles" multiple placeholder="选择角色" class="full">
             <el-option v-for="r in roleNames" :key="r" :label="roleLabel(r)" :value="r" />
           </el-select>
         </el-form-item>
@@ -102,7 +137,7 @@
               multiple
               filterable
               placeholder="选择可见的节点分组"
-              style="width: 100%; margin-top: 10px"
+              class="scope-select"
             >
               <el-option v-for="g in groupNames" :key="g" :label="g" :value="g" />
             </el-select>
@@ -129,7 +164,7 @@
                 default-first-option
                 :reserve-keyword="false"
                 placeholder="选择或直接输入标签值（如 pay）"
-                style="width: 100%; margin-top: 10px"
+                class="scope-select"
               >
                 <el-option v-for="v in assetValueOptions" :key="v" :label="v" :value="v" />
               </el-select>
@@ -157,7 +192,7 @@
           <el-input :model-value="pwdForm.username" disabled />
         </el-form-item>
         <el-form-item label="新密码" required>
-          <el-input v-model="pwdForm.password" type="password" show-password placeholder="新登录密码" />
+          <el-input v-model="pwdForm.password" type="password" show-password autocomplete="new-password" placeholder="新登录密码" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -169,25 +204,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
-import { Plus } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { Plus, Search } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../../api/http'
 import PageHeader from '../common/PageHeader.vue'
+import SectionCard from '../common/SectionCard.vue'
+import EmptyState from '../common/EmptyState.vue'
 import { useAuth } from '../../composables/useAuth'
+import { roleLabel } from '../../composables/useRoleLabels'
 
 const auth = useAuth()
-const ROLE_LABELS = {
-  super_admin: '超级管理员',
-  ops_admin: '运维管理员',
-  alert_admin: '告警管理员',
-  security_admin: '安全管理员',
-  read_only: '只读用户',
-  audit: '审计用户',
-}
-function roleLabel(r) {
-  return ROLE_LABELS[r] || r
-}
 
 // 将后端 ISO 时间戳格式化为本地可读日期
 function fmtDate(v) {
@@ -207,6 +234,30 @@ const roleNames = ref([])
 const groupNames = ref([])
 const loading = ref(false)
 const saving = ref(false)
+
+// 搜索 + 分页
+const keyword = ref('')
+const page = ref(1)
+const pageSize = ref(10)
+const filteredUsers = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) return users.value
+  return users.value.filter(
+    (u) =>
+      String(u.username || '').toLowerCase().includes(kw) ||
+      String(u.display_name || '').toLowerCase().includes(kw) ||
+      (u.roles || []).some(
+        (r) => String(r).toLowerCase().includes(kw) || roleLabel(r).toLowerCase().includes(kw)
+      )
+  )
+})
+const pagedUsers = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredUsers.value.slice(start, start + pageSize.value)
+})
+watch(keyword, () => {
+  page.value = 1
+})
 
 const formVisible = ref(false)
 const editing = ref(false)
@@ -394,7 +445,18 @@ async function enableUser(row) {
   }
 }
 
-async function removeUser(row) {
+// 删除是破坏性动作：用带用户名的确认框，避免"到底删的是谁"看不出来
+async function confirmRemove(row) {
+  const who = row.display_name ? `${row.display_name}（${row.username}）` : row.username
+  try {
+    await ElMessageBox.confirm(`确认删除用户「${who}」？删除后该账号将无法登录，且此操作不可恢复。`, '删除用户', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
   try {
     await http.deleteUser(row.username)
     ElMessage.success('已删除')
@@ -411,23 +473,14 @@ onMounted(loadAll)
 .rbac-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--sp-4);
 }
-.page-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+.u-total {
+  font-size: var(--fs-xs);
+  color: var(--t3);
 }
-.page-title {
-  font-size: 20px;
-  font-weight: 700;
-  margin: 0;
-}
-.page-sub {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--text-dim);
+.u-search {
+  max-width: 260px;
 }
 .role-tag {
   margin-right: 4px;
@@ -435,38 +488,52 @@ onMounted(loadAll)
 .grp-tag {
   margin: 0 4px 2px 0;
 }
-.scope-groups {
-  margin-left: 6px;
+/* 操作列：5 个链接按钮靠右一行排开，不换行。
+   用 flex + gap 而非 .el-button + .el-button 外边距——flex 布局下相邻选择器仍生效，
+   两套间距叠加会让列宽估算失准。 */
+:deep(.op-col .cell) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
 }
-.muted {
-  color: var(--text-muted);
+:deep(.op-col .cell .el-button + .el-button) { margin-left: 0; }
+.u-pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--sp-3);
+}
+.full {
+  width: 100%;
 }
 .scope-box {
   width: 100%;
 }
+.scope-select {
+  width: 100%;
+  margin-top: var(--sp-3);
+}
 .scope-warn {
-  margin: 8px 0 0;
-  font-size: 13px;
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-sm);
   color: var(--warn);
 }
 /* 业务范围是第二个维度，与节点范围是「且」：视觉上要能看出这是两块。 */
 .scope-sub {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--border-color, rgba(128, 128, 128, 0.25));
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px dashed var(--bd-strong);
 }
 .scope-sub-title {
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: var(--text-muted);
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--t3);
 }
 .scope-note {
-  margin: 8px 0 0;
-  font-size: 12px;
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
   line-height: 1.6;
-  color: var(--text-muted);
-}
-.table-card {
-  width: 100%;
+  color: var(--t3);
 }
 </style>

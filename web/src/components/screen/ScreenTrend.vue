@@ -90,7 +90,7 @@ watch(() => props.series, render, { deep: true })
 }
 .trend-title {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   letter-spacing: 0.03em;
 }
 .trend-cur {

@@ -135,7 +135,7 @@ function pct(v) {
 .sr-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 8px;
 }
 .sr-body {
@@ -169,12 +169,12 @@ function pct(v) {
   font-size: 24px;
   font-weight: 800;
   font-family: var(--mono);
-  color: var(--text);
+  color: var(--t1);
   line-height: 1;
 }
 .sr-total-l {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 2px;
 }
 .sr-legend {
@@ -189,7 +189,7 @@ function pct(v) {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .sr-leg .d {
   width: 8px;
@@ -198,11 +198,11 @@ function pct(v) {
   flex-shrink: 0;
 }
 .sr-leg-name {
-  color: var(--text);
+  color: var(--t1);
 }
 .sr-leg b {
   margin-left: auto;
-  color: var(--text);
+  color: var(--t1);
 }
 .sr-leg-pct {
   width: 34px;
@@ -213,7 +213,7 @@ function pct(v) {
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .sr-foot b {
   color: var(--warn);
@@ -225,7 +225,7 @@ function pct(v) {
   max-height: 72px;
   overflow: auto;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .sr-reasons-title {
   margin-bottom: 4px;
@@ -238,6 +238,6 @@ function pct(v) {
 }
 .sr-reason-host {
   flex-shrink: 0;
-  color: var(--text);
+  color: var(--t1);
 }
 </style>

@@ -77,7 +77,7 @@ const bars = computed(() => [
 .sh-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 8px;
 }
 .sh-body {
@@ -121,7 +121,7 @@ const bars = computed(() => [
 }
 .sh-lv {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 3px;
 }
 .sh-bars {
@@ -142,7 +142,7 @@ const bars = computed(() => [
      改用 min-width 保住各条起点对齐，同时允许更长的标签撑开而不是溢出。 */
   min-width: 76px;
   flex-shrink: 0;
-  color: var(--text-dim);
+  color: var(--t2);
   white-space: nowrap;
 }
 .sh-bar-track {
@@ -162,6 +162,6 @@ const bars = computed(() => [
   width: 28px;
   flex-shrink: 0;
   text-align: right;
-  color: var(--text);
+  color: var(--t1);
 }
 </style>

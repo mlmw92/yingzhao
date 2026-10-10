@@ -115,7 +115,7 @@
         >
           <!-- 多选：只有已结束的记录能删（服务端也会拦），因此这里不做限制，删除时逐条给结论 -->
           <el-table-column type="selection" width="42" :reserve-selection="true" />
-          <el-table-column label="下发时间" width="152" prop="createdAt" sortable="custom" :sort-orders="['descending', 'ascending']">
+          <el-table-column label="下发时间" width="140" prop="createdAt" sortable="custom" :sort-orders="['descending', 'ascending']">
             <template #default="{ row }">
               <div class="cell-2l">
                 <b>{{ fmtClock(row.createdAt) }}</b>
@@ -125,7 +125,7 @@
           </el-table-column>
           <!-- 节点列要放下「健康点 + 主机名 + 分组标签」三样：列宽给不够时
                最先被牺牲的是主机名（flex 收缩），而它恰恰是这一行最关键的信息。 -->
-          <el-table-column v-if="colVisible('node')" label="节点" width="200">
+          <el-table-column v-if="colVisible('node')" label="节点" width="150">
             <template #default="{ row }">
               <div class="node-cell">
                 <i class="ndot" :class="nodeHealth(row.node)" :title="nodeHealthTitle(row.node)" />
@@ -134,7 +134,7 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column v-if="colVisible('action')" label="动作" min-width="200">
+          <el-table-column v-if="colVisible('action')" label="动作" min-width="170">
             <template #default="{ row }">
               <div class="cell-2l">
                 <b>{{ row.title || row.kind }}<span v-if="row.readOnly === false" class="tag-write">写操作</span></b>
@@ -142,18 +142,18 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column v-if="colVisible('batch')" label="批次" width="112">
+          <el-table-column v-if="colVisible('batch')" label="批次" width="96">
             <template #default="{ row }">
               <el-button v-if="row.batchId" link type="primary" @click="filterByBatch(row.batchId)">{{ row.batchId }}</el-button>
               <span v-else class="muted">单条</span>
             </template>
           </el-table-column>
-          <el-table-column v-if="colVisible('status')" label="状态" width="106">
+          <el-table-column v-if="colVisible('status')" label="状态" width="92">
             <template #default="{ row }">
               <span class="op-pill" :class="pillClass(row.state)">{{ stateLabel(row.state) }}</span>
             </template>
           </el-table-column>
-          <el-table-column v-if="colVisible('who')" label="触发人 / 原因" min-width="176">
+          <el-table-column v-if="colVisible('who')" label="触发人 / 原因" min-width="140">
             <template #default="{ row }">
               <div class="who-cell">
                 <i class="av" :class="{ bot: !row.operator }">{{ avatarText(row) }}</i>
@@ -167,7 +167,7 @@
           <el-table-column
             v-if="colVisible('dur')"
             label="耗时"
-            width="146"
+            width="120"
             prop="durationMs"
             sortable="custom"
             :sort-orders="['descending', 'ascending']"
@@ -180,7 +180,7 @@
               <span v-else class="muted">—</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="214" fixed="right">
+          <el-table-column label="操作" width="150" fixed="right">
             <template #default="{ row }">
               <div class="ops-cell">
                 <el-button link type="primary" @click="openResult(row)">查看结果</el-button>
@@ -1257,7 +1257,7 @@ const resultSections = computed(() => {
   padding: 0;
 }
 .head-actions {
-  margin-top: 10px;
+  margin-top: var(--desc-base);
   justify-content: flex-end;
 }
 /* 指标卡行：与资产台账同一套网格（窄窗口自动折成 2 列，不会挤成一条）
@@ -1270,10 +1270,6 @@ const resultSections = computed(() => {
 }
 .btn-txt {
   margin-left: 4px;
-}
-.muted {
-  color: var(--text-dim);
-  font-size: 13px;
 }
 .mono {
   font-family: var(--mono);
@@ -1295,8 +1291,8 @@ const resultSections = computed(() => {
   border-radius: 3px;
   background: rgba(255, 180, 84, 0.1);
   color: #ffb054;
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 17px;
 }
 .dot {
   display: inline-block;
@@ -1316,7 +1312,7 @@ const resultSections = computed(() => {
   background: var(--warn);
 }
 .dot.archived {
-  background: var(--text-dim);
+  background: var(--t2);
 }
 .st-online {
   color: var(--accent);
@@ -1328,7 +1324,7 @@ const resultSections = computed(() => {
   color: var(--warn);
 }
 .st-archived {
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .act-option {
   display: flex;
@@ -1340,7 +1336,7 @@ const resultSections = computed(() => {
 }
 .act-count {
   margin-left: auto;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 12px;
 }
 .result-row {
@@ -1366,11 +1362,11 @@ const resultSections = computed(() => {
 .out {
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   border-radius: 6px;
   background: var(--fill-1);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
@@ -1378,8 +1374,8 @@ const resultSections = computed(() => {
   overflow: auto;
 }
 .field-hint {
-  font-size: 12.5px;
-  color: var(--text-dim);
+  font-size: 13px;
+  color: var(--t2);
   line-height: 1.5;
   margin-top: 4px;
 }
@@ -1394,7 +1390,7 @@ const resultSections = computed(() => {
   flex-wrap: wrap;
   align-items: center;
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--bd);
 }
 .op-search {
   width: 250px;
@@ -1409,13 +1405,13 @@ const resultSections = computed(() => {
 }
 /* 工具条换到第二行后，margin-left:auto 会把「列 / 密度 / 导出」这一组孤零零顶到最右，
    右侧悬空一撮、左侧一片空。换行时改成靠左，让它们紧跟在筛选条件后面。 */
-@media (max-width: 1100px) {
+@media (max-width: 1024px) {
   .op-tb-right {
     margin-left: 0;
   }
 }
 .col-off {
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .op-chips {
   display: flex;
@@ -1426,7 +1422,7 @@ const resultSections = computed(() => {
 }
 .op-chips-label {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .op-chip {
   display: inline-flex;
@@ -1435,7 +1431,7 @@ const resultSections = computed(() => {
   height: 24px;
   padding: 0 9px;
   border-radius: 12px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--bd-strong);
   background: var(--accent-dim);
   color: var(--accent);
   font-size: 12px;
@@ -1448,10 +1444,10 @@ const resultSections = computed(() => {
 .op-chip-clear {
   background: transparent;
   border-color: transparent;
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .op-chip-clear:hover {
-  color: var(--text);
+  color: var(--t1);
 }
 /* ================= 表格单元 ================= */
 .op-table-wrap {
@@ -1469,8 +1465,8 @@ const resultSections = computed(() => {
   font-weight: 500;
 }
 .cell-2l span {
-  font-size: 11.5px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--t3);
 }
 .node-cell {
   display: flex;
@@ -1493,11 +1489,11 @@ const resultSections = computed(() => {
   box-shadow: 0 0 0 3px var(--danger-dim);
 }
 .ndot.unknown {
-  background: var(--text-muted);
+  background: var(--t3);
   box-shadow: 0 0 0 3px rgba(127, 127, 127, 0.14);
 }
 .node-cell .nm {
-  font-size: 12.5px;
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1505,11 +1501,11 @@ const resultSections = computed(() => {
 .zone {
   flex: none;
   padding: 0 5px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   border-radius: 4px;
-  background: var(--bg-elev);
-  color: var(--text-muted);
-  font-size: 10.5px;
+  background: var(--s1);
+  color: var(--t3);
+  font-size: 12px;
 }
 /* 状态 pill：圆点 + 底色；排队/下发/执行中会呼吸，提示"还在动" */
 .op-pill {
@@ -1547,7 +1543,7 @@ const resultSections = computed(() => {
 }
 .op-pill.muted {
   background: rgba(127, 127, 127, 0.14);
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .op-pill.run::before {
   animation: op-blink 1s infinite;
@@ -1574,12 +1570,12 @@ const resultSections = computed(() => {
   flex: none;
   display: grid;
   place-items: center;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   font-style: normal;
-  background: var(--bg-elev);
-  border: 1px solid var(--border-strong);
-  color: var(--text-dim);
+  background: var(--s1);
+  border: 1px solid var(--bd-strong);
+  color: var(--t2);
 }
 .av.bot {
   background: color-mix(in srgb, var(--violet) 16%, transparent);
@@ -1594,11 +1590,11 @@ const resultSections = computed(() => {
 }
 .who-tx b {
   font-weight: 500;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .who-tx span {
-  font-size: 11.5px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--t3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1611,7 +1607,7 @@ const resultSections = computed(() => {
   gap: 8px;
 }
 .dur-bar {
-  width: 40px;
+  width: 36px;
   height: 4px;
   border-radius: 2px;
   background: rgba(127, 127, 127, 0.18);
@@ -1633,7 +1629,7 @@ const resultSections = computed(() => {
 .dur-cell b {
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  min-width: 58px;
+  min-width: 52px;
   text-align: right;
 }
 /* 行内操作平时压低存在感，hover / 键盘聚焦时显出来。
@@ -1641,6 +1637,7 @@ const resultSections = computed(() => {
    等于把「查看结果 / 取消 / 删除」藏了起来，这里抬到 0.8——仍比 hover 态弱一档。 */
 .ops-cell {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   justify-content: flex-end;
   opacity: 0.8;
@@ -1655,8 +1652,8 @@ const resultSections = computed(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 2px 0;
-  font-size: 12.5px;
-  color: var(--text-dim);
+  font-size: 13px;
+  color: var(--t2);
 }
 .op-pager :deep(.el-pagination) {
   margin-left: auto;
@@ -1678,7 +1675,7 @@ const resultSections = computed(() => {
   margin: 0 0 10px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--t3);
   letter-spacing: 0.4px;
   display: flex;
   align-items: center;
@@ -1688,17 +1685,17 @@ const resultSections = computed(() => {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--border);
+  background: var(--bd);
 }
 .kv {
   display: grid;
   grid-template-columns: 84px 1fr;
   gap: 7px 12px;
   margin: 0;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .kv dt {
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .kv dd {
   margin: 0;
@@ -1708,12 +1705,12 @@ const resultSections = computed(() => {
   list-style: none;
   margin: 0;
   padding: 0 0 0 14px;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--bd);
 }
 .tl li {
   position: relative;
   padding: 0 0 14px 12px;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .tl li:last-child {
   padding-bottom: 0;
@@ -1727,7 +1724,7 @@ const resultSections = computed(() => {
   height: 9px;
   border-radius: 50%;
   background: var(--chart-green);
-  box-shadow: 0 0 0 3px var(--bg-elev);
+  box-shadow: 0 0 0 3px var(--s1);
 }
 .tl li.run::before {
   background: var(--violet);
@@ -1740,8 +1737,8 @@ const resultSections = computed(() => {
   font-weight: 500;
 }
 .tl li span {
-  color: var(--text-muted);
-  font-size: 11.5px;
+  color: var(--t3);
+  font-size: 12px;
   font-family: var(--mono);
 }
 </style>
@@ -1756,7 +1753,7 @@ const resultSections = computed(() => {
   overflow-y: auto;
 }
 .ops-result-drawer .el-drawer__footer {
-  border-top: 1px solid var(--border);
-  background: var(--bg-elev);
+  border-top: 1px solid var(--bd);
+  background: var(--s1);
 }
 </style>

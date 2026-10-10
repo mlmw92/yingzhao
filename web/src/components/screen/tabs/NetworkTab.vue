@@ -535,7 +535,7 @@ onUnmounted(() => {
 
 .ntk-label {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -550,7 +550,7 @@ onUnmounted(() => {
 
 .ntk-sub {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   font-family: var(--mono);
 }
 
@@ -591,7 +591,7 @@ onUnmounted(() => {
 }
 
 .nt-instance-label {
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 13px;
   letter-spacing: 0.04em;
 }
@@ -602,7 +602,7 @@ onUnmounted(() => {
   border: 1px solid rgba(34, 211, 238, 0.36);
   border-radius: 5px;
   background: rgba(5, 15, 29, 0.82);
-  color: var(--text);
+  color: var(--t1);
   font-size: 13px;
   outline: none;
 }
@@ -613,7 +613,7 @@ onUnmounted(() => {
 }
 
 .nt-instance-hint {
-  color: var(--text-muted);
+  color: var(--t3);
   font-size: 13px;
 }
 
@@ -638,7 +638,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: baseline;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-bottom: 4px;
   letter-spacing: 0.03em;
   flex-shrink: 0;
@@ -652,7 +652,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--text-muted);
+  color: var(--t3);
   font-size: 13px;
   line-height: 16px;
   cursor: pointer;
@@ -684,7 +684,7 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--text-muted);
+  background: var(--t3);
   transition: transform 0.16s ease, background 0.16s ease;
 }
 
@@ -745,7 +745,7 @@ onUnmounted(() => {
   justify-content: center;
   border-radius: 4px;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   background: rgba(255, 255, 255, 0.05);
 }
 
@@ -755,7 +755,7 @@ onUnmounted(() => {
 }
 
 .rk-name {
-  color: var(--text);
+  color: var(--t1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -792,7 +792,7 @@ onUnmounted(() => {
 .rk-val {
   font-family: var(--mono);
   font-size: 13px;
-  color: var(--text);
+  color: var(--t1);
   text-align: right;
   min-width: 44px;
 }
@@ -800,7 +800,7 @@ onUnmounted(() => {
 .nc-empty {
   padding: 16px 0;
   text-align: center;
-  color: var(--text-muted);
+  color: var(--t3);
   font-size: 13px;
 }
 
@@ -836,7 +836,7 @@ onUnmounted(() => {
 .ntm-title {
   font-size: 13px;
   font-weight: 700;
-  color: var(--text, #fff);
+  color: var(--t1);
   letter-spacing: 0.04em;
   display: inline-flex;
   align-items: center;
@@ -859,8 +859,8 @@ onUnmounted(() => {
 
 .ntm-scope button {
   background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
+  border: 1px solid var(--bd);
+  color: var(--t2);
   font-size: 13px;
   padding: 3px 12px;
   border-radius: 12px;
@@ -893,14 +893,14 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 13px;
   text-align: center;
   gap: 6px;
 }
 .ntm-empty-sub {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   opacity: 0.8;
 }
 

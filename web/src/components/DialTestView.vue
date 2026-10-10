@@ -6,45 +6,81 @@
       </template>
     </PageHeader>
 
-    <SectionCard title="拨测任务列表" dense>
-      <el-table :data="tasks" style="width: 100%" v-loading="loading">
+    <SectionCard
+      title="拨测任务列表"
+      dense
+      :error="loadError"
+      error-retry
+      @retry="load"
+    >
+      <div class="filter-bar">
+        <el-input v-model="kw" size="small" class="w-m" clearable placeholder="搜索任务名 / 目标" />
+        <el-select v-model="typeFilter" size="small" class="w-xs" placeholder="全部类型">
+          <el-option label="全部类型" value="" />
+          <el-option label="HTTP" value="http" />
+          <el-option label="HTTPS" value="https" />
+          <el-option label="TCP" value="tcp" />
+          <el-option label="ICMP" value="icmp" />
+        </el-select>
+      </div>
+      <el-table :data="filteredTasks" style="width: 100%" v-loading="loading">
         <template #empty>
           <EmptyState
             title="暂无拨测任务"
             :hints="['点右上角「新建拨测任务」，选择 HTTP / TCP / ICMP 与目标地址', '拨测由 Server 主动发起，无需在目标机安装 Agent']"
           />
         </template>
-        <el-table-column prop="name" label="任务名称" min-width="120" />
-        <el-table-column prop="type" label="类型" width="80">
+        <el-table-column prop="name" label="任务名称" min-width="118" show-overflow-tooltip />
+        <el-table-column prop="type" label="类型" width="72">
           <template #default="{ row }"><el-tag size="small">{{ row.type }}</el-tag></template>
         </el-table-column>
-        <el-table-column prop="target" label="目标" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="interval" label="间隔(s)" width="90" />
-        <el-table-column prop="timeout" label="超时(s)" width="90" />
-        <el-table-column label="启用" width="80" align="center">
+        <el-table-column prop="target" label="目标" min-width="128" show-overflow-tooltip />
+        <!-- 状态 / 最近延迟 / 24h 可用率拆成三列：
+             状态回答"通不通"、延迟回答"多快"、可用率回答"稳不稳"，三者维度不同，
+             挤在一个单元格里既无法排序，扫读时也分不清哪个数属于谁。 -->
+        <el-table-column label="当前状态" width="102">
+          <template #default="{ row }">
+            <StatusPill :tone="curTone(row)" size="sm" dot :text="curText(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="延迟(ms)" width="100" class-name="num-cell">
+          <template #default="{ row }">
+            <span v-if="curResult(row)">{{ curResult(row).latency }}</span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="可用率" width="96" class-name="num-cell">
+          <template #default="{ row }">
+            <span v-if="uptimePct(curResult(row)) !== null">{{ uptimePct(curResult(row)) }}%</span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="interval" label="间隔(s)" width="88" class-name="num-cell" />
+        <el-table-column prop="timeout" label="超时(s)" width="88" class-name="num-cell" />
+        <el-table-column label="启用" width="84" align="center">
           <template #default="{ row }">
             <el-switch :model-value="row.enabled" @change="(v) => toggleEnabled(row, v)" />
           </template>
         </el-table-column>
-        <el-table-column label="告警级别" width="100">
+        <el-table-column label="告警级别" width="76">
           <template #default="{ row }">
-            <el-tag :type="sevType(row.severity)" size="small" effect="dark">{{ sevLabel(row.severity) }}</el-tag>
+            <StatusPill :tone="sevTone(row.severity)" size="sm" :text="sevLabel(row.severity)" />
           </template>
         </el-table-column>
-        <el-table-column label="通知" width="120">
+        <el-table-column label="通知" width="82">
           <template #default="{ row }">
             <span v-if="!row.notify || row.notify.length === 0" class="muted">仅平台</span>
             <el-tag v-for="c in (row.notify || [])" :key="c" size="small" class="ch-tag">{{ chLabel(c) }}</el-tag>
           </template>
         </el-table-column>
         <!-- 对外发布（C3）：勾选后该任务会出现在免登录的「对外状态页」上 -->
-        <el-table-column label="对外" width="80" align="center">
+        <el-table-column label="对外" width="92" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.public" size="small" type="success" effect="plain">已发布</el-tag>
+            <StatusPill v-if="row.public" tone="ok" size="sm" text="已发布" />
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150">
+        <el-table-column label="操作" width="104" fixed="right" class-name="op-col">
           <template #default="{ row }">
             <el-button link @click="editTask(row)">编辑</el-button>
             <el-button link type="danger" @click="deleteTask(row)">删除</el-button>
@@ -53,31 +89,52 @@
       </el-table>
     </SectionCard>
 
-    <SectionCard v-if="results.length > 0" title="最近拨测结果" dense>
-      <el-table :data="results" style="width: 100%">
+    <SectionCard v-if="!loadError && results.length > 0" title="最近拨测结果" dense>
+      <el-table :data="pagedResults" style="width: 100%">
         <el-table-column prop="name" label="任务名" min-width="120" />
         <el-table-column prop="type" label="类型" width="80" />
-        <el-table-column prop="target" label="目标" min-width="200" show-overflow-tooltip />
-        <el-table-column label="状态" width="80">
+        <el-table-column prop="target" label="目标" min-width="150" show-overflow-tooltip />
+        <el-table-column label="状态" width="90">
           <template #default="{ row }">
-            <span class="status-led" :class="row.up ? 'on' : 'off'"></span>
-            <span class="status-text" :class="row.up ? 'on' : 'off'">{{ row.up ? '正常' : '异常' }}</span>
+            <StatusPill :tone="row.up ? 'ok' : 'danger'" size="sm" dot :text="row.up ? '正常' : '异常'" />
           </template>
         </el-table-column>
-        <el-table-column label="原因" min-width="220" show-overflow-tooltip>
+        <el-table-column label="原因" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="!row.up" class="dial-err">{{ row.error || '未知错误' }}</span>
             <span v-else class="muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="latency" label="延迟(ms)" width="120" sortable />
+        <el-table-column prop="latency" label="延迟(ms)" width="100" sortable class-name="num-cell" />
+        <!-- 延迟趋势：一眼看出是抖动还是持续劣化 -->
+        <el-table-column label="延迟趋势" width="150">
+          <template #default="{ row }">
+            <Sparkline v-if="row.latencyHistory && row.latencyHistory.length > 1" :points="row.latencyHistory" unit="ms" />
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="检测时间" width="160">
+          <template #default="{ row }">
+            <span v-if="row.checkedAt" class="num-cell">{{ fmtTime(row.checkedAt) }}</span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="证书到期(天)" width="120">
           <template #default="{ row }">
-            <span v-if="row.certExpiry" :class="certClass(row.certExpiry)">{{ row.certExpiry.toFixed(0) }} 天</span>
-            <span v-else>-</span>
+            <span v-if="row.certExpiry" :class="certClass(row.certExpiry)" class="num-cell">{{ row.certExpiry.toFixed(0) }} 天</span>
+            <span v-else class="muted">-</span>
           </template>
         </el-table-column>
       </el-table>
+      <div v-if="results.length > resultPageSize" class="pager">
+        <el-pagination
+          layout="prev, pager, next, total"
+          :total="results.length"
+          :page-size="resultPageSize"
+          :current-page="resultPage"
+          @current-change="(p) => (resultPage = p)"
+        />
+      </div>
     </SectionCard>
 
     <!-- 新建/编辑对话框 -->
@@ -144,15 +201,71 @@ import http from '../api/http'
 import PageHeader from './common/PageHeader.vue'
 import SectionCard from './common/SectionCard.vue'
 import EmptyState from './common/EmptyState.vue'
+import StatusPill from './common/StatusPill.vue'
+import Sparkline from './common/Sparkline.vue'
 
 const loading = ref(false)
 const tasks = ref([])
 const results = ref([])
+const loadError = ref('')
 const showDialog = ref(false)
 const editing = ref(false)
+const kw = ref('')
+const typeFilter = ref('')
+const resultPage = ref(1)
+const resultPageSize = 10
 const form = ref({ name: '', type: 'http', target: '', interval: 60, timeout: 10, enabled: true, public: false, severity: 'warning', notify: [], cert_warn: 30, cert_crit: 7 })
+
+const filteredTasks = computed(() => {
+  const k = kw.value.trim().toLowerCase()
+  return tasks.value.filter((t) => {
+    if (typeFilter.value && t.type !== typeFilter.value) return false
+    if (!k) return true
+    return (t.name || '').toLowerCase().includes(k) || (t.target || '').toLowerCase().includes(k)
+  })
+})
+
+const pagedResults = computed(() => {
+  const start = (resultPage.value - 1) * resultPageSize
+  return results.value.slice(start, start + resultPageSize)
+})
+
+// 结果按任务名索引：任务表要显示「当前状态」而 results 只带 name
+const resultByName = computed(() => {
+  const m = {}
+  for (const r of results.value) m[r.name] = r
+  return m
+})
+function curResult(row) {
+  return resultByName.value[row.name] || null
+}
+function curTone(row) {
+  if (!row.enabled) return 'muted'
+  const r = curResult(row)
+  if (!r) return 'muted'
+  return r.up ? 'ok' : 'danger'
+}
+function curText(row) {
+  if (!row.enabled) return '已停用'
+  const r = curResult(row)
+  if (!r) return '未检测'
+  return r.up ? '正常' : '异常'
+}
+function uptimePct(r) {
+  if (!r || r.uptime == null || r.uptime < 0) return null
+  return r.uptime
+}
+
+function fmtTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     const [taskData, resData] = await Promise.all([
       http.get('/api/v1/dialtest/tasks'),
@@ -160,7 +273,15 @@ async function load() {
     ])
     tasks.value = taskData.tasks || []
     results.value = resData.results || []
-  } catch (e) { console.error(e) } finally { loading.value = false }
+    if (resultPage.value > 1 && (resultPage.value - 1) * resultPageSize >= results.value.length) {
+      resultPage.value = 1
+    }
+  } catch (e) {
+    // 此前只 console.error：整块列表空着，用户不知道是"没有任务"还是"没加载上"
+    loadError.value = e.message || '加载拨测数据失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 function editTask(row) {
@@ -180,7 +301,9 @@ async function saveTask() {
     editing.value = false
     form.value = { name: '', type: 'http', target: '', interval: 60, timeout: 10, enabled: true, public: false, severity: 'warning', notify: [], cert_warn: 30, cert_crit: 7 }
     await load()
-  } catch (e) { console.error(e) }
+  } catch (e) {
+    ElMessage.error(e.message || '保存失败')
+  }
 }
 
 async function deleteTask(row) {
@@ -205,7 +328,7 @@ async function deleteTask(row) {
   }
 }
 
-// 列表内直接开关启用状态：乐观更新，失败回滚
+// 列表内直接开关启用状态：乐观更新，失败回滚并提示
 async function toggleEnabled(row, val) {
   const prev = row.enabled
   row.enabled = val
@@ -213,14 +336,14 @@ async function toggleEnabled(row, val) {
     await http.put(`/api/v1/dialtest/tasks/${row.id}`, { ...row })
   } catch (e) {
     row.enabled = prev
-    console.error(e)
+    ElMessage.error(e.message || '切换启用状态失败')
   }
 }
 
 function certClass(days) { if (days <= 7) return 'metric-bad'; if (days <= 30) return 'metric-warn'; return 'metric-good' }
 
 function sevLabel(s) { return s === 'critical' ? '紧急' : s === 'info' ? '信息' : '警告' }
-function sevType(s) { return s === 'critical' ? 'danger' : s === 'info' ? 'info' : 'warning' }
+function sevTone(s) { return s === 'critical' ? 'danger' : s === 'info' ? 'info' : 'warn' }
 function chLabel(c) {
   return { email: '邮件', webhook: 'Webhook', dingtalk: '钉钉', feishu: '飞书', wecom: '企业微信' }[c] || c
 }
@@ -229,29 +352,34 @@ onMounted(load)
 </script>
 
 <style scoped>
-.dialtest-view { padding: 4px 0 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-.page-title { font-size: 22px; font-weight: 700; margin: 0; background: linear-gradient(135deg, var(--text) 0%, var(--text-dim) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.page-desc { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
-.chart-section { padding: 16px; margin-bottom: 16px; }
-.section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-.dot.up { background: var(--chart-green); box-shadow: 0 0 6px var(--chart-green); }
-.dot.down { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
-/* 状态指示灯（与主机在线状态同效） */
-.status-led { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
-.status-led.on { background: var(--chart-green); box-shadow: 0 0 6px var(--chart-green); }
-.status-led.off { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
-.status-text.on { color: var(--chart-green); }
-.status-text.off { color: var(--danger); }
+.dialtest-view { display: flex; flex-direction: column; gap: 12px; }
+.filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+/* 操作列：链接按钮靠右一行排开。用 flex + gap 而不是依赖 .el-button + .el-button
+   的 12px 外边距——「更多」是 el-dropdown（inline-flex 包裹），相邻选择器对它不生效，
+   三件套时容易被挤到第二行。 */
+.dialtest-view :deep(.op-col .cell) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+}
+.dialtest-view :deep(.op-col .cell .el-button + .el-button) { margin-left: 0; }
 /* 表头不换行，避免“延迟(ms)”等列头被挤压换行 */
 .dialtest-view :deep(th .cell) { white-space: nowrap; }
-.dial-err { color: var(--danger); font-size: 13px; word-break: break-all; }
-.muted { color: var(--text-dim); }
-.metric-good { color: var(--accent); }
+.num-cell { font-variant-numeric: tabular-nums; }
+.dial-err { color: var(--danger); font-size: var(--fs-sm); word-break: break-all; }
+.metric-good { color: var(--ok); }
 .metric-warn { color: var(--warn); }
 .metric-bad { color: var(--danger); }
 .ch-tag { margin-right: 4px; }
-.hint-inline { font-size: 13px; color: var(--text-dim); margin-left: 8px; }
+.hint-inline { font-size: var(--fs-sm); color: var(--t3); margin-left: 8px; }
+.pager { display: flex; justify-content: flex-end; margin-top: 10px; }
 .el-form-item :deep(.el-input-number) { width: 120px; }
+@media (max-width: 1024px) {
+  .filter-bar .w-m { width: 100%; }
+}
+@media (max-width: 768px) {
+  .dialtest-view :deep(.el-table) { font-size: var(--fs-xs); }
+}
 </style>

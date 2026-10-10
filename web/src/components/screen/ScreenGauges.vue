@@ -64,7 +64,7 @@ function dash(v) {
 .sg-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 10px;
   letter-spacing: 0.04em;
 }
@@ -120,7 +120,7 @@ function dash(v) {
 }
 .sg-label {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 4px;
 }
 

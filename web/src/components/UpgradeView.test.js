@@ -166,9 +166,9 @@ describe('UpgradeView 升级历史与升级包（合并为一张表）', () => {
 
     expect(rowFor('1.28.0').text()).toContain('已保留')
     expect(rowFor('1.26.0').text()).toContain('已删除')
-    expect(buttonOf(rowFor('1.26.0'), '切换').attributes('disabled')).toBeDefined()
+    expect(buttonOf(rowFor('1.26.0'), '回退到此版本').attributes('disabled')).toBeDefined()
     expect(buttonOf(rowFor('1.26.0'), '删除').attributes('disabled')).toBeDefined()
-    expect(buttonOf(rowFor('1.28.0'), '切换').attributes('disabled')).toBeUndefined()
+    expect(buttonOf(rowFor('1.28.0'), '回退到此版本').attributes('disabled')).toBeUndefined()
   })
 
   it('已上传未应用的升级包也有独立一行，可切换可删除', async () => {
@@ -179,20 +179,21 @@ describe('UpgradeView 升级历史与升级包（合并为一张表）', () => {
     expect(row).toBeTruthy()
     expect(row.text()).toContain('上传')
     expect(row.text()).toContain('待应用')
-    expect(buttonOf(row, '切换').attributes('disabled')).toBeUndefined()
+    expect(buttonOf(row, '回退到此版本').attributes('disabled')).toBeUndefined()
     expect(buttonOf(row, '删除').attributes('disabled')).toBeUndefined()
   })
 
-  it('当前运行版本：标记在版本号之前，且不能切换、不能删除', async () => {
+  it('当前运行版本：版本号在前、「当前运行」标记在后，且不能切换、不能删除', async () => {
     wrapper = mountView()
     await flushPromises()
 
     const row = rowFor('1.27.1')
     const cells = [...row.find('.ver-cell').element.children]
-    expect(cells[0].textContent).toContain('当前运行')
-    expect(cells[1].textContent).toContain('v1.27.1')
+    // 版本号放前面：此前标记在前 + 列宽不足，长版本号会被标记挤到看不见
+    expect(cells[0].textContent).toContain('v1.27.1')
+    expect(cells[1].textContent).toContain('当前运行')
 
-    expect(buttonOf(row, '切换').attributes('disabled')).toBeDefined()
+    expect(buttonOf(row, '回退到此版本').attributes('disabled')).toBeDefined()
     const del = buttonOf(row, '删除')
     expect(del.attributes('disabled')).toBeDefined()
     await del.trigger('click')
@@ -217,7 +218,7 @@ describe('UpgradeView 升级历史与升级包（合并为一张表）', () => {
     expect(http.post).toHaveBeenCalledWith('/api/v1/system/upgrade/archive/delete', { version: '1.28.0' })
     const row = rowFor('1.28.0')
     expect(row.text()).toContain('已删除')
-    expect(buttonOf(row, '切换').attributes('disabled')).toBeDefined()
+    expect(buttonOf(row, '回退到此版本').attributes('disabled')).toBeDefined()
     expect(buttonOf(row, '删除').attributes('disabled')).toBeDefined()
   })
 

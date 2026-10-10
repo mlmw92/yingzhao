@@ -2,18 +2,23 @@
   <div class="mw-tab">
     <RefreshBar :loading="loading" @refresh="load" />
 
+    <el-alert v-if="error" type="error" :closable="false" show-icon class="mw-err">
+      <template #title>
+        <span class="mw-err-text">{{ error }}</span>
+        <el-button size="small" link type="primary" @click="load">重试</el-button>
+      </template>
+    </el-alert>
+
     <!-- 未配置：全平台没有任何 K8s 集群上报 -->
-    <div v-if="!loading && clusters.length === 0" class="empty-guide glass">
-      <div class="empty-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64">
-          <path d="M12 2 3 7v10l9 5 9-5V7z"/>
-          <path d="M12 22V12M3 7l9 5 9-5"/>
-        </svg>
-      </div>
-      <h2 class="empty-title">尚未配置 Kubernetes 监控</h2>
-      <p class="empty-desc">当前没有任何节点上报 Kubernetes 数据。请在能访问 apiserver 的节点 agent.yaml 中开启 <code>collectors.k8s</code> 并配置 <code>k8sInstances</code>（kubeconfig 或 apiServer+token）。</p>
-      <p class="empty-hint">配置完成后约 15-30 秒，本页将出现集群卡片。</p>
-    </div>
+    <EmptyState
+      v-if="!loading && !error && clusters.length === 0"
+      :icon="EmptyIcon"
+      title="尚未配置 Kubernetes 监控"
+      :hints="[
+        '请在能访问 apiserver 的节点 agent.yaml 中开启 collectors.k8s 并配置 k8sInstances（kubeconfig 或 apiServer+token）',
+        '配置完成后约 15-30 秒，本页将出现集群卡片',
+      ]"
+    />
 
     <template v-if="clusters.length > 0">
       <!-- KPI -->
@@ -39,15 +44,17 @@
       </div>
 
       <!-- 集群卡片 -->
-      <div class="chart-section glass">
-        <div class="section-title">集群</div>
+      <SectionCard title="集群" class="mw-block">
         <div class="host-grid">
-          <div v-for="c in clusters" :key="c.node + '|' + c.instance" class="host-card" :class="{'is-down': !c.up}">
-            <div class="host-head">
-              <span class="host-dot" :class="c.up ? 'up' : 'down'"></span>
-              <span class="host-node">{{ c.name || c.instance }}</span>
-              <span class="host-version" v-if="c.version">{{ c.version }}</span>
-            </div>
+          <MwHostCard
+            v-for="c in clusters"
+            :key="c.node + '|' + c.instance"
+            :name="c.name || c.instance"
+            :sub="c.instance"
+            :status="c.up ? 'normal' : 'abnormal'"
+            :count-text="c.version || ''"
+            :dim="!c.up"
+          >
             <div class="host-stats">
               <div class="stat-item">
                 <span class="stat-label">节点</span>
@@ -69,13 +76,12 @@
                 <span class="stat-val warn">{{ workloadUnhealthy(c) }}</span>
               </div>
             </div>
-          </div>
+          </MwHostCard>
         </div>
-      </div>
+      </SectionCard>
 
       <!-- 节点列表 -->
-      <div class="mw-list glass">
-        <div class="mw-list-title">节点列表</div>
+      <SectionCard title="节点列表" dense class="mw-block">
         <el-table :data="nodes" style="width: 100%" empty-text="暂无节点数据">
           <el-table-column prop="nodeName" label="节点名" min-width="180" show-overflow-tooltip />
           <el-table-column prop="ip" label="IP" min-width="140" show-overflow-tooltip />
@@ -95,11 +101,10 @@
             <template #default="{ row }">{{ formatBytes(row.memBytes) }}</template>
           </el-table-column>
         </el-table>
-      </div>
+      </SectionCard>
 
       <!-- 异常 Pod -->
-      <div v-if="pods.length > 0" class="mw-list glass">
-        <div class="mw-list-title">异常 Pod（非 Running/Succeeded）</div>
+      <SectionCard v-if="pods.length > 0" title="异常 Pod（非 Running/Succeeded）" dense class="mw-block">
         <el-table :data="pods" style="width: 100%">
           <el-table-column prop="pod" label="Pod" min-width="220" show-overflow-tooltip />
           <el-table-column prop="namespace" label="命名空间" width="160" />
@@ -116,7 +121,7 @@
             </template>
           </el-table-column>
         </el-table>
-      </div>
+      </SectionCard>
     </template>
   </div>
 </template>
@@ -126,8 +131,11 @@ import { ref, onMounted, computed, h } from 'vue'
 import http from '../../api/http'
 import RefreshBar from '../RefreshBar.vue'
 import KpiCard from '../KpiCard.vue'
+import SectionCard from '../common/SectionCard.vue'
+import EmptyState from '../common/EmptyState.vue'
 import MwStatusDot from '../mw/MwStatusDot.vue'
 import MwRoleTag from '../mw/MwRoleTag.vue'
+import MwHostCard from '../mw/MwHostCard.vue'
 
 // ---- 图标组件（内联 SVG 渲染函数） ----
 function svgIcon(s) {
@@ -141,10 +149,18 @@ const BoxIcon = svgIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentCol
 const AlertIcon = svgIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>')
 const ActivityIcon = svgIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>')
 
+// 空状态图标：保留原有"六边形/Pod"造型
+const EmptyIcon = () =>
+  h('svg', {
+    viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5,
+    innerHTML: '<path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M12 22V12M3 7l9 5 9-5"/>',
+  })
+
 const loading = ref(true)
 const clusters = ref([])
 const nodes = ref([])
 const pods = ref([])
+const error = ref('')
 
 const stats = computed(() => {
   const s = { clusters: 0, nodesTotal: 0, nodesReady: 0, podsTotal: 0, podsRunning: 0, podsAbnormal: 0, workloadsUnhealthy: 0 }
@@ -169,12 +185,18 @@ function workloadUnhealthy(c) {
 
 async function load() {
   loading.value = true
+  error.value = ''
   try {
     const data = await http.get('/api/v1/middleware/k8s/instances')
     clusters.value = data.clusters || []
     nodes.value = data.nodes || []
     pods.value = data.pods || []
-  } catch (e) { console.error(e) } finally { loading.value = false }
+  } catch (e) {
+    console.error('加载 Kubernetes 数据失败', e)
+    error.value = 'Kubernetes 数据加载失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 function formatBytes(n) {
@@ -190,47 +212,15 @@ onMounted(load)
 
 <style scoped>
 .mw-tab { padding: 4px 0; }
-.empty-guide { text-align: center; padding: 48px 24px; }
-.empty-icon { color: var(--text-muted); margin-bottom: 16px; }
-.empty-title { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
-.empty-desc { color: var(--text-dim); margin: 0 0 8px; font-size: 13px; }
-.empty-hint { color: var(--text-muted); font-size: 13px; }
+.mw-err { margin-bottom: 16px; }
+.mw-err-text { margin-right: 8px; }
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.chart-section { padding: 16px; margin-bottom: 16px; }
-.section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.section-title::before {
-  content: '';
-  width: 3px;
-  height: 14px;
-  background: var(--accent);
-  border-radius: 2px;
-}
+.mw-block { margin-bottom: 16px; }
 .host-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.host-card { padding: 14px; background: var(--fill-1); border-radius: 10px; border: 1px solid var(--border); }
-.host-card.is-down { opacity: 0.6; }
-.host-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.host-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.host-dot.up { background: var(--ok); box-shadow: 0 0 6px rgba(74,222,128,0.5); }
-.host-dot.down { background: var(--danger); }
-.host-node { font-weight: 600; font-size: 14px; }
-.host-version { font-size: 13px; color: var(--text-muted); margin-left: auto; padding: 2px 8px; background: var(--fill-2); border-radius: 4px; }
 .host-stats { display: flex; flex-wrap: wrap; gap: 12px; }
 .stat-item { display: flex; flex-direction: column; gap: 2px; }
-.stat-label { font-size: 13px; color: var(--text-muted); }
-.stat-val { font-size: 14px; font-weight: 600; font-family: var(--mono); }
+.stat-label { font-size: var(--fs-xs); color: var(--t3); }
+.stat-val { font-size: var(--fs-base); font-weight: 600; font-family: var(--mono); }
 .stat-val.ok { color: var(--ok); }
 .stat-val.warn { color: var(--warn); }
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-.dot.up { background: var(--accent); }
-.dot.down { background: var(--danger); }
-.metric-bad { color: var(--danger); }
-.mono { font-family: var(--mono); }
 </style>

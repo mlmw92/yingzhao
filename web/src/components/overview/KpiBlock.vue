@@ -1,13 +1,15 @@
 <template>
   <div class="kpi-grid">
-    <div v-for="k in kpis" :key="k.label" class="kpi-card">
-      <div class="kpi-icon">
-        <el-icon :size="18"><component :is="k.icon" /></el-icon>
-      </div>
-      <div class="kpi-main">
-        <div class="kpi-k">{{ k.label }}</div>
-        <div class="kpi-v" :class="{ bad: k.tone === 'bad' }">{{ k.value }}</div>
-        <div class="kpi-f">{{ k.foot }}</div>
+    <KpiCard
+      v-for="k in kpis"
+      :key="k.label"
+      :value="k.value"
+      :label="k.label"
+      :hint="k.foot"
+      :tone="k.tone"
+      :icon="k.icon"
+    >
+      <template #spark>
         <VChart
           v-if="series(k.label).length > 1"
           class="kpi-spark"
@@ -18,8 +20,8 @@
              有的没有，两行行高不同；等攒够 2 个点后卡片又突然长高约 44px。
              这里用同高的占位块把高度钉住。 -->
         <div v-else class="kpi-spark kpi-spark-pending"></div>
-      </div>
-    </div>
+      </template>
+    </KpiCard>
     <div v-if="!kpis || kpis.length === 0" class="kpi-empty">
       <EmptyState
         :icon="DataLine"
@@ -38,6 +40,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { DataLine } from '@element-plus/icons-vue'
 import EmptyState from '../common/EmptyState.vue'
+// 视觉与全站 KPI 卡统一：本组件只负责「数据 + sparkline」，样式不再自持一份
+import KpiCard from '../KpiCard.vue'
 
 const props = defineProps({
   kpis: { type: Array, default: () => [] },
@@ -142,62 +146,8 @@ function sparkOption(data) {
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
   height: 100%;
-}
-/* 卡片嵌在"关键指标"区块卡内部，所以用 s2（比外层卡亮一级）表达层级 */
-.kpi-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  min-height: 84px;
-  padding: 14px 16px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--bd);
-  background: var(--s2);
-  transition: border-color var(--dur-1) var(--ease);
-}
-.kpi-card:hover {
-  border-color: var(--bd-hi);
-}
-/* 图标一律中性色：颜色只留给"真实异常"，不做分类配色 */
-.kpi-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--r-lg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: var(--fill-2);
-  color: var(--t2);
-}
-.kpi-main {
-  min-width: 0;
-  flex: 1;
-}
-.kpi-k {
-  font-size: var(--fs-sm);
-  color: var(--t2);
-}
-.kpi-v {
-  font-size: 26px;
-  font-weight: 700;
-  font-family: var(--mono);
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-  margin-top: 2px;
-  color: var(--t1);
-}
-/* 只有真实异常（活跃告警里有 critical）才允许出现语义色 */
-.kpi-v.bad {
-  color: var(--danger);
-}
-.kpi-f {
-  font-size: var(--fs-xs);
-  color: var(--t3);
-  margin-top: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 卡片嵌在「关键指标」区块卡内部（外层已是 --s1），用 s2 比外层亮一级表达层级 */
+  --kpi-bg: var(--s2);
 }
 .kpi-spark {
   display: block;

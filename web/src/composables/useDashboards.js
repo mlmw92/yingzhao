@@ -19,7 +19,7 @@ function loadCache() {
   return []
 }
 
-const state = reactive({ dashboards: loadCache(), loaded: false })
+const state = reactive({ dashboards: loadCache(), loaded: false, error: '' })
 
 function persist() {
   try {
@@ -37,10 +37,12 @@ export function useDashboards() {
       if (d && Array.isArray(d.dashboards)) {
         state.dashboards = d.dashboards
         state.loaded = true
+        state.error = ''
         persist()
       }
     } catch (e) {
-      // 接口不可达：保留缓存
+      // 接口不可达：保留缓存，但把原因暴露给调用方（原实现静默吞掉，页面无法提示）
+      state.error = e && e.message ? e.message : String(e)
     }
     return state.dashboards
   }

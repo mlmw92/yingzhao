@@ -68,8 +68,6 @@ const CX = VB.w / 2
 const CY = VB.h / 2
 
 const hover = ref(null)
-const hasNodes = computed(() => placedNodes.value.length > 0)
-watch(hasNodes, (val) => emit('has-nodes-change', val), { immediate: true })
 
 // 组装环绕节点：Redis + 容器集群，并按圆周均匀布点
 const placedNodes = computed(() => {
@@ -127,6 +125,12 @@ const placedNodes = computed(() => {
   })
   return items
 })
+
+// hasNodes 依赖 placedNodes，必须定义在其后：
+// 若写在 placedNodes 之前，watch 的 immediate 会在 setup 期间读 hasNodes.value，
+// 进而命中 placedNodes 的暂时性死区（TDZ）→ ReferenceError 让整个大屏白屏。
+const hasNodes = computed(() => placedNodes.value.length > 0)
+watch(hasNodes, (val) => emit('has-nodes-change', val), { immediate: true })
 
 // 中心到节点的三次贝塞尔曲线
 function linkPath(n) {
@@ -198,7 +202,7 @@ function linkPath(n) {
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   white-space: nowrap;
 }
 .tn-dot {
@@ -211,7 +215,7 @@ function linkPath(n) {
 .tn-dot.danger { background: var(--danger); }
 .tn-meta {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 3px;
   font-family: var(--mono);
 }
@@ -228,12 +232,12 @@ function linkPath(n) {
 .tt-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 4px;
 }
 .tt-line {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   font-family: var(--mono);
 }
 

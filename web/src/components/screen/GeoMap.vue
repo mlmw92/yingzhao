@@ -100,7 +100,7 @@ watch(() => props.scope, render)
 .gm-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
 }
 .gm-scope {
   display: flex;
@@ -108,8 +108,8 @@ watch(() => props.scope, render)
 }
 .gm-scope button {
   background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
+  border: 1px solid var(--bd);
+  color: var(--t2);
   font-size: 13px;
   padding: 3px 12px;
   border-radius: 12px;
@@ -141,11 +141,11 @@ watch(() => props.scope, render)
   transform: translateX(-50%);
   z-index: 2;
   background: rgba(6, 11, 22, 0.85);
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   border-radius: 8px;
   padding: 6px 14px;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   white-space: nowrap;
 }
 </style>

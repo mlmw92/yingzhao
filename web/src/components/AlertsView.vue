@@ -6,6 +6,13 @@
       </template>
     </PageHeader>
 
+    <PartialBar
+      v-if="partialFailed.length"
+      :failed="partialFailed"
+      title="部分数据加载失败"
+      @retry="load"
+    />
+
     <!-- 告警统计看板 -->
     <SectionCard title="告警概览">
       <div v-if="statsError" class="alert-refresh-error">{{ statsError }}</div>
@@ -92,15 +99,25 @@
             <el-radio-button value="resolved">已恢复</el-radio-button>
             <el-radio-button value="">全部</el-radio-button>
           </el-radio-group>
-          <el-button size="small" :disabled="!selected.length" @click="batchAck">批量确认 ({{ selected.length }})</el-button>
-          <span class="muted event-toolbar-hint">确认后将从活跃列表移除，仍可在“全部”中查看</span>
+          <el-button size="small" :disabled="!selected.length" @click="batchAck">批量认领 ({{ selected.length }})</el-button>
+          <span class="muted event-toolbar-hint">认领后将从活跃列表移除，仍可在“全部”中查看</span>
           <el-button v-if="can('notify:write')" size="small" :loading="testing" @click="testAlert">测试事件</el-button>
         </div>
       </template>
+      <!-- 深链筛选回显：从首页研判条跳过来时，让用户一眼看到"被过滤成了哪一条"，
+           而不是面对一个空表猜是不是数据没加载出来。 -->
+      <FilterChips
+        v-if="alertChips.length"
+        :chips="alertChips"
+        @remove="removeAlertChip"
+        @clear="clearAlertChips"
+      />
       <div v-if="refreshError" class="alert-refresh-error">{{ refreshError }}</div>
       <el-table
         :data="pagedAlerts"
         stripe
+        class="event-table"
+        v-loading="alertsLoading"
         style="width: 100%"
         @selection-change="onSelect"
         @row-dblclick="openDetail"
@@ -108,34 +125,30 @@
         <template #empty>
           <EmptyState
             :icon="Bell"
-            :title="eventFilter ? '当前筛选下没有告警事件' : '暂无告警事件'"
+            :title="alertChips.length || eventFilter ? '当前筛选下没有告警事件' : '暂无告警事件'"
             :hints="eventHints"
           />
         </template>
         <el-table-column type="selection" width="45" :selectable="selectableAlert" />
         <el-table-column prop="ruleName" label="规则" min-width="140" />
         <el-table-column prop="node" label="节点" min-width="130" />
-        <!-- 级别：左侧 3px 色条 + 描边药丸。色条在纵向扫读时比色块更快定位。 -->
+        <!-- 三列三种视觉语言：级别=色条、处置=StatusPill、抑制=带删除线的灰标签。
+             此前三列共用一套 el-tag 色板，「级别=警告」与「处置=已认领」同为橙、
+             「级别=信息」「处置=已关闭」「抑制=已抑制」同为灰蓝，扫读时无法区分维度。 -->
         <el-table-column label="级别" width="84">
           <template #default="{ row }">
             <span class="state-bar" :class="sevBar(row.severity)"></span>
-            <el-tag :type="sevType(row.severity)" size="small" effect="dark">{{ sevLabel(row.severity) }}</el-tag>
+            <span class="sev-text">{{ sevLabel(row.severity) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
-            <el-tag
-              :type="ackTagType(row)"
-              size="small"
-              :effect="row.state === 'firing' && ackStatus(row) === 'pending' ? 'dark' : 'plain'"
-            >
-              {{ ackStatusLabel(row) }}
-            </el-tag>
+            <StatusPill :tone="ackPillTone(row)" :dot="true" :text="ackStatusLabel(row)" />
           </template>
         </el-table-column>
         <el-table-column label="抑制" width="90">
           <template #default="{ row }">
-            <el-tag v-if="row.suppressed" type="info" size="small" effect="plain">已抑制</el-tag>
+            <span v-if="row.suppressed" class="sup-tag">已抑制</span>
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
@@ -145,7 +158,7 @@
         </el-table-column>
         <el-table-column label="操作" width="132">
           <template #default="{ row }">
-            <el-button v-if="row.state === 'firing'" link size="small" @click="ackEvent(row)">确认</el-button>
+            <el-button v-if="row.state === 'firing'" link size="small" @click="ackEvent(row)">认领</el-button>
             <el-button link size="small" @click="openDetail(row)">详情</el-button>
           </template>
         </el-table-column>
@@ -199,20 +212,20 @@
         class="rule-load-error"
         :title="'告警规则加载失败：' + ruleLoadError"
       />
-      <div class="rule-filter-bar" style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap">
+      <div class="filter-bar">
         <el-input
           v-model="ruleSearch"
           placeholder="搜索规则名称"
           clearable
           size="small"
-          style="width: 220px"
+          class="w-l"
         />
         <el-select
           v-model="ruleTypeFilter"
           placeholder="全部类型"
           clearable
           size="small"
-          style="width: 150px"
+          class="w-s"
         >
           <el-option label="阈值" value="" />
           <el-option label="主机离线" value="node_offline" />
@@ -221,9 +234,9 @@
           <el-option label="集群损坏" value="cluster_fault" />
           <el-option label="安全事件" value="security_event" />
         </el-select>
-        <span class="muted" style="font-size: 13px">共 {{ filteredRules.length }} 条</span>
+        <span class="muted">共 {{ filteredRules.length }} 条</span>
       </div>
-      <el-table :data="pagedRules" stripe style="width: 100%">
+      <el-table :data="pagedRules" stripe v-loading="rulesLoading" style="width: 100%">
         <template #empty>
           <EmptyState
             :icon="Bell"
@@ -231,7 +244,7 @@
             :hints="ruleHints"
           />
         </template>
-        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="name" label="名称" min-width="130" />
         <el-table-column label="类型" width="120">
           <template #default="{ row }">
             <el-tag :type="typeTag(row)" size="small" effect="plain">{{ typeLabel(row) }}</el-tag>
@@ -253,7 +266,11 @@
             <el-tag :type="sevType(row.severity)" size="small" effect="dark">{{ sevLabel(row.severity) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="通知渠道" min-width="150">
+        <!-- 规则表列宽预算（实测可用宽 1142px）：
+             固定 120+90+80+80+80+130 = 580，弹性下限 130+200+110+110 = 550，合计 1130 ≤ 1142。
+             之前 通知渠道 150 / 应用范围 140 时下限合计 1210，超出 68px（表内横向滚动条）。
+             长表头一律先改短表头（「通知渠道」→「通知」、「应用范围」→「范围」），不加宽列。 -->
+        <el-table-column label="通知" min-width="110">
           <template #default="{ row }">
             <template v-if="row.notify && row.notify.length">
               <el-tag v-for="c in row.notify" :key="c" size="small" style="margin: 0 4px 4px 0">{{ channelLabel(c) }}</el-tag>
@@ -261,7 +278,7 @@
             <span v-else class="muted">仅平台展示</span>
           </template>
         </el-table-column>
-        <el-table-column label="应用范围" min-width="140">
+        <el-table-column label="范围" min-width="110">
           <template #default="{ row }">
             <template v-if="row.scope === 'specified'">
               <el-tag type="warning" size="small">指定主机</el-tag>
@@ -316,7 +333,7 @@
           <el-radio label="merge">合并导入（按 ID 更新已有规则、新增没有的规则）</el-radio>
           <el-radio label="replace">覆盖导入（先清空当前所有规则再导入）</el-radio>
         </el-radio-group>
-        <p class="muted" style="font-size: 13px; margin-top: 10px">
+        <p class="muted muted-base">
           覆盖导入会删除当前全部规则，请谨慎操作。
         </p>
       </div>
@@ -326,8 +343,18 @@
       </template>
     </el-dialog>
 
-    <!-- 高级：抑制与分组（P4） -->
+    <!-- 高级：抑制与分组（P4）。默认收起——概览之后最有价值的是事件表，
+         配置区块不该把事件表压到第三屏以下。 -->
     <SectionCard title="高级设置 · 抑制与分组" dense>
+      <template #actions>
+        <span class="muted adv-summary">
+          {{ grouping.enabled ? '分组已开启' : '分组已关闭' }} · 抑制 {{ inhibits.length }} 条
+        </span>
+        <el-button size="small" @click="advancedOpen = !advancedOpen">
+          {{ advancedOpen ? '收起' : '展开' }}
+        </el-button>
+      </template>
+      <div v-if="advancedOpen">
       <div class="adv-section">
         <div class="adv-title">告警分组</div>
         <div class="adv-row">
@@ -391,7 +418,7 @@
           <span class="adv-title" style="margin: 0">抑制规则</span>
           <el-button size="small" type="primary" @click="newInhibit">新增规则</el-button>
         </div>
-        <el-table :data="inhibits" stripe style="width: 100%; margin-top: 8px">
+        <el-table :data="inhibits" stripe v-loading="inhibitsLoading" style="width: 100%; margin-top: 8px">
           <template #empty>
             <EmptyState
               :icon="Bell"
@@ -421,6 +448,7 @@
             </template>
           </el-table-column>
         </el-table>
+      </div>
       </div>
     </SectionCard>
 
@@ -458,8 +486,19 @@
       </template>
     </el-dialog>
 
-    <!-- 告警事件详情 -->
-    <el-drawer v-model="drawer" :title="detail?.ruleName || '告警详情'" size="480px" @closed="onDrawerClosed">
+    <!-- 告警事件详情：无遮罩 + 点击外部不关闭 = 「列表 + 详情」可对照形态。
+         处置一条告警时最需要的是"一边看详情、一边对照列表里相邻的同规则告警是不是同一次故障"，
+         遮罩会把列表盖住、误点即关，未提交的评论也随之中断。 -->
+    <el-drawer
+      v-model="drawer"
+      :title="detail?.ruleName || '告警详情'"
+      size="560px"
+      :modal="false"
+      :close-on-click-modal="false"
+      :lock-scroll="false"
+      class="alert-detail-drawer"
+      @closed="onDrawerClosed"
+    >
       <template v-if="detail">
         <div class="ev-field"><span>级别</span><el-tag :type="sevType(detail.severity)" effect="dark">{{ sevLabel(detail.severity) }}</el-tag></div>
         <div class="ev-field"><span>状态</span>{{ stateLabel(detail) }}</div>
@@ -485,8 +524,17 @@
         <div class="ev-field"><span>详情</span><span>{{ detail.message }}</span></div>
         <div class="ev-field"><span>开始</span><span>{{ fmt(detail.startsAt) }}</span></div>
         <div class="ev-field"><span>恢复</span><span>{{ detail.state === 'resolved' ? fmt(detail.endsAt) : '—' }}</span></div>
-        <div class="ev-chart-title" v-if="detail.metric">触发指标近 1 小时趋势</div>
-        <div class="ev-chart" ref="chartRef" v-if="detail.metric"></div>
+        <template v-if="detail.metric">
+          <div class="ev-chart-title">触发指标近 1 小时趋势</div>
+          <TrendChart
+            :option="trendOption"
+            :loading="trendLoading"
+            :error="trendError"
+            :height="240"
+            empty-text="该时间段没有数据"
+            @retry="loadTrend(detail)"
+          />
+        </template>
 
         <!-- 资产与影响面：这条告警落在哪条资产上、它刚改过什么、会影响谁 -->
         <div class="ev-chart-title">资产与影响面</div>
@@ -552,7 +600,9 @@
             placeholder="补充处置说明（如「已扩容」「误报，已调整阈值」）…"
           />
         </div>
+        <!-- 处置动作（会改变告警状态）：与只读辅助分区，避免"想看一眼日志却点到关闭告警" -->
         <div class="ev-actions">
+          <span class="ev-actions-label">处置</span>
           <el-button
             v-if="detail.state === 'firing' && ackStatus(detail) === 'pending'"
             type="primary"
@@ -576,6 +626,11 @@
             关闭告警
           </el-button>
           <el-button v-if="ackStatus(detail) === 'closed'" size="small" @click="reopenEvent(detail)">重新打开</el-button>
+          <el-button size="small" :loading="commenting" @click="commentEvent(detail)">评论</el-button>
+        </div>
+        <!-- 只读辅助：查看日志 / AI 诊断，不改动任何状态 -->
+        <div class="ev-actions ev-actions-readonly">
+          <span class="ev-actions-label">只读辅助</span>
           <el-button
             size="small"
             :disabled="!detail.node"
@@ -584,9 +639,7 @@
           >
             查看日志
           </el-button>
-          <!-- AI 诊断：只给排查建议，不执行任何处置（与「关闭告警」这类动作分开摆） -->
           <AiDiagnosePanel v-if="detail.id" kind="alert" :id="detail.id" />
-          <el-button size="small" :loading="commenting" @click="commentEvent(detail)">评论</el-button>
           <el-button size="small" @click="drawer = false">返回</el-button>
         </div>
       </template>
@@ -595,19 +648,24 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Bell, Printer } from '@element-plus/icons-vue'
 import PageHeader from './common/PageHeader.vue'
 import SectionCard from './common/SectionCard.vue'
 import EmptyState from './common/EmptyState.vue'
+import StatusPill from './common/StatusPill.vue'
+import PartialBar from './common/PartialBar.vue'
+import FilterChips from './common/FilterChips.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { initChart } from '../charts/echarts'
+import { mwTrendOption } from '../charts/echarts'
 import http, { getToken } from '../api/http'
 import RuleModal from './RuleModal.vue'
 import TopologyGraph from './asset/TopologyGraph.vue'
 import AiDiagnosePanel from './ai/AiDiagnosePanel.vue'
+import TrendChart from './mw/TrendChart.vue'
 import useAuth from '../composables/useAuth'
+import { filterAlerts } from './alertFilter'
 import { printPage } from '../utils/print'
 
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -623,6 +681,12 @@ const ruleSearch = ref('')
 const ruleTypeFilter = ref('')
 // 空态提示：说清"为什么空"+"下一步做什么"，而不是只写"暂无数据"
 const eventHints = computed(() => {
+  if (nodeFilter.value || ruleFilter.value) {
+    return [
+      '已按上方的节点 / 规则筛选，当前范围内没有匹配的事件',
+      '点筛选条右侧的「清空筛选」可回到全部告警',
+    ]
+  }
   if (eventFilter.value === 'firing') {
     return ['当前没有活跃告警，说明所有已启用规则都未触发', '切到「全部」可查看历史事件（含已恢复）']
   }
@@ -674,12 +738,58 @@ const templates = ref([])
 const acks = ref({})
 const editing = ref(null)
 const eventFilter = ref('firing')
+// 首页研判条「查看详情」会带 node / rule 深链过来，这里接住并落成可撤销的筛选条。
+// 此前深链只支持 newLogRule（日志→建规则），node 被当成模板参数用掉就丢了，
+// 用户到了告警中心还得自己在几百条里再找一遍那条研判告警。
+const nodeFilter = ref('')
+const ruleFilter = ref('')
+
+function applyAlertQuery() {
+  // 日志→建规则的深链里 node 是模板参数（见 applyLogRulePrefill），不能当筛选
+  if (route.query.newLogRule) return
+  nodeFilter.value = route.query.node ? String(route.query.node) : ''
+  ruleFilter.value = route.query.rule ? String(route.query.rule) : ''
+}
+// 已经在告警中心时再次点研判条（hash 路由不重挂载），靠 watch 重新接住参数
+watch(
+  () => [route.query.node, route.query.rule, route.query.newLogRule],
+  () => {
+    if (route.path === '/alerts') applyAlertQuery()
+  }
+)
+
+const alertChips = computed(() => {
+  const chips = []
+  if (nodeFilter.value) chips.push({ key: 'node', label: '节点', value: nodeFilter.value })
+  if (ruleFilter.value) chips.push({ key: 'rule', label: '规则', value: ruleFilter.value })
+  return chips
+})
+function removeAlertChip(key) {
+  if (key === 'node') nodeFilter.value = ''
+  if (key === 'rule') ruleFilter.value = ''
+  syncAlertQuery()
+}
+function clearAlertChips() {
+  nodeFilter.value = ''
+  ruleFilter.value = ''
+  syncAlertQuery()
+}
+// 清掉筛选时同步清 URL：否则刷新页面又被参数带回筛选态，用户会以为"数据丢了"
+function syncAlertQuery() {
+  if (!route.query.node && !route.query.rule) return
+  const rest = { ...route.query }
+  delete rest.node
+  delete rest.rule
+  router.replace({ path: '/alerts', query: rest })
+}
 const testing = ref(false)
 const selected = ref([])
 const drawer = ref(false)
 const detail = ref(null)
-const chartRef = ref(null)
-let chartInstance = null
+// 评论草稿 / 提交中：此前这两个 ref 从未声明（模板 v-model 与 commentEvent 都在用），
+// 抽屉里「评论」读 commentText.value 会直接抛错——一并补上并保证跨告警清空。
+const commentText = ref('')
+const commenting = ref(false)
 const maintenance = ref({ enabled: false, start: 0, end: 0, reason: '' })
 // 全部渠道及其展示名；enabled 由通知配置决定，未启用的渠道在新建规则时置灰。
 const CHANNEL_META = [
@@ -693,6 +803,14 @@ const channelOptions = ref(CHANNEL_META.map((c) => ({ ...c, enabled: true })))
 let timer = null
 let loadGeneration = 0
 const refreshError = ref('')
+const alertsLoading = ref(false)
+const rulesLoading = ref(false)
+const inhibitsLoading = ref(false)
+// 部分失败清单：替代各段 `catch { /* ignore */ }` 的静默吞错，用 PartialBar 明示"哪几块没拿到"。
+const partialFailed = ref([])
+// 高级设置（抑制与分组）默认收起：概览之后最有价值的是事件表，
+// 配置区块不该把事件表压到第三屏以下。
+const advancedOpen = ref(false)
 const statsLoading = ref(false)
 const statsError = ref('')
 const ruleLoadError = ref('')
@@ -735,10 +853,14 @@ const activeCount = computed(() => alerts.value.filter((a) => a.state === 'firin
 const criticalCount = computed(() => alerts.value.filter((a) => a.state === 'firing' && a.severity === 'critical').length)
 const warningCount = computed(() => alerts.value.filter((a) => a.state === 'firing' && a.severity === 'warning').length)
 
-const filteredAlerts = computed(() => {
-  if (!eventFilter.value) return alerts.value
-  return alerts.value.filter((a) => a.state === eventFilter.value)
-})
+const filteredAlerts = computed(() =>
+  filterAlerts({
+    alerts: alerts.value,
+    state: eventFilter.value,
+    node: nodeFilter.value,
+    rule: ruleFilter.value,
+  })
+)
 
 // 告警事件前端分页
 const evCurrentPage = ref(1)
@@ -775,6 +897,10 @@ function ackStatusLabel(e) {
 }
 function ackTagType(e) {
   return { pending: 'danger', ack: 'warning', closed: 'info', resolved: 'success' }[ackStatus(e)] || 'danger'
+}
+// 处置状态 → StatusPill 语气（列表「状态」列专用；与 ackTagType 同语义，走统一药丸样式）
+function ackPillTone(e) {
+  return { pending: 'danger', ack: 'warn', closed: 'muted', resolved: 'ok' }[ackStatus(e)] || 'muted'
 }
 function sevType(s) {
   return { critical: 'danger', warning: 'warning', info: 'info' }[s] || 'info'
@@ -834,6 +960,7 @@ function saveMaintenance() {
 
 async function loadAlerts() {
   const generation = ++loadGeneration
+  alertsLoading.value = true
   try {
     const state = eventFilter.value === 'firing' ? 'active' : eventFilter.value
     const suffix = state ? `?state=${encodeURIComponent(state)}` : ''
@@ -841,34 +968,50 @@ async function loadAlerts() {
     if (generation !== loadGeneration) return
     alerts.value = data.alerts || []
     refreshError.value = ''
-    if (detail.value && !alerts.value.some((item) => item.ruleName === detail.value.ruleName && item.node === detail.value.node && item.state === detail.value.state && (item.startsAt || item.endsAt) === (detail.value.startsAt || detail.value.endsAt))) {
-      drawer.value = false
+    // 抽屉打开时不主动关闭：30s 轮询把正在读的详情关掉，是处置主路径上最恼人的一件事。
+    // 只用最新数据刷新抽屉的绑定（同一条告警的处置状态可能已变），找不到也保持打开。
+    if (detail.value) {
+      const fresh = alerts.value.find(
+        (item) => item.ruleName === detail.value.ruleName
+          && item.node === detail.value.node
+          && (item.instance || '') === (detail.value.instance || '')
+          && (item.startsAt || 0) === (detail.value.startsAt || 0),
+      )
+      if (fresh) detail.value = fresh
     }
   } catch (e) {
     if (generation !== loadGeneration) return
     alerts.value = []
     refreshError.value = '告警数据刷新失败：' + (e.message || '请重新登录后重试')
-    if (drawer.value && detail.value && detail.value.state === 'firing') drawer.value = false
+    // 刷新失败同样不关抽屉：否则一次网络抖动就把正在处置的详情清掉。
+  } finally {
+    if (generation === loadGeneration) alertsLoading.value = false
   }
 }
 
 async function load() {
+  // 每一段单独 try：任何一块失败都不该让整页变成空白，
+  // 但也不能像以前那样静默吞掉——统一记进 partialFailed，用 PartialBar 明示。
+  const failed = []
+  rulesLoading.value = true
   try {
     rules.value = (await http.get('/api/v1/rules')).rules || []
     ruleLoadError.value = ''
   } catch (e) {
     ruleLoadError.value = e.message || '网络异常'
+  } finally {
+    rulesLoading.value = false
   }
   await loadAlerts()
   try {
     groups.value = (await http.get('/api/v1/groups')).groups || []
-  } catch (e) { /* ignore */ }
+  } catch (e) { failed.push({ label: '节点分组' }) }
   try {
     templates.value = (await http.get('/api/v1/rules/templates')).templates || []
-  } catch (e) { /* ignore */ }
+  } catch (e) { failed.push({ label: '规则模板' }) }
   try {
     acks.value = (await http.get('/api/v1/alerts/acks')).acks || {}
-  } catch (e) { /* ignore */ }
+  } catch (e) { failed.push({ label: '处置记录' }) }
   try {
     statsLoading.value = true
     stats.value = await http.get('/api/v1/alerts/stats')
@@ -878,13 +1021,16 @@ async function load() {
   } finally {
     statsLoading.value = false
   }
+  inhibitsLoading.value = true
   try {
     inhibits.value = (await http.get('/api/v1/inhibit')).rules || []
-  } catch (e) { /* ignore */ }
+  } catch (e) { failed.push({ label: '抑制规则' }) } finally {
+    inhibitsLoading.value = false
+  }
   try {
     const g = await http.get('/api/v1/grouping')
     if (g && typeof g === 'object') grouping.value = g
-  } catch (e) { /* ignore */ }
+  } catch (e) { failed.push({ label: '分组配置' }) }
   try {
     const cfg = await http.get('/api/v1/notify')
     const enabled = {
@@ -895,7 +1041,8 @@ async function load() {
       wecom: cfg.wecom && cfg.wecom.enabled,
     }
     channelOptions.value = CHANNEL_META.map((c) => ({ ...c, enabled: !!enabled[c.value] }))
-  } catch (e) { /* ignore */ }
+  } catch (e) { failed.push({ label: '通知渠道' }) }
+  partialFailed.value = failed
 }
 
 async function testAlert() {
@@ -1141,7 +1288,8 @@ function selectableAlert(row) {
 function openDetail(row) {
   detail.value = row
   drawer.value = true
-  nextTick(() => loadTrend(row))
+  commentText.value = '' // 换一条告警时清掉上一条的评论草稿
+  loadTrend(row)
   loadImpact(row)
 }
 
@@ -1281,52 +1429,65 @@ async function batchAck() {
     await Promise.all(selected.value.map((r) =>
       http.post('/api/v1/alerts/ack', { rule: r.ruleName, host: r.node, instance: r.instance || '', startsAt: r.startsAt }),
     ))
-    ElMessage.success(`已确认 ${selected.value.length} 条`)
+    ElMessage.success(`已认领 ${selected.value.length} 条`)
     await load()
   } catch (e) {
     ElMessage.error('批量确认失败')
   }
 }
 
-let lastTrendPoints = []
+// 触发指标趋势：三态（加载 / 错误带重试 / 空）交给 TrendChart 托管。
+//
+// 数据点解析必须走 series[].points[].timestamp/value —— 后端
+// /api/v1/query/range 返回 {"series":[{labels, points:[{timestamp,value}]}]}。
+// 此前按「series 即数据点数组」解析（p.time / p.value），两者都不存在，
+// 结果恒为 [undefined, undefined]：趋势图一直画不出真实数据，还被静默 catch 掩盖。
+const trendOption = ref(null)
+const trendLoading = ref(false)
+const trendError = ref('')
+let trendPoints = []
+
+function buildTrendOption(row, points) {
+  const opt = mwTrendOption([{ name: row.metric, data: points }], { yMin: null })
+  // 阈值线：详情里最该一眼看到的是"触发值越过阈值多少"，少了这条线就得自己心算。
+  if (row.threshold != null && opt.series && opt.series.length) {
+    opt.series[0].markLine = {
+      silent: true,
+      symbol: 'none',
+      data: [{ yAxis: row.threshold }],
+      lineStyle: { color: cssVar('--warn'), type: 'dashed' },
+      label: { formatter: '阈值 ' + row.threshold, color: cssVar('--warn') },
+    }
+  }
+  return opt
+}
+
 async function loadTrend(row) {
-  if (!row.metric || !chartRef.value) return
+  if (!row || !row.metric) return
+  trendOption.value = null
+  trendError.value = ''
+  trendPoints = []
   const end = Date.now()
   const start = end - 3600 * 1000
   let url = `/api/v1/query/range?node=${encodeURIComponent(row.node)}&metric=${encodeURIComponent(row.metric)}&start=${start}&end=${end}&step=60000`
   if (row.instance) url += `&labels.instance=${encodeURIComponent(row.instance)}`
+  trendLoading.value = true
   try {
     const data = await http.get(url)
-    const pts = (data.series || []).map((p) => [p.time, p.value])
-    lastTrendPoints = pts
-    renderChart(pts, row)
-  } catch (e) { /* ignore */ }
+    trendPoints = (data.series || []).flatMap((s) => (s.points || []).map((p) => [p.timestamp, p.value]))
+    trendOption.value = buildTrendOption(row, trendPoints)
+  } catch (e) {
+    trendError.value = '趋势数据加载失败：' + (e.message || '网络异常')
+  } finally {
+    trendLoading.value = false
+  }
 }
-function renderChart(points, row) {
-  if (chartInstance) { chartInstance.dispose(); chartInstance = null }
-  chartInstance = initChart(chartRef.value)
-  chartInstance.setOption({
-    grid: { left: 48, right: 16, top: 24, bottom: 28 },
-    tooltip: { trigger: 'axis' },
-    xAxis: { type: 'time' },
-    yAxis: { type: 'value', name: row.metric },
-    series: [{
-      type: 'line',
-      data: points,
-      showSymbol: false,
-      smooth: true,
-      areaStyle: { opacity: 0.15 },
-      lineStyle: { color: cssVar('--danger') },
-      itemStyle: { color: cssVar('--danger') },
-      markLine: row.threshold
-        ? { silent: true, symbol: 'none', data: [{ yAxis: row.threshold }], lineStyle: { color: cssVar('--warn'), type: 'dashed' }, label: { formatter: '阈值 ' + row.threshold } }
-        : undefined,
-    }],
-  })
-}
+
 function onDrawerClosed() {
-  if (chartInstance) { chartInstance.dispose(); chartInstance = null }
   detail.value = null
+  commentText.value = '' // 评论草稿不跨告警残留
+  trendOption.value = null
+  trendPoints = []
 }
 
 // ---- P4：分组配置 ----
@@ -1448,6 +1609,7 @@ async function applyLogRulePrefill() {
 
 // 每 30s 自动刷新告警列表，确保实时性
 onMounted(() => {
+  applyAlertQuery()
   load()
   loadMaintenance()
   applyLogRulePrefill()
@@ -1457,8 +1619,9 @@ onMounted(() => {
 })
 
 function onThemeChanged() {
-  if (detail.value && chartRef.value) {
-    renderChart(lastTrendPoints, detail.value)
+  // 换肤后重建 option（颜色来自 CSS 变量），TrendChart 会据此重绘
+  if (detail.value && trendPoints.length) {
+    trendOption.value = buildTrendOption(detail.value, trendPoints)
   }
 }
 
@@ -1466,7 +1629,6 @@ onUnmounted(() => {
   if (timer) clearInterval(timer)
   if (maintenanceTimer) clearTimeout(maintenanceTimer)
   window.removeEventListener('nebula:theme-changed', onThemeChanged)
-  if (chartInstance) chartInstance.dispose()
 })
 </script>
 
@@ -1491,8 +1653,8 @@ onUnmounted(() => {
 }
 .alert-refresh-error {
   color: var(--danger);
-  font-size: 13px;
-  margin-bottom: 10px;
+  font-size: var(--fs-sm);
+  margin-bottom: var(--desc-base);
 }
 .rule-load-error {
   margin-bottom: 12px;
@@ -1508,17 +1670,10 @@ onUnmounted(() => {
   align-items: center;
 }
 .event-toolbar-hint {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   /* nowrap 让这句提示不可收缩：窄屏时它和单选组、批量确认一起把卡片头撑出横向滚动条，
      而标题区反而被压没。它只是辅助说明，允许折行即可。 */
   line-height: 1.4;
-}
-.muted {
-  color: var(--text-dim);
-}
-.ev-acked {
-  margin-left: 6px;
-  color: var(--text-dim);
 }
 .maintenance-row {
   display: flex;
@@ -1534,42 +1689,39 @@ onUnmounted(() => {
   min-width: 200px;
 }
 .maintenance-label {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
 }
 .maintenance-hint {
-  margin-top: 10px;
-  font-size: 13px;
+  margin-top: var(--desc-base);
+  font-size: var(--fs-sm);
   color: var(--warn);
-  background: rgba(230, 162, 60, 0.08);
+  background: var(--warn-dim);
+  border: 1px solid var(--warn-bd);
   padding: 6px 12px;
-  border-radius: 4px;
+  border-radius: var(--r-sm);
 }
 .scope-count {
   margin-left: 6px;
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
 }
 .ev-field {
   display: flex;
   gap: 12px;
   padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  border-bottom: 1px solid var(--bd);
+  font-size: var(--fs-sm);
 }
 .ev-field > span:first-child {
   width: 64px;
-  color: var(--text-dim);
+  color: var(--t2);
   flex-shrink: 0;
 }
 .ev-chart-title {
   margin: 16px 0 8px;
-  font-size: 13px;
-  color: var(--text-dim);
-}
-.ev-chart {
-  width: 100%;
-  height: 240px;
+  font-size: var(--fs-sm);
+  color: var(--t2);
 }
 .collab-timeline {
   max-height: 220px;
@@ -1587,15 +1739,15 @@ onUnmounted(() => {
   gap: 8px;
 }
 .collab-user {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 .collab-time {
-  font-size: 11.5px;
-  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  color: var(--t2);
 }
 .collab-text {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1607,38 +1759,57 @@ onUnmounted(() => {
   margin-top: 16px;
   display: flex;
   gap: 8px;
-  /* 抽屉内容宽约 456px，而这里要放认领/指派/关闭/重开/查看日志/诊断/评论等控件，
+  /* 抽屉内容宽约 536px，而这里要放认领/指派/关闭/重开/查看日志/诊断/评论等控件，
      不换行会被挤压变形甚至溢出抽屉边界。 */
   flex-wrap: wrap;
-}
-.kpi-value.gray {
-  color: var(--text-dim);
-}
-.sev-bar-wrap {
-  font-size: 13px;
-  color: var(--text);
-  display: flex;
-  gap: 16px;
   align-items: center;
 }
-.sev-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 4px;
+/* 只读辅助区：与"处置动作"用一条虚线隔开，避免误点关闭告警 */
+.ev-actions-readonly {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--bd);
 }
-.sev-dot.danger { background: var(--danger); }
-.sev-dot.warning { background: var(--warn); }
-.sev-dot.info { background: var(--text-dim); }
+.ev-actions-label {
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  flex-shrink: 0;
+}
+/* 级别列：色条 + 纯文字（不用 el-tag，避免与「状态」列的药丸抢同一套色板） */
+.sev-text {
+  font-size: var(--fs-sm);
+  color: var(--t1);
+  vertical-align: middle;
+}
+/* 抑制列：带删除线的灰标签——第三种视觉语言，一眼区别于级别与处置 */
+.sup-tag {
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  text-decoration: line-through;
+  text-decoration-color: var(--t3);
+}
+/* 事件表整行可双击打开详情：给出 cursor + hover 提示（此前两条路径都不明显） */
+.event-table :deep(.el-table__body tr) {
+  cursor: pointer;
+}
+.event-table :deep(.el-table__body tr:hover > td.el-table__cell) {
+  background: var(--fill-hover);
+}
+.kpi-value.gray {
+  color: var(--t2);
+}
 .adv-section {
   padding: 6px 0;
 }
+/* 折叠时在卡片头给出一行摘要，避免"收起来之后不知道里面配了什么" */
+.adv-summary {
+  font-size: var(--fs-xs);
+}
 .adv-title {
-  font-size: 14px;
+  font-size: var(--fs-base);
   font-weight: 600;
   margin-bottom: 10px;
-  color: var(--text);
+  color: var(--t1);
 }
 .adv-row {
   display: flex;
@@ -1668,8 +1839,8 @@ onUnmounted(() => {
   text-overflow: ellipsis;
 }
 .adv-label {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
   white-space: nowrap;
 }
 .inh-block {
@@ -1680,8 +1851,8 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 .inh-title {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
   margin-bottom: 10px;
 }
 .inh-row {
@@ -1692,8 +1863,8 @@ onUnmounted(() => {
 }
 .inh-label {
   width: 92px;
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
   flex-shrink: 0;
 }
 </style>
@@ -1728,17 +1899,17 @@ onUnmounted(() => {
   border-radius: 4px;
   background: var(--el-color-primary-light-9, rgba(64, 158, 255, 0.12));
   color: var(--el-color-primary, #409eff);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 .tpl-name {
   font-weight: 500;
 }
 .tpl-cond {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   opacity: 0.9;
 }
 .tpl-desc {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--el-text-color-secondary, #909399);
 }
 /* 资产与影响面 */
@@ -1753,11 +1924,11 @@ onUnmounted(() => {
 }
 .impact-note {
   margin: 4px 0 8px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .impact-sub {
   margin: 10px 0 6px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--el-text-color-secondary, #909399);
 }
 .impact-changes {
@@ -1771,7 +1942,7 @@ onUnmounted(() => {
   gap: 8px;
   flex-wrap: wrap;
   align-items: baseline;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 .impact-change-at {
   color: var(--el-text-color-secondary, #909399);

@@ -6,7 +6,7 @@
       <el-select
         v-model="interval"
         size="small"
-        style="width: 92px"
+        class="w-xs"
         @change="onIntervalChange"
       >
         <el-option v-for="o in ivals" :key="o.value" :label="o.label" :value="o.value" />
@@ -115,11 +115,11 @@ onUnmounted(() => {
 }
 .rb-label {
   font-size: 14px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .rb-time {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .rb-countdown {
   font-size: 13px;

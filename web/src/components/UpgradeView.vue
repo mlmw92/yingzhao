@@ -5,8 +5,56 @@
       desc="上传服务端升级包并完成升级；升级前建议先查看当前版本与构建时间"
     />
 
+    <!-- 页面级错误：升级失败时「待升级」卡片可能已被清空，错误必须有固定可见位置 -->
+    <div v-if="applyError" class="page-error" role="alert">
+      <el-icon class="pe-icon"><WarningFilled /></el-icon>
+      <span class="pe-msg">{{ applyError }}</span>
+      <el-button size="small" link @click="applyError = ''">关闭</el-button>
+    </div>
+
+    <!-- 部分数据加载失败：原来是 catch{/*ignore*/}，失败只会显示 '-'，分不清"没配"与"接口挂了" -->
+    <div v-if="loadErrors.length" class="page-warn">
+      <el-icon><WarningFilled /></el-icon>
+      <span>部分数据加载失败：{{ loadErrors.join('、') }}，以下显示的可能不是最新数据。</span>
+      <el-button size="small" link @click="reloadAll">重新加载</el-button>
+    </div>
+
+    <!-- 升级/回退进行中：把最长 40 秒的静默轮询变成可见的三步 -->
+    <SectionCard
+      v-if="applyPhase"
+      id="sec-progress"
+      :title="applyKind === 'rollback' ? '回退进行中' : '升级进行中'"
+      :subtitle="applyKind === 'rollback' ? '按所选版本替换文件并重启 monitor-server' : '替换 Server / Web / Agent 并重启 monitor-server'"
+    >
+      <ol class="steps">
+        <li
+          v-for="(s, i) in steps"
+          :key="s.key"
+          class="step"
+          :class="{
+            on: stepIndex === i + 1,
+            done: stepIndex > i + 1,
+            failed: applyPhase === 'failed' && stepIndex === i + 1,
+          }"
+        >
+          <span class="step-dot">
+            <el-icon v-if="stepIndex > i + 1"><Check /></el-icon>
+            <template v-else>{{ i + 1 }}</template>
+          </span>
+          <span class="step-text">{{ s.label }}</span>
+        </li>
+      </ol>
+      <div
+        class="step-hint"
+        :class="{ danger: applyPhase === 'failed', warn: applyPhase === 'timeout' }"
+      >{{ stepHint }}</div>
+      <div v-if="applyPhase === 'failed' || applyPhase === 'timeout'" class="step-actions">
+        <el-button size="small" @click="applyPhase = ''">关闭</el-button>
+      </div>
+    </SectionCard>
+
     <!-- 当前版本 -->
-    <SectionCard title="当前版本">
+    <SectionCard id="sec-version" title="当前版本">
       <div class="ver-grid">
         <div class="ver-item">
           <span class="ver-label">版本</span>
@@ -17,10 +65,13 @@
           <span class="ver-val">{{ fmtBuildTime(currentVersion.buildTime) }}</span>
         </div>
       </div>
+      <div v-if="versionErr" class="load-hint">
+        未能获取服务端实际运行版本（{{ versionErr }}），上面显示的是 Web 构建内嵌版本。
+      </div>
     </SectionCard>
 
     <!-- 上传 -->
-    <SectionCard title="上传升级包">
+    <SectionCard id="sec-upload" title="上传升级包">
       <el-upload
         drag
         :show-file-list="false"
@@ -40,6 +91,18 @@
           </div>
         </template>
       </el-upload>
+
+      <!-- 上传失败就地错误区：原来只弹一条消息，拖放区看不出任何原因 -->
+      <div v-if="uploadError" class="upload-error" role="alert">
+        <el-icon class="ue-icon"><WarningFilled /></el-icon>
+        <div class="ue-body">
+          <div class="ue-name">{{ uploadError.name }}</div>
+          <div class="ue-reason">{{ uploadError.reason }}</div>
+        </div>
+        <el-button size="small" @click="retryUpload">重试</el-button>
+        <el-button size="small" link @click="clearUploadError">忽略</el-button>
+      </div>
+
       <div v-if="uploading" class="upload-progress">
         <el-progress
           :percentage="uploadProgress"
@@ -53,7 +116,7 @@
     </SectionCard>
 
     <!-- 待应用 -->
-    <SectionCard v-if="pending" title="待升级">
+    <SectionCard v-if="pending" id="sec-pending" title="待升级">
       <div class="pending-grid">
         <div class="pending-row">
           <span class="r-label">新版本</span>
@@ -79,7 +142,7 @@
         <div class="pending-row">
           <span class="r-label">Agent</span>
           <span class="r-val">
-            <el-tag v-for="a in pending.agentArches" :key="a" type="success" size="small" style="margin-right: 4px">{{ a }}</el-tag>
+            <el-tag v-for="a in pending.agentArches" :key="a" type="success" size="small" class="tag-gap">{{ a }}</el-tag>
             <el-tag v-if="!pending.agentArches || !pending.agentArches.length" type="info" size="small">未包含</el-tag>
           </span>
         </div>
@@ -103,21 +166,13 @@
         type="warning"
         show-icon
         :closable="false"
-        style="margin-top: 12px"
-      />
-      <el-alert
-        v-if="applyError"
-        :title="applyError"
-        type="error"
-        show-icon
-        :closable="false"
-        style="margin-top: 12px"
+        class="card-alert"
       />
     </SectionCard>
 
     <!-- 升级历史与升级包合成一张表：每行既是"这次升级做了什么"，也直接显示该版本的
-         升级包还在不在，并就地切换/删除 —— 分成两块时同一版本会出现两行、两个按钮。 -->
-    <SectionCard title="升级历史">
+         升级包还在不在，并就地回退/删除 —— 分成两块时同一版本会出现两行、两个按钮。 -->
+    <SectionCard id="sec-history" title="升级历史">
       <template #actions>
         <span v-if="archiveList.length" class="pkg-total">
           已保留 {{ archiveList.length }} 个升级包 · 合计 {{ fmtSize(archiveTotalSize) }}
@@ -130,27 +185,27 @@
             title="暂无升级记录"
             :hints="[
               '上传升级包并应用后，这里会记录每一次升级与回退',
-              '升级包保留到被删除为止，删除后该版本无法再切换回来',
+              '升级包保留到被删除为止，删除后该版本无法再回退回来',
             ]"
           />
         </template>
-        <el-table-column label="时间" width="170">
+        <el-table-column label="时间" width="160">
           <template #default="{ row }">{{ fmtTime(row.at) }}</template>
         </el-table-column>
-        <el-table-column label="动作" width="88">
+        <el-table-column label="动作" width="80">
           <template #default="{ row }">
             <el-tag :type="actionTagType(row.action)" size="small" effect="plain">{{ actionLabel(row.action) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="版本" width="164">
+        <el-table-column label="版本" width="188">
           <template #default="{ row }">
             <span class="ver-cell">
-              <el-tag v-if="row.version === currentVersion.server" type="success" size="small" effect="plain">当前运行</el-tag>
               <span class="mono">v{{ row.version }}</span>
+              <el-tag v-if="row.version === currentVersion.server" type="success" size="small" effect="plain">当前运行</el-tag>
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="升级包" width="168">
+        <el-table-column label="升级包" width="150">
           <template #default="{ row }">
             <el-tag
               v-if="row.pkg"
@@ -162,13 +217,13 @@
             <span v-else class="muted">已删除</span>
           </template>
         </el-table-column>
-        <el-table-column label="结果" width="88">
+        <el-table-column label="结果" width="80">
           <template #default="{ row }">
             <el-tag :type="resultTagType(row.result)" size="small" effect="dark">{{ resultLabel(row.result) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="detail" label="详情" min-width="180" show-overflow-tooltip />
-        <el-table-column label="操作" width="156" fixed="right">
+        <el-table-column prop="detail" label="详情" min-width="200" show-overflow-tooltip />
+        <el-table-column label="操作" width="210" fixed="right" class-name="op-col">
           <template #default="{ row }">
             <el-button
               size="small"
@@ -177,7 +232,7 @@
               :loading="rollingBack"
               :disabled="!canRollbackTo(row.version) || rollingBack || deletingVersion !== '' || cooldown > 0"
               @click="rollbackTo(row.version)"
-            >{{ cooldown > 0 ? `请等待 ${cooldown}s` : '切换' }}</el-button>
+            >{{ cooldown > 0 ? `请等待 ${cooldown}s` : '回退到此版本' }}</el-button>
             <el-button
               size="small"
               type="danger"
@@ -202,126 +257,141 @@
         @current-change="(p) => (historyPage = p)"
         @size-change="(s) => { historyPageSize = s; historyPage = 1 }"
       />
-      <div v-if="archiveList.length" class="pkg-tip">
-        升级包保留到被删除为止；删除后该版本不再可切换回来（需要时重新上传该版本的升级包即可恢复）。当前运行版本的升级包不能删除。
+
+      <!-- 危险区：回退与删除都是不可逆动作，与「刷新」明确隔离 -->
+      <div v-if="mergedRows.length" class="danger-zone hist-danger">
+        <div class="dz-title">危险操作</div>
+        <p class="dz-desc">
+          「回退到此版本」会按该版本重新替换 Server / Web / Agent 并重启 monitor-server，期间服务短暂不可用；
+          「删除」会移除该版本的升级包，删除后不再可回退回来（需要时只能重新上传该版本的升级包）。
+          当前运行版本的升级包不能删除。
+        </p>
       </div>
     </SectionCard>
 
     <!-- IP 地理库（独立入口：只替换归属地数据，不影响 Server/Web/Agent，不重启服务） -->
-    <SectionCard title="IP 地理库">
+    <SectionCard id="sec-geoip" title="IP 地理库" subtitle="只替换归属地数据，不影响系统升级、不重启服务">
       <template #actions>
+        <el-button size="small" link @click="geoipOpen = !geoipOpen">{{ geoipOpen ? '收起' : '展开' }}</el-button>
         <el-button size="small" link @click="loadGeoip">刷新</el-button>
       </template>
-      <div class="pending-grid" v-loading="geoipLoading">
-        <div class="pending-row">
-          <span class="r-label">当前库</span>
-          <span class="r-val">
-            <el-tag :type="geoip.source === 'custom' ? 'success' : 'info'" size="small" effect="plain">
-              {{ geoip.source === 'custom' ? '已更新的库' : '程序内置库' }}
-            </el-tag>
-            <el-tag v-if="geoip.loaded === false" type="danger" size="small" effect="dark" style="margin-left: 6px">未加载</el-tag>
+
+      <div v-show="geoipOpen">
+        <div class="pending-grid" v-loading="geoipLoading">
+          <div class="pending-row">
+            <span class="r-label">当前库</span>
+            <span class="r-val">
+              <el-tag :type="geoip.source === 'custom' ? 'success' : 'info'" size="small" effect="plain">
+                {{ geoip.source === 'custom' ? '已更新的库' : '程序内置库' }}
+              </el-tag>
+              <el-tag v-if="geoip.loaded === false" type="danger" size="small" effect="dark" class="tag-gap">未加载</el-tag>
+            </span>
+          </div>
+          <div class="pending-row">
+            <span class="r-label">大小</span>
+            <span class="r-val">{{ fmtSize(geoip.size) }}</span>
+          </div>
+          <div class="pending-row">
+            <span class="r-label">更新时间</span>
+            <span class="r-val">{{ geoip.updatedAt ? fmtTime(geoip.updatedAt) : '-' }}</span>
+          </div>
+          <div class="pending-row">
+            <span class="r-label">存放路径</span>
+            <span class="r-val mono small">{{ geoip.path || '未配置' }}</span>
+          </div>
+          <div class="pending-row">
+            <span class="r-label">SHA256</span>
+            <span class="r-val mono small">{{ geoip.sha256 || '-' }}</span>
+          </div>
+        </div>
+
+        <el-alert
+          v-if="geoip.error"
+          :title="geoip.error"
+          type="error"
+          show-icon
+          :closable="false"
+          class="card-alert"
+        />
+        <el-alert
+          v-else-if="geoip.editable === false"
+          title="未配置 IP 地理库存放路径（server.yaml 的 geoipFile），当前仅能使用程序内置库"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="card-alert"
+        />
+
+        <el-upload
+          drag
+          :show-file-list="false"
+          :http-request="onGeoipUpload"
+          :before-upload="beforeGeoipUpload"
+          :disabled="geoipUploading || geoip.editable === false"
+          accept=".xdb"
+          class="upload-area upload-area-sp"
+        >
+          <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+          <div class="el-upload__text">拖拽 ip2region 库文件到此，或<em>点击上传</em></div>
+          <template #tip>
+            <div class="el-upload__tip">
+              支持 ip2region v4（IPv4）的 .xdb 文件；上传后立即生效，无需重启服务或重新升级系统
+            </div>
+            <div class="el-upload__tip tip-2">
+              升级包下载：ip2region 官方仓库
+              <el-link type="primary" href="https://github.com/lionsoul2014/ip2region" target="_blank" underline="never">github.com/lionsoul2014/ip2region</el-link>
+              的 data 目录下获取最新的 ip2region.xdb（需为 v4 格式），下载后将文件后缀/命名保留为 .xdb 即可上传
+            </div>
+          </template>
+        </el-upload>
+        <div v-if="geoipUploading" class="upload-progress">
+          <el-progress
+            :percentage="geoipProgress"
+            :stroke-width="14"
+            :status="geoipProgress >= 100 ? 'success' : undefined"
+          />
+          <div class="upload-progress-text">
+            {{ geoipProgress >= 100 ? '服务端校验中…' : '上传中 ' + geoipProgress + '%' }}
+          </div>
+        </div>
+
+        <div class="geo-test-row">
+          <el-input
+            v-model="geoipTestIP"
+            placeholder="输入 IP 验证归属地，如 114.114.114.114"
+            clearable
+            class="geo-test-input"
+            @keyup.enter="doGeoipTest"
+          />
+          <el-button :loading="geoipTesting" @click="doGeoipTest">查询</el-button>
+          <span v-if="geoipTestResult" class="geo-test-result">
+            {{ geoipTestResult }}
           </span>
         </div>
-        <div class="pending-row">
-          <span class="r-label">大小</span>
-          <span class="r-val">{{ fmtSize(geoip.size) }}</span>
-        </div>
-        <div class="pending-row">
-          <span class="r-label">更新时间</span>
-          <span class="r-val">{{ geoip.updatedAt ? fmtTime(geoip.updatedAt) : '-' }}</span>
-        </div>
-        <div class="pending-row">
-          <span class="r-label">存放路径</span>
-          <span class="r-val mono small">{{ geoip.path || '未配置' }}</span>
-        </div>
-        <div class="pending-row">
-          <span class="r-label">SHA256</span>
-          <span class="r-val mono small">{{ geoip.sha256 || '-' }}</span>
-        </div>
-      </div>
 
-      <el-alert
-        v-if="geoip.error"
-        :title="geoip.error"
-        type="error"
-        show-icon
-        :closable="false"
-        style="margin: 12px 0"
-      />
-      <el-alert
-        v-else-if="geoip.editable === false"
-        title="未配置 IP 地理库存放路径（server.yaml 的 geoipFile），当前仅能使用程序内置库"
-        type="warning"
-        show-icon
-        :closable="false"
-        style="margin: 12px 0"
-      />
+        <el-table
+          v-if="geoip.samples && geoip.samples.length"
+          :data="geoip.samples"
+          size="small"
+          class="geo-samples"
+        >
+          <el-table-column prop="ip" label="样本 IP" width="160" />
+          <el-table-column prop="country" label="国家" width="120" />
+          <el-table-column prop="province" label="省份" width="120" />
+          <el-table-column prop="city" label="城市" width="120" />
+          <el-table-column prop="region" label="原始记录" />
+        </el-table>
 
-      <el-upload
-        drag
-        :show-file-list="false"
-        :http-request="onGeoipUpload"
-        :before-upload="beforeGeoipUpload"
-        :disabled="geoipUploading || geoip.editable === false"
-        accept=".xdb"
-        class="upload-area"
-        style="margin-top: 12px"
-      >
-        <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-        <div class="el-upload__text">拖拽 ip2region 库文件到此，或<em>点击上传</em></div>
-        <template #tip>
-          <div class="el-upload__tip">
-            支持 ip2region v4（IPv4）的 .xdb 文件；上传后立即生效，无需重启服务或重新升级系统
-          </div>
-          <div class="el-upload__tip" style="margin-top: 4px; color: var(--t3)">
-            升级包下载：ip2region 官方仓库
-            <el-link type="primary" href="https://github.com/lionsoul2014/ip2region" target="_blank" :underline="false">github.com/lionsoul2014/ip2region</el-link>
-            的 data 目录下获取最新的 ip2region.xdb（需为 v4 格式），下载后将文件后缀/命名保留为 .xdb 即可上传
-          </div>
-        </template>
-      </el-upload>
-      <div v-if="geoipUploading" class="upload-progress">
-        <el-progress
-          :percentage="geoipProgress"
-          :stroke-width="14"
-          :status="geoipProgress >= 100 ? 'success' : undefined"
-        />
-        <div class="upload-progress-text">
-          {{ geoipProgress >= 100 ? '服务端校验中…' : '上传中 ' + geoipProgress + '%' }}
+        <!-- 危险区：恢复内置库会删除已上传的库文件 -->
+        <div v-if="geoip.source === 'custom'" class="danger-zone geo-danger">
+          <div class="dz-title">危险操作</div>
+          <p class="dz-desc">
+            恢复内置库会删除已上传的 .xdb 并改回程序内置库，删除后需重新上传才能恢复自定义归属地。
+          </p>
+          <el-button type="danger" plain :disabled="geoipUploading" @click="doGeoipReset">
+            恢复程序内置库
+          </el-button>
         </div>
-      </div>
-
-      <div class="geo-test-row">
-        <el-input
-          v-model="geoipTestIP"
-          placeholder="输入 IP 验证归属地，如 114.114.114.114"
-          clearable
-          style="max-width: 320px"
-          @keyup.enter="doGeoipTest"
-        />
-        <el-button :loading="geoipTesting" @click="doGeoipTest">查询</el-button>
-        <span v-if="geoipTestResult" class="geo-test-result">
-          {{ geoipTestResult }}
-        </span>
-      </div>
-
-      <el-table
-        v-if="geoip.samples && geoip.samples.length"
-        :data="geoip.samples"
-        size="small"
-        style="margin-top: 12px"
-      >
-        <el-table-column prop="ip" label="样本 IP" width="160" />
-        <el-table-column prop="country" label="国家" width="120" />
-        <el-table-column prop="province" label="省份" width="120" />
-        <el-table-column prop="city" label="城市" width="120" />
-        <el-table-column prop="region" label="原始记录" />
-      </el-table>
-
-      <div class="rollback-row" v-if="geoip.source === 'custom'">
-        <el-button type="warning" plain :disabled="geoipUploading" @click="doGeoipReset">
-          恢复程序内置库
-        </el-button>
       </div>
     </SectionCard>
   </div>
@@ -330,7 +400,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { UploadFilled } from '@element-plus/icons-vue'
+import { UploadFilled, WarningFilled, Check } from '@element-plus/icons-vue'
 import http from '../api/http'
 import PageHeader from './common/PageHeader.vue'
 import SectionCard from './common/SectionCard.vue'
@@ -345,7 +415,58 @@ const history = ref([])
 const loadingHistory = ref(false)
 const historyPage = ref(1)
 const historyPageSize = ref(10)
-// 历史事件 + 「已上传但从未应用」的升级包，合成一张表：后者保证每个保留的包都有行可切换/删除
+
+// —— 加载失败标记（原来是 catch{/*ignore*/}，失败静默显示 '-'）——
+const versionErr = ref('')
+const pendingErr = ref('')
+const historyErr = ref('')
+const archiveErr = ref('')
+const geoipLoadErr = ref('')
+const loadErrors = computed(() => {
+  const errs = []
+  if (versionErr.value) errs.push('当前版本')
+  if (pendingErr.value) errs.push('待升级状态')
+  if (historyErr.value) errs.push('升级历史')
+  if (archiveErr.value) errs.push('升级包清单')
+  if (geoipLoadErr.value) errs.push('IP 地理库')
+  return errs
+})
+
+// —— 升级/回退三步状态机 ——
+// 应用后最长 40 秒是静默轮询，用户不知道是卡住还是在重启；这里把阶段暴露出来。
+const applyPhase = ref('') // '' | 'submitted' | 'restarting' | 'verifying' | 'done' | 'failed' | 'timeout'
+const applyKind = ref('upgrade') // 'upgrade' | 'rollback'
+const steps = [
+  { key: 'submitted', label: '已提交' },
+  { key: 'restarting', label: '服务重启中' },
+  { key: 'verifying', label: '正在校验版本' },
+]
+const stepIndex = computed(() => {
+  const i = steps.findIndex((s) => s.key === applyPhase.value)
+  if (i >= 0) return i + 1
+  if (applyPhase.value === 'done' || applyPhase.value === 'failed') return 4
+  return 0
+})
+const stepHint = computed(() => {
+  switch (applyPhase.value) {
+    case 'submitted':
+      return '升级请求已提交，服务端正在准备替换文件…'
+    case 'restarting':
+      return 'monitor-server 正在重启，Web 端短暂不可用，请勿关闭页面…'
+    case 'verifying':
+      return '服务已恢复响应，正在确认实际运行版本是否已切换到目标版本…'
+    case 'done':
+      return '升级完成，页面即将自动刷新。'
+    case 'failed':
+      return applyError.value || '升级未完成，请查看下方升级历史。'
+    case 'timeout':
+      return '等待超时：服务恢复较慢，请稍后手动刷新页面并核对当前版本。'
+    default:
+      return ''
+  }
+})
+
+// 历史事件 + 「已上传但从未应用」的升级包，合成一张表：后者保证每个保留的包都有行可回退/删除
 // （上传本身不写历史，若只按历史出行，这类包就会无处可删）。
 const mergedRows = computed(() => {
   const pkgByVersion = {}
@@ -376,28 +497,41 @@ const pagedRows = computed(() => {
 })
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const uploadError = ref(null) // { name, reason }
+let lastUploadFile = null
 const cooldown = ref(0)
 let cooldownTimer = null
 
 async function loadCurrentVersion() {
-  try { currentVersion.value = await http.get('/api/v1/version') } catch (e) { /* ignore */ }
+  try {
+    currentVersion.value = await http.get('/api/v1/version')
+    versionErr.value = ''
+  } catch (e) {
+    versionErr.value = e.message
+  }
 }
 async function loadPending() {
   try {
     const r = await http.get('/api/v1/system/upgrade/current')
     pending.value = r.current || null
-  } catch (e) { /* ignore */ }
+    pendingErr.value = ''
+  } catch (e) {
+    pendingErr.value = e.message
+  }
 }
 async function loadHistory() {
   loadingHistory.value = true
   try {
     const r = await http.get('/api/v1/system/upgrade/history')
     history.value = r.history || []
-  } catch (e) { /* ignore */ }
+    historyErr.value = ''
+  } catch (e) {
+    historyErr.value = e.message
+  }
   loadingHistory.value = false
 }
 
-// 已归档升级包：只要没被删除，对应版本就能切换回去；删除后即从清单消失。
+// 已归档升级包：只要没被删除，对应版本就能回退回去；删除后即从清单消失。
 const archiveList = ref([])
 const archiveVersions = computed(() => archiveList.value.map((p) => p.version))
 const archiveTotalSize = computed(() => archiveList.value.reduce((sum, p) => sum + (p.size || 0), 0))
@@ -410,13 +544,27 @@ async function loadArchive() {
   try {
     const r = await http.get('/api/v1/system/upgrade/archive')
     archiveList.value = r.versions || []
-  } catch (e) { /* ignore */ }
+    archiveErr.value = ''
+  } catch (e) {
+    archiveErr.value = e.message
+  }
   archiveLoading.value = false
 }
 
 // 历史与升级包是同一张表的两个数据源，单独刷一个会出现「行在、包状态是旧的」
 async function refreshAll() {
   await Promise.all([loadHistory(), loadArchive()])
+}
+
+// 加载失败汇总区的「重新加载」：把首屏 5 个请求整体重跑
+async function reloadAll() {
+  await Promise.all([
+    loadCurrentVersion(),
+    loadPending(),
+    loadHistory(),
+    loadArchive(),
+    loadGeoip(),
+  ])
 }
 
 async function deleteArchive(version) {
@@ -427,7 +575,7 @@ async function deleteArchive(version) {
   }
   try {
     await ElMessageBox.confirm(
-      `确认删除 v${version} 的升级包？删除后该版本将无法再切换回来，需要时只能重新上传该版本的升级包。`,
+      `确认删除 v${version} 的升级包？删除后该版本将无法再回退回来，需要时只能重新上传该版本的升级包。`,
       '删除升级包',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
     )
@@ -449,20 +597,26 @@ async function deleteArchive(version) {
 // 实际运行版本后再刷新页面，避免服务未就绪时刷新到不可用页面。
 async function waitForServerVersion(targetVersion, timeout = 40000, warnOnTimeout = true) {
   const deadline = Date.now() + timeout
+  applyPhase.value = 'restarting'
   await new Promise((resolve) => setTimeout(resolve, 1200))
   while (Date.now() < deadline) {
     try {
       const v = await http.get('/api/v1/version')
+      // 服务已恢复响应：进入"校验版本"阶段
+      applyPhase.value = 'verifying'
       if (!targetVersion || v.server === targetVersion) {
+        applyPhase.value = 'done'
         ElMessage.success('升级已完成，正在刷新页面…')
         setTimeout(() => window.location.reload(), 1500)
         return true
       }
     } catch (e) {
       // Server 正在重启，继续轮询。
+      applyPhase.value = 'restarting'
     }
     await new Promise((resolve) => setTimeout(resolve, 1000))
   }
+  applyPhase.value = 'timeout'
   if (warnOnTimeout) ElMessage.warning('服务恢复较慢，请稍后手动刷新页面查看新版本。')
   return false
 }
@@ -476,12 +630,14 @@ async function confirmUpgradeAfterRestart(targetVersion, taskId) {
     const failed = history.value.find((entry) => entry.id === taskId && entry.action === 'apply')
     if (failed?.result === 'failed') {
       applyError.value = failed.detail || '升级未完成，请查看升级历史。'
+      applyPhase.value = 'failed'
       ElMessage.error('升级失败：' + applyError.value)
       return
     }
     const current = await http.get('/api/v1/system/upgrade/current')
     if (current.current?.id === taskId && current.current.status === 'failed') {
       applyError.value = current.current.error || '升级未完成，请查看升级历史。'
+      applyPhase.value = 'failed'
       ElMessage.error('升级失败：' + applyError.value)
       return
     }
@@ -495,7 +651,7 @@ function isRestartDisconnect(error) {
   return /Failed to fetch|网络错误|NetworkError|fetch|HTTP 502/i.test(error?.message || '')
 }
 
-// 该版本是否可切换：升级包仍保留（未被删除）、且不是当前运行版本。
+// 该版本是否可回退：升级包仍保留（未被删除）、且不是当前运行版本。
 function canRollbackTo(version) {
   if (!version || version === currentVersion.value.server) return false
   return archiveVersions.value.includes(version)
@@ -504,15 +660,17 @@ function canRollbackTo(version) {
 async function rollbackTo(version) {
   try {
     await ElMessageBox.confirm(
-      `确认切换到版本 v${version}？将按该版本重新替换 Server / Web / Agent 并重启 monitor-server，期间服务短暂不可用。该操作同样会生成备份，可继续向后切换或回退。`,
-      '切换到指定版本',
-      { type: 'warning', confirmButtonText: '切换', cancelButtonText: '取消' }
+      `确认回退到版本 v${version}？将按该版本重新替换 Server / Web / Agent 并重启 monitor-server，期间服务短暂不可用。该操作同样会生成备份，可继续向后回退或再回退。`,
+      '回退到指定版本',
+      { type: 'warning', confirmButtonText: '回退', cancelButtonText: '取消' }
     )
   } catch { return }
+  applyKind.value = 'rollback'
+  applyPhase.value = 'submitted'
   rollingBack.value = true
   try {
     await http.post('/api/v1/system/upgrade/rollback-to', { version, operator: 'web' })
-    ElMessage.success(`已切换到 v${version}，server 即将重启…`)
+    ElMessage.success(`已回退到 v${version}，server 即将重启…`)
     startCooldown(15)
     await waitForServerVersion(version)
   } catch (e) {
@@ -521,7 +679,8 @@ async function rollbackTo(version) {
       await waitForServerVersion(version)
       return
     }
-    ElMessage.error('切换失败：' + e.message)
+    applyPhase.value = ''
+    ElMessage.error('回退失败：' + e.message)
     await loadArchive()
   } finally {
     rollingBack.value = false
@@ -539,6 +698,8 @@ function beforeUpload(file) {
 async function onUpload(option) {
   const fd = new FormData()
   fd.append('file', option.file)
+  lastUploadFile = option.file
+  uploadError.value = null
   uploading.value = true
   uploadProgress.value = 0
   try {
@@ -551,11 +712,23 @@ async function onUpload(option) {
     ElMessage.success('升级包解析成功：v' + task.version)
     option.onSuccess && option.onSuccess(task)
   } catch (e) {
+    // 就地错误区：文件名 + 原因 + 重试
+    uploadError.value = { name: option.file?.name || '升级包', reason: e.message }
     ElMessage.error('上传失败：' + e.message)
     option.onError && option.onError(e)
   } finally {
     uploading.value = false
   }
+}
+
+function retryUpload() {
+  if (!lastUploadFile) return
+  onUpload({ file: lastUploadFile, onSuccess: () => {}, onError: () => {} })
+}
+
+function clearUploadError() {
+  uploadError.value = null
+  lastUploadFile = null
 }
 
 function cancelPending() {
@@ -575,6 +748,8 @@ async function doApply() {
   } catch { return }
   applying.value = true
   applyError.value = ''
+  applyKind.value = 'upgrade'
+  applyPhase.value = 'submitted'
   const targetVersion = pending.value?.version || ''
   const taskId = pending.value?.id
   try {
@@ -588,6 +763,7 @@ async function doApply() {
       await confirmUpgradeAfterRestart(targetVersion, taskId)
       return
     }
+    applyPhase.value = 'failed'
     applyError.value = e.message
     ElMessage.error('升级失败：' + e.message)
     await loadPending()
@@ -655,12 +831,16 @@ const geoipProgress = ref(0)
 const geoipTestIP = ref('')
 const geoipTesting = ref(false)
 const geoipTestResult = ref('')
+const geoipOpen = ref(false) // 与系统升级是两件事，默认折叠
 
 async function loadGeoip() {
   geoipLoading.value = true
   try {
     geoip.value = await http.get('/api/v1/system/geoip')
-  } catch (e) { /* ignore */ }
+    geoipLoadErr.value = ''
+  } catch (e) {
+    geoipLoadErr.value = e.message
+  }
   geoipLoading.value = false
 }
 
@@ -758,91 +938,245 @@ onUnmounted(() => {
 .upgrade-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--sp-4);
 }
-.panel-title {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 12px;
-}
-.panel-title-row {
+
+/* —— 页面级错误 / 警告 —— */
+.page-error,
+.page-warn {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  gap: var(--sp-2);
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
 }
+.page-error {
+  border: 1px solid var(--danger-bd);
+  background: var(--danger-dim);
+  color: var(--t1);
+}
+.page-error .pe-icon {
+  color: var(--danger);
+  flex-shrink: 0;
+}
+.page-error .pe-msg {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.page-warn {
+  border: 1px solid var(--warn-bd);
+  background: var(--fill-1);
+  color: var(--t2);
+}
+.page-warn .el-icon {
+  color: var(--warn);
+  flex-shrink: 0;
+}
+.page-warn span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* —— 三步指示 —— */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  list-style: none;
+  flex-wrap: wrap;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--t3);
+}
+.step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--bd-strong);
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  flex-shrink: 0;
+  transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+.step.on .step-dot {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.step.on .step-text {
+  color: var(--t1);
+  font-weight: 600;
+}
+.step.done .step-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--s1);
+}
+.step.done .step-text {
+  color: var(--t2);
+}
+.step.failed .step-dot {
+  border-color: var(--danger);
+  background: var(--danger-dim);
+  color: var(--danger);
+}
+.step-hint {
+  margin-top: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  line-height: 1.6;
+}
+.step-hint.danger {
+  color: var(--danger);
+}
+.step-hint.warn {
+  color: var(--warn);
+}
+.step-actions {
+  margin-top: var(--sp-3);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* —— 当前版本 —— */
 .ver-grid {
   display: grid;
-  /* 模板只有「当前版本 / 最新版本」两项，写 3 列会让右侧空出 1/3 列宽 */
+  /* 模板只有「当前版本 / 构建时间」两项，写 3 列会让右侧空出 1/3 列宽 */
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  gap: var(--sp-4);
 }
 .ver-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 .ver-label {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
 }
 .ver-val {
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--fs-base);
+  color: var(--t1);
 }
+.load-hint {
+  margin-top: var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--warn);
+  line-height: 1.6;
+}
+
+/* —— 上传 —— */
 .upload-area :deep(.el-upload-dragger) {
   background: var(--fill-1);
-  border: 1px dashed rgba(0, 200, 150, 0.3);
+  border: 1px dashed var(--bd-strong);
+}
+.upload-area-sp {
+  margin-top: var(--sp-3);
 }
 .upload-progress {
-  margin-top: 12px;
+  margin-top: var(--sp-3);
 }
 .upload-progress-text {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-top: 6px;
+  font-size: var(--fs-sm);
+  color: var(--t3);
+  margin-top: var(--sp-1);
   text-align: center;
 }
+.upload-error {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding: 10px 12px;
+  border: 1px solid var(--danger-bd);
+  background: var(--danger-dim);
+  border-radius: var(--r-md);
+}
+.upload-error .ue-icon {
+  color: var(--danger);
+  flex-shrink: 0;
+}
+.upload-error .ue-body {
+  flex: 1;
+  min-width: 0;
+}
+.upload-error .ue-name {
+  font-size: var(--fs-sm);
+  color: var(--t1);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-error .ue-reason {
+  font-size: var(--fs-xs);
+  color: var(--t2);
+  margin-top: 2px;
+  overflow-wrap: break-word;
+}
+
+/* —— 待升级 —— */
 .pending-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .pending-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 13px;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
 }
 .r-label {
-  color: var(--text-muted);
+  color: var(--t3);
   width: 80px;
   flex-shrink: 0;
 }
 .r-val.highlight {
   font-family: var(--mono);
-  font-size: 16px;
+  font-size: var(--fs-lg);
   color: var(--accent);
   font-weight: 600;
 }
 .r-val.mono {
   font-family: var(--mono);
+  color: var(--t1);
 }
 .r-val.small {
-  font-size: 13px;
+  font-size: var(--fs-sm);
+}
+.tag-gap {
+  margin-left: 6px;
 }
 .action-row {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
 }
+.card-alert {
+  margin-top: var(--sp-3);
+}
+
+/* —— 升级历史 —— */
 .pkg-total {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-right: 8px;
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  margin-right: var(--sp-2);
 }
-/* 版本列：「当前运行」标记在版本号之前，且与版本号同排不换行 */
+/* 版本列：版本号在前、「当前运行」标记在后，同排不换行。
+   此前标记在前、列宽 150，长版本号（如 v1.30.35）会被标记挤到看不见。 */
 .ver-cell {
   display: inline-flex;
   align-items: center;
@@ -853,35 +1187,74 @@ onUnmounted(() => {
   font-family: var(--mono);
   color: var(--accent);
 }
-.muted {
-  color: var(--text-muted);
+/* 操作列：两个按钮靠右一行排开，不换行 */
+:deep(.op-col .cell) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
 }
-.pkg-tip {
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.6;
-}
+:deep(.op-col .cell .el-button + .el-button) { margin-left: 0; }
 .hist-pager {
   display: flex;
   justify-content: flex-end;
-  margin-top: 12px;
+  margin-top: var(--sp-3);
 }
-.rollback-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
+
+/* —— 危险区 —— */
+.danger-zone {
+  border: 1px solid var(--danger-bd);
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+  padding: var(--sp-3);
 }
+.hist-danger {
+  margin-top: var(--sp-4);
+}
+.geo-danger {
+  margin-top: var(--sp-4);
+}
+.dz-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--danger);
+  margin-bottom: var(--sp-1);
+}
+.dz-desc {
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  line-height: 1.6;
+  margin-bottom: var(--sp-3);
+}
+
+/* —— IP 地理库 —— */
 .geo-test-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
   flex-wrap: wrap;
 }
+.geo-test-input {
+  max-width: 320px;
+}
 .geo-test-result {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--accent);
   font-family: var(--mono);
+}
+.geo-samples {
+  margin-top: var(--sp-3);
+}
+.tip-2 {
+  margin-top: var(--sp-1);
+  color: var(--t3);
+}
+
+@media (max-width: 1024px) {
+  .ver-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

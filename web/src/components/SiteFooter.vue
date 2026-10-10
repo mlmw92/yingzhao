@@ -1,25 +1,11 @@
 <template>
-  <footer v-if="visible" class="site-footer">
+  <footer class="site-footer">
     <div class="site-footer__inner">
       <div class="site-footer__brand">
-        <span>{{ brandName }}</span>
+        <span class="site-footer__name">{{ brandName }}</span>
+        <span class="site-footer__ver" :title="`前端构建版本 ${version}`">v{{ version }}</span>
       </div>
-
-      <nav v-if="links.length" class="site-footer__links" aria-label="页脚链接">
-        <a
-          v-for="link in links"
-          :key="`${link.label}-${link.url}`"
-          :href="link.url"
-          :target="link.external ? '_blank' : undefined"
-          :rel="link.external ? 'noreferrer' : undefined"
-        >{{ link.label }}</a>
-      </nav>
-
-      <div class="site-footer__meta">
-        <span v-if="footerText">{{ footerText }}</span>
-        <a v-if="icpUrl && icpText" :href="icpUrl" target="_blank" rel="noreferrer">{{ icpText }}</a>
-        <span v-else-if="icpText">{{ icpText }}</span>
-      </div>
+      <div v-if="footerText" class="site-footer__meta">{{ footerText }}</div>
     </div>
   </footer>
 </template>
@@ -27,78 +13,69 @@
 <script setup>
 import { computed } from 'vue'
 import { useBrand } from '../composables/useBrand'
+import { WEB_VERSION } from '../version'
 
 const { brand } = useBrand()
 const brandName = computed(() => brand.name || 'NebulaEye')
+// 版本号来自 build 生成的 src/version.js（与 server/agent 经 ldflags 注入的版本同源）
+const version = WEB_VERSION
 const footerText = computed(() => brand.footer || '')
-const visible = computed(() => Boolean(brand.footer))
-const icpText = computed(() => '')
-const icpUrl = computed(() => '')
-
-const links = computed(() => {
-  return []
-})
 </script>
 
 <style scoped>
 .site-footer {
   flex: 0 0 auto;
   width: 100%;
-  padding: 18px 28px 22px;
-  color: var(--text-dim);
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-elev) 84%, transparent);
+  padding: 10px 20px;
+  color: var(--t3);
+  border-top: 1px solid var(--bd);
+  background: var(--s1);
+  font-size: var(--fs-sm);
 }
 
 .site-footer__inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
   max-width: 1440px;
   margin: 0 auto;
-  font-size: 13px;
-}
-
-.site-footer__brand,
-.site-footer__links,
-.site-footer__meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  min-width: 0;
 }
 
 .site-footer__brand {
-  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.site-footer__name {
+  color: var(--t2);
   font-weight: 600;
-  letter-spacing: .02em;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.site-footer__ver {
+  font-family: var(--mono);
+  color: var(--t3);
   white-space: nowrap;
 }
 
-.site-footer__links {
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.site-footer a {
-  color: inherit;
-  text-decoration: none;
-  transition: color .2s ease;
-}
-
-.site-footer a:hover {
-  color: var(--text);
-}
-
 .site-footer__meta {
-  justify-content: flex-end;
-  flex-wrap: wrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: right;
 }
 
-@media (max-width: 760px) {
-  .site-footer { padding: 16px 18px 20px; }
-  .site-footer__inner { flex-direction: column; gap: 12px; text-align: center; }
-  .site-footer__meta { justify-content: center; text-align: center; }
+@media (max-width: 768px) {
+  .site-footer { padding: 10px 16px; }
+  .site-footer__inner { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .site-footer__meta { text-align: left; }
 }
 </style>

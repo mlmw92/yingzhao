@@ -552,11 +552,11 @@ onUnmounted(() => {
   font-size: 20px;
   font-weight: 700;
   font-family: var(--mono);
-  color: var(--text);
+  color: var(--t1);
 }
 .mh-score-label {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 2px;
 }
 .mh-stats {
@@ -571,12 +571,12 @@ onUnmounted(() => {
 .mh-stat b {
   font-size: 22px;
   font-family: var(--mono);
-  color: var(--text);
+  color: var(--t1);
   line-height: 1.1;
 }
 .mh-stat span {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 2px;
 }
 .mh-stat.ok b {
@@ -610,12 +610,12 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .mw-type-card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   border-radius: 10px;
   padding: 10px 10px 8px;
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s, transform 0.2s, box-shadow 0.2s;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .mw-type-card:hover {
   transform: translateY(-2px);
@@ -642,7 +642,7 @@ onUnmounted(() => {
 }
 .mt-alert {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .mt-alert.warn {
   color: var(--danger);
@@ -673,7 +673,7 @@ onUnmounted(() => {
   justify-content: center;
   font-size: 13px;
   font-family: var(--mono);
-  color: var(--text);
+  color: var(--t1);
 }
 .mt-meta {
   display: flex;
@@ -682,17 +682,17 @@ onUnmounted(() => {
   font-size: 13px;
 }
 .mt-up {
-  color: var(--text);
+  color: var(--t1);
   font-family: var(--mono);
 }
 .mt-up em {
   font-style: normal;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 13px;
   margin-left: 4px;
 }
 .mt-total {
-  color: var(--text-muted);
+  color: var(--t3);
   font-size: 13px;
 }
 .mt-summary {
@@ -701,7 +701,7 @@ onUnmounted(() => {
   gap: 4px 12px;
   margin-top: 8px;
   padding-top: 7px;
-  border-top: 1px dashed var(--border);
+  border-top: 1px dashed var(--bd);
 }
 .ms-item {
   display: flex;
@@ -710,17 +710,17 @@ onUnmounted(() => {
   font-size: 13px;
 }
 .ms-label {
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .ms-val {
   font-family: var(--mono);
-  color: var(--text);
+  color: var(--t1);
   font-weight: 600;
 }
 .ms-val em {
   font-style: normal;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-left: 1px;
 }
 .ms-item.warn .ms-val {
@@ -733,8 +733,8 @@ onUnmounted(() => {
 }
 .mw-showall button {
   background: transparent;
-  border: 1px dashed var(--border);
-  color: var(--text-dim);
+  border: 1px dashed var(--bd);
+  color: var(--t2);
   font-size: 13px;
   padding: 4px 14px;
   border-radius: 14px;
@@ -782,7 +782,7 @@ onUnmounted(() => {
 .mp-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
 }
 .mp-tabs {
   display: flex;
@@ -791,8 +791,8 @@ onUnmounted(() => {
 }
 .mp-tabs button {
   background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
+  border: 1px solid var(--bd);
+  color: var(--t2);
   font-size: 13px;
   padding: 3px 10px;
   border-radius: 12px;
@@ -824,7 +824,7 @@ onUnmounted(() => {
 .ms-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 8px;
 }
 
@@ -936,7 +936,7 @@ onUnmounted(() => {
 .srt-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -960,7 +960,7 @@ onUnmounted(() => {
 }
 .srt-status {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   flex-shrink: 0;
 }
 
@@ -993,7 +993,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 5px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--bd);
   font-size: 13px;
 }
 .ms-rank {
@@ -1011,7 +1011,7 @@ onUnmounted(() => {
 }
 .ms-name {
   flex: 1;
-  color: var(--text);
+  color: var(--t1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1023,12 +1023,12 @@ onUnmounted(() => {
 .ms-val em {
   font-style: normal;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-left: 1px;
 }
 .ms-hint {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   padding: 6px 0;
 }
 
@@ -1036,7 +1036,7 @@ onUnmounted(() => {
 .mi-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 6px;
   flex-shrink: 0;
 }
@@ -1076,7 +1076,7 @@ onUnmounted(() => {
   border-radius: 9px;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.08);
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .mi-role.role-master {
   background: rgba(76, 175, 80, 0.2);
@@ -1108,12 +1108,12 @@ onUnmounted(() => {
 }
 .mi-metric {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   white-space: nowrap;
 }
 .mi-metric b {
   font-family: var(--mono);
-  color: var(--text);
+  color: var(--t1);
   margin: 0 2px;
   font-size: 13px;
 }
@@ -1134,7 +1134,7 @@ onUnmounted(() => {
 }
 .mi-node {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1150,7 +1150,7 @@ onUnmounted(() => {
 .mi-empty {
   padding: 20px 0;
   text-align: center;
-  color: var(--text-muted);
+  color: var(--t3);
   font-size: 13px;
 }
 

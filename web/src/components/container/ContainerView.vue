@@ -37,22 +37,24 @@
     />
 
     <template v-else>
-      <el-tabs v-model="activeTab" type="card" class="container-tabs">
+      <el-tabs v-model="activeTab" type="card" class="container-tabs" @tab-change="onTabChange">
         <el-tab-pane v-for="t in TABS" :key="t.key" :label="t.title" :name="t.key" />
       </el-tabs>
 
       <div v-if="!currentCluster" class="cluster-hint">请选择要查看的集群</div>
 
       <template v-else>
-        <div v-if="!currentCluster.up" class="offline-hint">
+        <div v-if="!currentCluster.up && activeTab !== 'live'" class="offline-hint">
           该集群当前不在线（上报节点 {{ currentCluster.node }} 可能已离线），查询会被服务端拒绝
         </div>
 
-        <SectionCard title="查询结果" dense>
+        <SectionCard v-if="activeTab !== 'live'" title="查询结果" dense>
           <template #actions>
             <div class="query-toolbar">
-              <el-input
+              <el-autocomplete
                 v-model="namespace"
+                :fetch-suggestions="queryNs"
+                trigger-on-focus
                 placeholder="命名空间（留空为全部）"
                 size="small"
                 clearable
@@ -159,6 +161,48 @@
             ]"
           />
         </SectionCard>
+
+        <!-- 实时清单（ADR-0004）：Server 直连集群查询当前态，与上面的异步上报通路并存。
+             数据不进时序库、不参与告警——它回答的是「现在」，历史与趋势看前三个 Tab。 -->
+        <SectionCard v-else title="实时清单（当前态）" dense>
+          <template #actions>
+            <div class="query-toolbar">
+              <el-select v-model="liveCluster" size="small" placeholder="选择集群" class="ns-input">
+                <el-option v-for="c in liveClusters" :key="c" :value="c" :label="c" />
+              </el-select>
+              <el-input
+                v-model="liveNs"
+                size="small"
+                clearable
+                placeholder="命名空间（留空为全部）"
+                class="ns-input"
+                @keyup.enter="runLive"
+              />
+              <el-button size="small" type="primary" :loading="liveBusy" @click="runLive">刷新</el-button>
+            </div>
+          </template>
+          <el-alert v-if="liveError" type="error" :closable="false" show-icon :title="liveError" />
+          <el-table v-if="liveRows.length" :data="liveRows" size="small" stripe :max-height="520">
+            <el-table-column prop="ns" label="命名空间" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="name" label="Pod" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="phase" label="状态" width="110" />
+            <el-table-column prop="node" label="节点" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="restarts" label="重启" width="80" />
+            <el-table-column prop="age" label="创建时间" width="170" />
+          </el-table>
+          <EmptyState
+            v-else-if="!liveBusy && !liveError"
+            :icon="DataLine"
+            title="还没有实时数据"
+            :hints="[
+              '实时清单由 Server 直连集群查询当前态，需先在 Server 的 dataDir 下维护 k8s-live.yaml（集群凭据）',
+              '点「刷新」立即查询；它不产生历史数据，趋势与告警仍看「工作负载 / Pod / 事件」这几个 Tab',
+            ]"
+          />
+          <div class="result-foot">
+            <span v-if="liveAt" class="foot-time">上次刷新 {{ refreshedText(liveAt) }}</span>
+          </div>
+        </SectionCard>
       </template>
     </template>
 
@@ -228,7 +272,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Refresh, Grid, Monitor, Bell } from '@element-plus/icons-vue'
+import { Refresh, Grid, Monitor, Bell, DataLine } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import http from '../../api/http'
 import { createOpsTask, getOpsTask, cancelOpsTasks, listOpsTasks } from '../../api/ops'
@@ -247,6 +291,8 @@ const TABS = [
   { key: 'workloads', kind: 'container.workloads', title: '工作负载', icon: Grid },
   { key: 'pods', kind: 'container.pods', title: 'Pod', icon: Monitor },
   { key: 'events', kind: 'container.events', title: '事件', icon: Bell },
+  // 实时清单走另一条通路（ADR-0004：Server 直连集群查当前态），kind 为空即不参与异步下发
+  { key: 'live', kind: '', title: '实时清单', icon: DataLine },
 ]
 
 // 详情要用到的定位信息。刻意在这里显式写出列下标，而不是让后端在载荷里塞一个"魔法列"：
@@ -268,6 +314,11 @@ const DETAIL_SPEC = {
 const POLL_INTERVAL = 3000
 const POLL_TIMEOUT = 60000
 
+// 后端没有命名空间列表接口（只有 /api/v1/container/k8s/clusters），所以不做下拉：
+// 建议项来自「当前结果里出现过的命名空间」+「本机历史输入」，零后端改动。
+const NS_HISTORY_KEY = 'nebula-container-ns-history'
+const NS_HISTORY_MAX = 20
+
 const route = useRoute()
 const router = useRouter()
 const { can } = useAuth()
@@ -286,6 +337,66 @@ const detailTitle = ref('对象详情')
 const q = computed(() => containerQueryState(clusterKey.value, activeTab.value))
 const currentCluster = computed(() => clusters.value.find((c) => keyOf(c) === clusterKey.value) || null)
 const result = computed(() => q.value.result)
+
+// ---- 命名空间建议 ----
+const nsHistory = ref(readNsHistory())
+
+function readNsHistory() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NS_HISTORY_KEY) || '[]')
+    return Array.isArray(raw) ? raw.filter((x) => typeof x === 'string').slice(0, NS_HISTORY_MAX) : []
+  } catch {
+    return []
+  }
+}
+
+function pushNsHistory(v) {
+  const s = String(v || '').trim()
+  if (!s) return
+  const next = [s, ...nsHistory.value.filter((x) => x !== s)].slice(0, NS_HISTORY_MAX)
+  nsHistory.value = next
+  try {
+    localStorage.setItem(NS_HISTORY_KEY, JSON.stringify(next))
+  } catch {
+    // 隐私模式下写不了 localStorage，建议项退化成"仅当前结果里的命名空间"，不影响使用
+  }
+}
+
+// 结果里的命名空间列按**列名**找，不猜下标：载荷是通用表格，
+// 不同 Tab（workloads/pods/events）的列顺序由后端决定（见 DETAIL_SPEC 的注释）。
+// ⚠️ result.rows 是后端给的 [][]string（见下面的 resultRows：它才把数组摊成 { cells }）。
+// 这里读的是原始结果，所以必须按数组下标取，写成 row.cells[idx] 恒为 undefined。
+const nsFromResult = computed(() => {
+  const r = result.value
+  if (!r) return []
+  const idx = (r.columns || []).findIndex((c) => String(c).toLowerCase().includes('namespace'))
+  if (idx < 0) return []
+  const out = new Set()
+  for (const row of r.rows || []) {
+    const v = String((Array.isArray(row) ? row[idx] : row?.cells?.[idx]) ?? '').trim()
+    // 通配/占位值不作为建议
+    if (v && v !== '-' && v !== '*') out.add(v)
+  }
+  return [...out]
+})
+
+const nsSuggestions = computed(() => {
+  const out = []
+  const seen = new Set()
+  for (const v of [...nsFromResult.value, ...nsHistory.value]) {
+    if (v && !seen.has(v)) {
+      seen.add(v)
+      out.push(v)
+    }
+  }
+  return out.slice(0, 30)
+})
+
+function queryNs(qs, cb) {
+  const s = String(qs || '').trim().toLowerCase()
+  const list = nsSuggestions.value.filter((v) => !s || v.toLowerCase().includes(s))
+  cb(list.map((v) => ({ value: v })))
+}
 const canQuery = computed(() => !!currentCluster.value && currentCluster.value.up && !q.value.busy)
 const canDescribe = computed(() => !!DETAIL_SPEC[activeTab.value])
 // 日志只对 Pod 有意义：工作负载/事件列表里的对象不是容器实例。
@@ -368,6 +479,79 @@ const stateText = computed(() => {
       return '处理中…'
   }
 })
+
+/* ===== 实时清单（ADR-0004）：Server 直连集群查当前态，与异步上报通路并存 ===== */
+const liveClusters = ref([])
+const liveCluster = ref('')
+const liveNs = ref('')
+const liveRows = ref([])
+const liveBusy = ref(false)
+const liveAt = ref(0)
+const liveError = ref('')
+
+async function loadLiveClusters() {
+  try {
+    const res = await http.get('/api/v1/container/k8s/live-configs')
+    liveClusters.value = res.clusters || []
+    if (!liveClusters.value.includes(liveCluster.value)) {
+      liveCluster.value = liveClusters.value[0] || ''
+    }
+  } catch {
+    liveClusters.value = []
+  }
+}
+
+// 只查 pods：清单实时态的高频需求是 Pod；deployments/events 后续按需扩展。
+async function runLive() {
+  if (!liveCluster.value) {
+    liveError.value = '尚未配置实时集群：在 Server 的 dataDir 下维护 k8s-live.yaml 即可启用'
+    return
+  }
+  liveBusy.value = true
+  liveError.value = ''
+  try {
+    const ns = liveNs.value.trim()
+    const qs = ns ? '?namespace=' + encodeURIComponent(ns) : ''
+    const res = await http.get(
+      '/api/v1/container/k8s/live/' + encodeURIComponent(liveCluster.value) + '/pods' + qs,
+    )
+    liveRows.value = (res.items || []).map((p) => {
+      const cs = (p.status && p.status.containerStatuses) || []
+      const restarts = cs.reduce((a, s) => a + (s.restartCount || 0), 0)
+      return {
+        ns: (p.metadata || {}).namespace || '-',
+        name: (p.metadata || {}).name || '-',
+        phase: (p.status || {}).phase || '-',
+        node: (p.spec || {}).nodeName || '-',
+        restarts,
+        age: fmtAge((p.metadata || {}).creationTimestamp),
+      }
+    })
+    liveAt.value = Date.now()
+  } catch (e) {
+    liveError.value = (e && e.message) || '查询失败'
+  } finally {
+    liveBusy.value = false
+  }
+}
+
+// age 按 K8s 惯例显示相对时长（如 5h / 2d）。
+function fmtAge(ts) {
+  if (!ts) return '-'
+  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000)
+  if (s < 3600) return Math.floor(s / 60) + 'm'
+  if (s < 86400) return Math.floor(s / 3600) + 'h'
+  return Math.floor(s / 86400) + 'd'
+}
+
+// 切到实时 Tab 时自动查一次（结果为空时）；其余情况由「刷新」手动触发。
+function onTabChange(key) {
+  if (key === 'live') {
+    loadLiveClusters().then(() => {
+      if (!liveRows.value.length) runLive()
+    })
+  }
+}
 
 const keyOf = (c) => c.node + '|' + c.instance
 const clusterLabel = (c) => `${c.name || c.instance}（${c.node}${c.up ? '' : ' · 离线'}）`
@@ -521,6 +705,8 @@ async function run(tab) {
             item.at = Date.now()
             // 一并记下这份结果是按什么条件查的（见 queryCache 里 ns 的说明）
             item.ns = ns
+            // 只有真的查到了结果才把它记进历史，避免把拼错的命名空间当建议推给用户
+            pushNsHistory(ns)
           }
         }
         item.busy = false
@@ -1018,7 +1204,7 @@ onBeforeUnmount(() => {
   /* 与同页 .result-notice / .query-state 一致用「描边 + 语义底色」：
      此前这里是未定义的 var(--bg-sunken) 回退 4% 黑，深色下几乎看不出底色且没有边界，
      长日志块会与页面底色糊在一起。 */
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   border-radius: 6px;
   font-family: var(--mono);
   font-size: var(--fs-xs);

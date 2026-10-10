@@ -317,12 +317,12 @@ onUnmounted(() => {
   --warn-glow: rgba(245, 197, 66, 0.25);
   --danger: #ff5d6c;
   --danger-dim: rgba(255, 93, 108, 0.16);
-  --text: #e8f1ff;
-  --text-dim: #6e8bb8;
-  --text-muted: #455670;
-  --border: rgba(80, 140, 220, 0.12);
-  --border-strong: rgba(80, 140, 220, 0.22);
-  --bg-card: rgba(10, 22, 42, 0.92);
+  --t1: #e8f1ff;
+  --t2: #6e8bb8;
+  --t3: #455670;
+  --bd: rgba(80, 140, 220, 0.12);
+  --bd-strong: rgba(80, 140, 220, 0.22);
+  --s1: rgba(10, 22, 42, 0.92);
   --chart-green: #22c55e;
   --chart-amber: #f5c542;
   --chart-red: #ef4444;
@@ -343,7 +343,7 @@ onUnmounted(() => {
   grid-template-rows: auto 48px 1fr auto;
   gap: 8px;
   padding: 8px 12px;
-  color: var(--text);
+  color: var(--t1);
   background:
     radial-gradient(1200px 520px at 50% -8%, rgba(56, 189, 248, 0.10), transparent 60%),
     radial-gradient(900px 420px at 10% 0%, rgba(245, 197, 66, 0.06), transparent 55%),
@@ -395,13 +395,13 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   letter-spacing: 0.06em;
 }
 
 .clock-text {
   white-space: nowrap;
-  color: var(--text);
+  color: var(--t1);
 }
 
 .hud-actions {
@@ -427,9 +427,9 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   background: rgba(10, 22, 42, 0.6);
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   border-radius: 8px;
-  color: var(--text-dim);
+  color: var(--t2);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -508,14 +508,14 @@ onUnmounted(() => {
   gap: 2px;
   margin-left: 10px;
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   transition: color 0.3s;
 }
 
 .cd-num {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--t2);
   text-shadow: none;
   min-width: 16px;
   text-align: center;
@@ -523,7 +523,7 @@ onUnmounted(() => {
 
 .cd-unit {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
 }
 
 .countdown.urgent {
@@ -549,14 +549,14 @@ onUnmounted(() => {
 
 .cfg-label {
   font-size: 13px;
-  color: var(--text);
+  color: var(--t1);
 }
 
 .cfg-tip {
   margin-top: 10px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text-muted);
+  color: var(--t3);
 }
 
 /* 持久 KPI 条 */
@@ -566,9 +566,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 0;
   padding: 0 16px;
-  border-radius: var(--radius);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--s1);
+  border: 1px solid var(--bd);
   position: relative;
   z-index: 2;
 }
@@ -589,12 +589,12 @@ onUnmounted(() => {
   top: 25%;
   height: 50%;
   width: 1px;
-  background: var(--border);
+  background: var(--bd);
 }
 
 .kpi-bar-label {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   letter-spacing: 0.05em;
   flex-shrink: 0;
 }
@@ -609,7 +609,7 @@ onUnmounted(() => {
 
 .kpi-bar-unit {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   font-family: var(--mono);
 }
 
@@ -651,8 +651,8 @@ onUnmounted(() => {
   gap: 12px;
   padding: 0 14px;
   border-radius: 10px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--s1);
+  border: 1px solid var(--bd);
   overflow: hidden;
   position: relative;
   z-index: 2;
@@ -664,7 +664,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   letter-spacing: 0.06em;
 }
 
@@ -710,7 +710,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--text);
+  color: var(--t1);
   cursor: pointer;
   white-space: nowrap;
 }

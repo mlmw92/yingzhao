@@ -1,13 +1,20 @@
 <template>
-  <el-dialog :model-value="true" title="告警规则" width="min(760px, 94vw)" @close="$emit('close')">
-    <el-form :model="form" label-width="90px" label-position="left" class="rule-form">
+  <el-dialog
+    :model-value="true"
+    title="告警规则"
+    width="min(760px, 94vw)"
+    :close-on-click-modal="false"
+    :before-close="handleClose"
+    @close="$emit('close')"
+  >
+    <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" label-position="left" class="rule-form" scroll-to-error>
 
       <!-- ── 基本信息 ── -->
       <div class="section">
         <div class="section-title">基本信息</div>
         <el-row :gutter="16">
           <el-col :span="16">
-            <el-form-item label="规则名称" required>
+            <el-form-item label="规则名称" prop="name">
               <el-input v-model="form.name" placeholder="例如：主机离线告警" />
             </el-form-item>
           </el-col>
@@ -31,7 +38,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="告警级别" required>
+            <el-form-item label="告警级别" prop="severity">
               <el-select v-model="form.severity" style="width: 100%" placeholder="请选择">
                 <el-option value="critical" label="紧急 (Critical)" />
                 <el-option value="warning" label="警告 (Warning)" />
@@ -45,11 +52,16 @@
 
       <!-- ── 触发条件（按类型动态） ── -->
       <div class="section">
-        <div class="section-title">触发条件</div>
+        <div class="section-title">
+          触发条件
+          <!-- 分区常驻摘要：本区内容随类型整体切换，用户翻到「应用范围」再回来时
+               不必逐字段回读就能确认"触发条件到底配成了什么"。 -->
+          <span v-if="triggerSummary" class="section-summary">{{ triggerSummary }}</span>
+        </div>
 
         <!-- 阈值规则 -->
         <template v-if="form.type === ''">
-          <el-form-item label="监控指标" required>
+          <el-form-item label="监控指标" prop="metric">
             <!-- 指标清单来自服务端指标字典（/api/v1/metrics/catalog），不再前端硬编码：
                  硬编码那张表只覆盖 7 组指标，MySQL/Nginx/Kafka/ES/拨测证书全都选不到，
                  而界面上看不出"少了什么"。allow-create 保留手输能力——
@@ -88,7 +100,7 @@
             </div>
           </el-form-item>
           <el-row :gutter="12" align="middle">
-            <el-col :span="7">
+            <el-col :xs="24" :sm="8" :md="7">
               <!-- 全站 label-width 是 90px，在 24 栅格的 7/24 列里会把 select 压到约 87px，
                    「大于等于 ≥」这类选项会被裁掉后半截。这一行标签都很短，单独收窄标签。 -->
               <el-form-item label="运算符" label-width="52px">
@@ -102,13 +114,13 @@
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :span="8">
-              <el-form-item label="阈值" label-width="40px" required>
+            <el-col :xs="24" :sm="8" :md="8">
+              <el-form-item label="阈值" label-width="40px" prop="threshold">
                 <el-input-number v-model="form.threshold" :step="0.1" :min="0" :precision="2" controls-position="right" placeholder="阈值" style="width: 100%" />
               </el-form-item>
             </el-col>
-            <el-col :span="9">
-              <el-form-item label="持续时间" label-width="62px">
+            <el-col :xs="24" :sm="8" :md="9">
+              <el-form-item label="持续时间" label-width="62px" prop="for">
                 <el-select v-model="form.for" style="width: 100%">
                   <el-option value="0" label="立即触发" />
                   <el-option value="1m" label="1 分钟" />
@@ -125,8 +137,8 @@
         <!-- 主机离线 -->
         <template v-else-if="form.type === 'node_offline'">
           <el-row :gutter="12">
-            <el-col :span="10">
-              <el-form-item label="离线持续" required>
+            <el-col :xs="24" :sm="12" :md="10">
+              <el-form-item label="离线持续" prop="for">
                 <el-select v-model="form.for" style="width: 100%">
                   <el-option value="1m" label="1 分钟" />
                   <el-option value="3m" label="3 分钟" />
@@ -158,7 +170,7 @@
         <template v-else>
           <el-row :gutter="12">
             <el-col :span="form.type === 'role_change' || form.type === 'cluster_fault' ? 12 : 24">
-              <el-form-item label="中间件" required>
+              <el-form-item label="中间件" prop="service">
                 <el-select v-model="form.service" style="width: 100%">
                   <el-option value="mysql" label="MySQL" />
                   <el-option value="postgres" label="PostgreSQL" />
@@ -183,7 +195,7 @@
 
           <!-- 服务离线的阈值行 -->
           <el-row :gutter="12" v-if="form.type === 'service_down'" align="middle">
-            <el-col :span="7">
+            <el-col :xs="24" :sm="8" :md="7">
               <el-form-item label="判定方式">
                 <el-select v-model="form.operator" style="width: 100%">
                   <el-option value="<=" label="≤ 小于等于" />
@@ -192,13 +204,13 @@
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :span="8">
+            <el-col :xs="24" :sm="8" :md="8">
               <el-form-item label="阈值">
                 <el-input-number v-model="form.threshold" :step="0.1" :min="0" :precision="2" controls-position="right" style="width: 100%" />
               </el-form-item>
             </el-col>
-            <el-col :span="9">
-              <el-form-item label="持续">
+            <el-col :xs="24" :sm="8" :md="9">
+              <el-form-item label="持续" prop="for">
                 <el-select v-model="form.for" style="width: 100%">
                   <el-option value="0" label="立即" />
                   <el-option value="1m" label="1 分钟" />
@@ -211,8 +223,8 @@
 
           <!-- 主从切换/集群损坏的持续 -->
           <el-row :gutter="12" v-if="form.type !== 'service_down'">
-            <el-col :span="10">
-              <el-form-item label="持续">
+            <el-col :xs="24" :sm="12" :md="10">
+              <el-form-item label="持续" prop="for">
                 <el-select v-model="form.for" :disabled="form.type === 'role_change'" style="width: 100%">
                   <el-option v-if="form.type === 'role_change'" value="0" label="事件触发（每次切换即告警）" />
                   <template v-else>
@@ -243,7 +255,7 @@
             <el-radio value="specified">指定主机</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item v-if="form.scope === 'specified'" label="选择主机" style="margin-bottom: 0">
+        <el-form-item v-if="form.scope === 'specified'" label="选择主机" prop="nodes" style="margin-bottom: 0">
           <el-select v-model="form.nodes" multiple filterable collapse-tags collapse-tags-tooltip placeholder="请选择主机" style="width: 100%">
             <el-option v-for="n in nodeList" :key="n.hostname" :value="n.hostname" :label="n.displayName ? `${n.displayName} (${n.hostname})` : n.hostname" />
           </el-select>
@@ -266,6 +278,12 @@
             </el-checkbox>
           </el-checkbox-group>
           <div class="field-hint">不选择通知渠道时仅在平台消息中展示；选择后仅发送到所选的已启用渠道。</div>
+          <!-- 未启用的渠道在复选框上直接置灰并标注「未启用」，但用户看不出"该去哪启用"——
+               在配规则这一页给一条直达「通知配置」的链接，避免"规则配好了却收不到告警"。 -->
+          <div v-if="disabledChannels.length" class="field-hint">
+            {{ disabledChannels.map((c) => c.label).join('、') }} 尚未启用，
+            <el-link type="primary" underline="never" @click="goNotifyConfig">去通知配置启用</el-link>
+          </div>
         </el-form-item>
       </div>
 
@@ -318,34 +336,34 @@
             <span class="inline-hint">告警持续未恢复超时后升级级别/渠道并重复提醒</span>
             <template v-if="form.escalation.enabled">
               <el-row :gutter="16" style="margin-top: 14px" align="middle">
-                <el-col :span="8">
+                <el-col :xs="24" :sm="8" :md="8">
                   <div class="escalation-field">
-                    <label>升级时间</label>
-                    <el-input-number v-model="form.escalation.afterMinutes" :min="0" :step="5" controls-position="right" style="width: 120px" />
+                    <span class="escalation-field-label">升级时间</span>
+                    <el-input-number v-model="form.escalation.afterMinutes" :min="0" :step="5" controls-position="right" aria-label="升级时间（分钟）" style="width: 120px" />
                     <span class="inline-hint">分钟</span>
                   </div>
                 </el-col>
-                <el-col :span="8">
+                <el-col :xs="24" :sm="8" :md="8">
                   <div class="escalation-field">
-                    <label>升级级别</label>
-                    <el-select v-model="form.escalation.toSeverity" clearable placeholder="沿用原级别" style="width: 140px">
+                    <span class="escalation-field-label">升级级别</span>
+                    <el-select v-model="form.escalation.toSeverity" clearable placeholder="沿用原级别" aria-label="升级级别" style="width: 140px">
                       <el-option value="critical" label="紧急" />
                       <el-option value="warning" label="警告" />
                       <el-option value="info" label="信息" />
                     </el-select>
                   </div>
                 </el-col>
-                <el-col :span="8">
+                <el-col :xs="24" :sm="8" :md="8">
                   <div class="escalation-field">
-                    <label>重复提醒</label>
-                    <el-input-number v-model="form.escalation.repeatMinutes" :min="0" :step="5" controls-position="right" style="width: 100px" />
+                    <span class="escalation-field-label">重复提醒</span>
+                    <el-input-number v-model="form.escalation.repeatMinutes" :min="0" :step="5" controls-position="right" aria-label="重复提醒间隔（分钟）" style="width: 100px" />
                     <span class="inline-hint">分钟/次</span>
                   </div>
                 </el-col>
               </el-row>
               <div style="margin-top: 12px">
-                <label class="escalation-label">升级渠道</label>
-                <el-checkbox-group v-model="form.escalation.channels">
+                <span id="esc-channels-label" class="escalation-label">升级渠道</span>
+                <el-checkbox-group v-model="form.escalation.channels" role="group" aria-labelledby="esc-channels-label">
                   <el-checkbox v-for="c in channels" :key="'esc-' + c.value" :value="c.value" :disabled="!c.enabled">
                     {{ c.enabled ? c.label : `${c.label}（未启用）` }}
                   </el-checkbox>
@@ -359,22 +377,28 @@
     </el-form>
 
     <template #footer>
-      <el-button @click="$emit('close')">取消</el-button>
-      <el-button type="primary" @click="submit">保存</el-button>
+      <el-button :disabled="saving" @click="$emit('close')">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
 import { reactive, ref, computed, watch, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 
 const props = defineProps({ rule: Object, groups: Array, channels: { type: Array, default: () => [] } })
 const emit = defineEmits(['close', 'saved'])
 
+const router = useRouter()
+
+const formRef = ref(null)
 const nodeList = ref([])
 const advancedOpen = ref([])
+// 保存中态：没有它时按钮可重复点击，一次误触会创建多条同名规则。
+const saving = ref(false)
 
 const TYPE_HINTS = {
   '': '基于指标阈值触发的传统规则，适用于 CPU / 内存 / 磁盘等数值指标。',
@@ -394,6 +418,37 @@ const serviceMetricHint = computed(() => {
   return map[form.service] || form.service + '_instance_up'
 })
 
+// 触发条件分区摘要：把"当前类型下真正生效的触发条件"压成一行，
+// 用户不必逐字段回读就能确认配成了什么。类型不同、可配字段不同，摘要也随之不同。
+const OP_TEXT = { '>': '>', '>=': '≥', '<': '<', '<=': '≤', '==': '=', '!=': '≠' }
+const triggerSummary = computed(() => {
+  const t = form.type
+  const op = OP_TEXT[form.operator] || form.operator || ''
+  if (t === '') {
+    if (!form.metric && form.threshold == null) return '未配置'
+    return [
+      form.metric || '未选指标',
+      form.threshold == null ? '' : `${op} ${form.threshold}`,
+      form.for && form.for !== '0' ? `持续 ${form.for}` : '立即触发',
+    ].filter(Boolean).join(' · ')
+  }
+  if (t === 'node_offline') return `离线持续 ${form.for || '—'}`
+  if (t === 'security_event') return form.category ? '指定安全类别' : '全部安全类别'
+  const mw = form.service || '—'
+  if (t === 'service_down') return `${mw} · ${op} ${form.threshold ?? '—'} · 持续 ${form.for || '—'}`
+  const topo = form.topology === 'replication' ? '主从复制' : '集群'
+  if (t === 'role_change') return `${mw} · ${topo}`
+  if (t === 'cluster_fault') return `${mw} · ${topo}`
+  return ''
+})
+
+// 通知渠道：未启用的渠道在复选框上已置灰，这里再汇总一次并给出"去启用"的入口。
+const disabledChannels = computed(() => (props.channels || []).filter((c) => !c.enabled))
+function goNotifyConfig() {
+  emit('close')
+  router.push('/notify')
+}
+
 const form = reactive({
   id: '', name: '', type: '', metric: '', operator: '>', threshold: null, for: '5m',
   severity: '', group: '', scope: 'all', nodes: [], enabled: true, notify: [],
@@ -407,6 +462,11 @@ const silenceUntilDate = computed({
   get: () => form.silenceUntil ? new Date(form.silenceUntil) : null,
   set: (v) => { form.silenceUntil = v ? v.getTime() : 0 },
 })
+
+// 记录基线：① 用于「脏数据关闭确认」② 用于区分"用户切换类型"与"载入规则"，
+// 后者不该触发异类字段清理。（必须声明在下面那个 immediate watch 之前，否则 TDZ）
+const lastType = ref('')
+let initialSig = ''
 
 watch(() => props.rule, (r) => {
   form.id = r?.id ?? ''
@@ -435,7 +495,84 @@ watch(() => props.rule, (r) => {
     repeatMinutes: e?.repeatMinutes ?? 30,
     channels: e?.channels ? [...e.channels] : [],
   }
+  // 记录基线：① 用于「脏数据关闭确认」② 用于区分"用户切换类型"与"载入规则"，
+  // 后者不该触发异类字段清理。
+  lastType.value = form.type
+  initialSig = formSig()
 }, { immediate: true })
+
+// ---- 脏数据检测（关闭确认用）----
+function formSig() {
+  return JSON.stringify({
+    name: form.name, type: form.type, metric: form.metric, operator: form.operator,
+    threshold: form.threshold, for: form.for, severity: form.severity, group: form.group,
+    scope: form.scope, nodes: form.nodes, enabled: form.enabled, notify: form.notify,
+    silenced: form.silenced, silenceUntil: form.silenceUntil, service: form.service,
+    topology: form.topology, category: form.category, quietPeriods: form.quietPeriods,
+    escalation: form.escalation,
+  })
+}
+function isDirty() {
+  return formSig() !== initialSig
+}
+
+// ---- 字段级校验（替代 5 条顶部 toast）----
+// 只对"当前类型下真正可见/必填"的字段下规则；切换类型后隐藏的字段不再拦提交。
+const rules = computed(() => ({
+  name: [{ required: true, message: '请填写规则名称', trigger: 'blur' }],
+  severity: [{ required: true, message: '请选择告警级别', trigger: 'change' }],
+  metric: form.type === '' ? [{ required: true, message: '请选择监控指标', trigger: 'change' }] : [],
+  threshold: form.type === '' ? [{ required: true, message: '请填写阈值', trigger: 'blur' }] : [],
+  for: ['node_offline', 'service_down', 'cluster_fault'].includes(form.type)
+    ? [{ required: true, message: '请选择持续时长', trigger: 'change' }]
+    : [],
+  service: ['service_down', 'role_change', 'cluster_fault'].includes(form.type)
+    ? [{ required: true, message: '请选择中间件类型', trigger: 'change' }]
+    : [],
+  nodes: form.scope === 'specified'
+    ? [{ required: true, type: 'array', min: 1, message: '指定主机时请至少选择一台', trigger: 'change' }]
+    : [],
+}))
+
+// ---- 切换规则类型时清空异类字段 ----
+// 不清的后果：先按阈值规则填了指标，再切成"主机离线"，提交时 metric/threshold
+// 仍会随 body 发出去，后端可能据此产生一条永不触发的规则。
+function clearOtherTypeFields(t) {
+  if (t !== 'security_event') form.category = ''
+  if (t !== '') {
+    // 非阈值规则不使用指标/运算符/阈值
+    form.metric = ''
+    form.operator = t === 'service_down' ? '<=' : '>'
+    form.threshold = null
+  }
+  if (t === '' || t === 'node_offline' || t === 'security_event') {
+    form.service = 'mysql'
+    form.topology = 'cluster'
+  }
+}
+watch(() => form.type, (t) => {
+  if (t === lastType.value) return // 载入规则时的程序化赋值，不算用户切换
+  lastType.value = t
+  clearOtherTypeFields(t)
+})
+
+// 关闭确认：618 行表单被一次遮罩误触清空过，这里改成"有改动才拦、并让用户选"
+async function handleClose(done) {
+  if (!isDirty()) {
+    done()
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      '表单有未保存的修改，关闭后这些内容会丢失。',
+      '放弃未保存的修改？',
+      { type: 'warning', confirmButtonText: '放弃并关闭', cancelButtonText: '继续编辑' },
+    )
+    done()
+  } catch {
+    // 用户选择继续编辑：什么都不做，对话框保持打开
+  }
+}
 
 onMounted(() => { loadNodes(); loadMetricCatalog() })
 
@@ -504,11 +641,14 @@ function onMetricChange(name) {
 }
 
 async function submit() {
-  if (!form.name || !form.severity) { ElMessage.warning('请填写完整：规则名称、告警级别均为必填项'); return }
-  if (form.type === '' && (!form.metric || form.threshold == null)) { ElMessage.warning('阈值规则需选择指标并填写阈值'); return }
-  if (form.type === 'node_offline' && !form.for) { ElMessage.warning('请选择离线持续时长'); return }
-  if (['service_down','role_change','cluster_fault'].includes(form.type) && !form.service) { ElMessage.warning('请选择中间件类型'); return }
-  if (form.scope === 'specified' && (!form.nodes || form.nodes.length === 0)) { ElMessage.warning('指定主机时请至少选择一台'); return }
+  if (saving.value) return // 防重复提交（按钮已 loading，这里是兜底）
+  // 字段级校验：失败时 el-form 会把错误落到字段并滚动定位（scroll-to-error），
+  // 不再是一条"请填写完整"的顶部 toast——用户不知道到底缺哪一项。
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
   const body = {
     name: form.name, type: form.type || '', metric: form.metric, category: form.category || '', operator: form.operator,
     threshold: form.threshold == null ? 0 : Number(form.threshold), for: form.for || '5m',
@@ -520,12 +660,17 @@ async function submit() {
     quietPeriods: form.quietPeriods.filter((q) => q.start && q.end),
     escalation: form.escalation.enabled ? { enabled: true, afterMinutes: Number(form.escalation.afterMinutes) || 0, toSeverity: form.escalation.toSeverity || '', repeatMinutes: Number(form.escalation.repeatMinutes) || 0, channels: form.escalation.channels || [] } : null,
   }
+  saving.value = true
   try {
     if (form.id) await http.put('/api/v1/rules/' + form.id, body)
     else await http.post('/api/v1/rules', body)
     ElMessage.success('规则已保存')
     emit('saved')
-  } catch { ElMessage.error('保存失败') }
+  } catch (e) {
+    ElMessage.error('保存失败' + (e?.message ? '：' + e.message : ''))
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 
@@ -540,23 +685,34 @@ async function submit() {
   margin-bottom: 14px;
 }
 .section-title {
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 摘要文字可能较长：允许换行，别把标题挤出容器 */
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--el-text-color-primary);
   margin-bottom: 12px;
   padding-left: 8px;
-  border-left: 3px solid var(--el-color-primary);
+  /* 与 SectionCard 的 --accent 条同源；此前用 EP 的 --el-color-primary，切主题即露馅 */
+  border-left: 3px solid var(--accent);
   line-height: 1;
 }
+.section-summary {
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--t2);
+}
 .type-hint {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
   margin-top: -4px;
   padding-left: 4px;
 }
 .field-hint {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
   line-height: 1.5;
   margin-top: 4px;
 }
@@ -569,31 +725,31 @@ async function submit() {
 /* 指标下拉 */
 .metric-option { display: flex; align-items: center; gap: 8px; }
 .metric-label { font-weight: 500; }
-.metric-name { color: var(--text-dim); font-size: 13px; }
-.metric-unit { margin-left: auto; padding: 0 6px; font-size: 13px; color: var(--el-color-primary); background: var(--el-color-primary-light-9); border-radius: 4px; }
+.metric-name { color: var(--t2); font-size: var(--fs-sm); }
+.metric-unit { margin-left: auto; padding: 0 6px; font-size: var(--fs-sm); color: var(--accent); background: var(--fill-1); border-radius: var(--r-xs); }
 .metric-flag {
   flex-shrink: 0;
   padding: 0 6px;
-  font-size: 12px;
-  color: var(--text-dim);
-  background: rgba(127, 127, 127, 0.14);
-  border-radius: 4px;
+  font-size: var(--fs-xs);
+  color: var(--t2);
+  background: var(--fill-2);
+  border-radius: var(--r-xs);
 }
 
 /* 静默时段行 */
-.quiet-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.quiet-sep { color: var(--text-dim); font-size: 13px; }
+.quiet-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.quiet-sep { color: var(--t2); font-size: var(--fs-sm); }
 
 /* 折叠面板 */
 .advanced-collapse { border: none; --el-collapse-border-color: transparent; }
 .advanced-collapse :deep(.el-collapse-item__header) {
   height: 40px;
   background: var(--el-fill-color-lighter);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   padding: 0 14px;
   margin-bottom: 8px;
   border: 1px solid var(--el-border-color-lighter);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .advanced-collapse :deep(.el-collapse-item__wrap) {
   background: var(--el-fill-color-lighter);
@@ -603,14 +759,14 @@ async function submit() {
   margin-bottom: 8px;
 }
 .advanced-collapse :deep(.el-collapse-item__content) { padding: 14px 16px; }
-.collapse-title { font-weight: 600; font-size: 13px; }
-.collapse-body { font-size: 13px; color: var(--el-text-color-regular); }
-.inline-hint { font-size: 13px; color: var(--text-dim); margin-left: 8px; }
+.collapse-title { font-weight: 600; font-size: var(--fs-sm); }
+.collapse-body { font-size: var(--fs-sm); color: var(--el-text-color-regular); }
+.inline-hint { font-size: var(--fs-sm); color: var(--t2); margin-left: 8px; }
 
 /* 升级策略内联字段 */
 .escalation-field { display: flex; align-items: center; gap: 6px; }
-.escalation-field > label { font-size: 13px; color: var(--el-text-color-secondary); white-space: nowrap; }
-.escalation-label { font-size: 13px; color: var(--el-text-color-secondary); display: block; margin-bottom: 6px; }
+.escalation-field > .escalation-field-label { font-size: var(--fs-sm); color: var(--el-text-color-secondary); white-space: nowrap; }
+.escalation-label { font-size: var(--fs-sm); color: var(--el-text-color-secondary); display: block; margin-bottom: 6px; }
 
 /* 滚动条美化 */
 .rule-form::-webkit-scrollbar { width: 5px; }

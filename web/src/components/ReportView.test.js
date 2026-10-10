@@ -5,7 +5,7 @@
 // 该能力未启用却把开关显示成"关着"（用户以为打开就好）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import ReportView from './ReportView.vue'
 
@@ -177,5 +177,84 @@ describe('报告章节与生成范围', () => {
     expect(call).toBeTruthy()
     expect(Array.isArray(call[1].sections)).toBe(true)
     expect(call[1].sections.length).toBeGreaterThan(0)
+  })
+})
+
+// 历史报告的搜索 / 分页 / 删除，以及预览抽屉的加载态（批次 14 新增）。
+describe('历史报告搜索、分页与删除', () => {
+  function manyReports(n) {
+    return {
+      reports: Array.from({ length: n }, (_, i) => ({
+        id: `rpt-${i + 1}`,
+        type: i % 2 ? 'weekly' : 'daily',
+        period: `2026-10-${String(i + 1).padStart(2, '0')}`,
+        generatedAt: 1700000000000 + i * 1000,
+        scope: i === 0 ? '指定 2 个节点' : '全部节点',
+      })),
+    }
+  }
+
+  it('历史报告按关键词过滤', async () => {
+    http.get.mockImplementation(async (path) => {
+      if (String(path).includes('/api/v1/report/schedule')) return SCHEDULE
+      return manyReports(3)
+    })
+    const w = mountView()
+    await flushPromises()
+
+    const input = w.find('.filter-bar input')
+    expect(input.exists()).toBe(true)
+    await input.setValue('2026-10-02')
+    await flushPromises()
+    const rows = w.findAll('.el-table__row')
+    expect(rows.length).toBe(1)
+    expect(rows[0].text()).toContain('2026-10-02')
+  })
+
+  it('历史报告分页：每页 10 条', async () => {
+    http.get.mockImplementation(async (path) => {
+      if (String(path).includes('/api/v1/report/schedule')) return SCHEDULE
+      return manyReports(12)
+    })
+    const w = mountView()
+    await flushPromises()
+    expect(w.findAll('.el-table__row').length).toBe(10)
+    expect(w.find('.el-pagination').exists()).toBe(true)
+  })
+
+  it('删除报告走 DELETE 接口并刷新历史', async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    http.get.mockImplementation(async (path) => {
+      if (String(path).includes('/api/v1/report/schedule')) return SCHEDULE
+      return { reports: [{ id: 'rpt-1', type: 'daily', period: '2026-10-08', generatedAt: 1700000000000 }] }
+    })
+    http.del.mockResolvedValue({ status: 'ok' })
+    const w = mountView()
+    await flushPromises()
+
+    const delBtn = w.findAll('button').find((b) => b.text().includes('删除'))
+    expect(delBtn).toBeTruthy()
+    await delBtn.trigger('click')
+    await flushPromises()
+
+    expect(http.del).toHaveBeenCalledWith('/api/v1/report/history/rpt-1')
+    confirmSpy.mockRestore()
+  })
+
+  it('预览打开抽屉；iframe 加载失败时给出兜底提示', async () => {
+    const w = mountView()
+    await flushPromises()
+
+    const previewBtn = w.findAll('button').find((b) => b.text().includes('预览'))
+    await previewBtn.trigger('click')
+    await flushPromises()
+
+    const iframe = w.find('iframe')
+    expect(iframe.exists()).toBe(true)
+    expect(iframe.attributes('src')).toContain('/api/v1/report/download?id=rpt-1')
+
+    await iframe.trigger('error')
+    await flushPromises()
+    expect(w.text()).toContain('报告预览加载失败')
   })
 })

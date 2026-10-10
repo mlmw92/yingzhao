@@ -2,7 +2,7 @@
   <div class="audit-view">
     <PageHeader
       title="操作审计"
-      desc="记录登录和管理操作，支持按分类、操作者、接口路径与时间范围筛选"
+      desc="记录登录和管理操作，支持按分类、操作者、接口路径、结果与时间范围筛选"
     >
       <template #actions>
         <el-button size="small" :loading="loading" @click="loadEvents">刷新</el-button>
@@ -12,89 +12,106 @@
       </template>
     </PageHeader>
 
-    <div class="card filter-bar">
-      <div class="filters">
-        <el-select v-model="filters.category" clearable placeholder="全部分类" size="small" style="width: 150px" @change="applyFilters">
-          <el-option value="authentication" label="认证" />
-          <el-option value="management" label="管理操作" />
-          <el-option value="security" label="安全中心" />
-        </el-select>
-        <el-input v-model="filters.user" clearable placeholder="操作者" size="small" @keyup.enter="applyFilters" />
-        <el-input v-model="filters.path" clearable placeholder="接口路径" size="small" @keyup.enter="applyFilters" />
-        <!-- 时间范围：入库后审计按时间保留（默认 180 天），"能查到多久以前"要靠它才够得着。
-             不选 = 不限时间，行为与改造前一致。 -->
-        <el-date-picker
-          v-model="filters.range"
-          type="datetimerange"
-          size="small"
-          start-placeholder="开始时间"
-          end-placeholder="结束时间"
-          :shortcuts="rangeShortcuts"
-          style="width: 400px; max-width: 100%"
-          @change="applyFilters"
-        />
-        <el-select v-model="filters.limit" size="small" style="width: 120px" @change="applyFilters">
-          <el-option :value="50" label="每页 50 条" />
-          <el-option :value="100" label="每页 100 条" />
-          <el-option :value="200" label="每页 200 条" />
-        </el-select>
-        <!-- 关联 id 筛选：从资产变更历史跳进来时用的就是它（/audit?requestId=xxx）。
-             做成可关闭的标签而不是隐形条件——生效中的筛选必须看得见，
-             否则"审计怎么少了"会变成下一个问题。 -->
-        <el-tag
-          v-if="filters.requestId"
-          closable
-          size="small"
-          type="warning"
-          title="只显示这一次操作（同一次请求）产生的审计记录"
-          @close="clearRequestId"
-        >
-          本次操作 {{ filters.requestId }}
-        </el-tag>
-        <el-button size="small" type="primary" @click="applyFilters">查询</el-button>
-      </div>
+    <!-- 筛选条走全局 .filter-bar（§1.5）。结果 / method / 来源 IP 是排障三件套：
+         表格里一直有这三列却都不可筛，"只看失败的操作""只看某个来源 IP"只能靠肉眼扫。 -->
+    <div class="filter-bar">
+      <el-select v-model="filters.category" clearable placeholder="全部分类" size="small" class="w-s" @change="applyFilters">
+        <el-option value="authentication" label="认证" />
+        <el-option value="management" label="管理操作" />
+        <el-option value="security" label="安全中心" />
+      </el-select>
+      <el-input v-model="filters.user" clearable placeholder="操作者" size="small" class="w-m" @keyup.enter="applyFilters" />
+      <el-input v-model="filters.path" clearable placeholder="接口路径" size="small" class="w-m" @keyup.enter="applyFilters" />
+      <!-- 只看失败：审计排障最高频的一个动作，做成一次选择即可 -->
+      <el-select v-model="filters.result" clearable placeholder="全部结果" size="small" class="w-s" @change="applyFilters">
+        <el-option value="ok" label="只看成功" />
+        <el-option value="fail" label="只看失败" />
+      </el-select>
+      <el-select v-model="filters.method" clearable placeholder="全部方法" size="small" class="w-s" @change="applyFilters">
+        <el-option v-for="m in METHODS" :key="m" :value="m" :label="m" />
+      </el-select>
+      <el-input v-model="filters.remoteIP" clearable placeholder="来源 IP" size="small" class="w-s" @keyup.enter="applyFilters" />
+      <!-- 时间范围：入库后审计按时间保留（默认 180 天），"能查到多久以前"要靠它才够得着。
+           不选 = 不限时间，行为与改造前一致。 -->
+      <el-date-picker
+        v-model="filters.range"
+        type="datetimerange"
+        size="small"
+        start-placeholder="开始时间"
+        end-placeholder="结束时间"
+        :shortcuts="rangeShortcuts"
+        class="w-xl"
+        style="max-width: 100%"
+        @change="applyFilters"
+      />
+      <el-select v-model="filters.limit" size="small" class="w-s" @change="applyFilters">
+        <el-option :value="50" label="每页 50 条" />
+        <el-option :value="100" label="每页 100 条" />
+        <el-option :value="200" label="每页 200 条" />
+      </el-select>
+      <el-button size="small" type="primary" @click="applyFilters">查询</el-button>
     </div>
 
-    <el-alert
-      v-if="loadError"
-      type="error"
-      :closable="false"
-      show-icon
-      class="audit-error"
-    >
-      <template #title>审计记录加载失败：{{ loadError }}
-        <el-button link type="primary" @click="loadEvents">重试</el-button>
-      </template>
-    </el-alert>
+    <!-- 生效中的筛选必须看得见，逐条可撤销 + 一键清空。
+         尤其是从资产变更历史跳进来时带的关联 id（/audit?requestId=xxx）：
+         它是隐形条件，不显式列出来，"审计怎么少了"就会变成下一个问题。 -->
+    <FilterChips
+      :chips="filterChips"
+      clear-text="清空全部"
+      @remove="removeFilter"
+      @clear="clearFilters"
+    />
 
     <!-- 审计完整性校验结果（防篡改链）。
          三档分开显示，且**都不说"安全"**：未启用/降级模式说"没有完整性保护"，
          通过时报出**覆盖区间与条数**（"已验证第 X..Y 条"），断裂时逐条列出原因。
          最下面那行常驻边界说明是刻意的：这不是"不可删除"，不能给人虚假的安全感。 -->
-    <div v-if="verify" class="card audit-verify">
+    <SectionCard v-if="verify || verifyError" dense class="audit-verify">
       <div class="verify-head">
-        <el-tag :type="verifyTone" size="small" effect="dark">{{ verifyTitle }}</el-tag>
-        <span class="verify-summary">{{ verifySummary }}</span>
-        <el-button link size="small" @click="verify = null">收起</el-button>
+        <el-tag v-if="verify" :type="verifyTone" size="small" effect="dark">{{ verifyTitle }}</el-tag>
+        <el-tag v-else type="danger" size="small" effect="dark">校验失败</el-tag>
+        <span v-if="verify" class="verify-summary">{{ verifySummary }}</span>
+        <!-- 时间戳：凭证要能说明"这是什么时候验的"，否则无从判断结果是否已过期 -->
+        <span v-if="verifyAt" class="verify-time">校验于 {{ verifyAt }}</span>
+        <span class="verify-spacer"></span>
+        <el-button link size="small" :loading="verifying" @click="runVerify">重新校验</el-button>
+        <el-button link size="small" @click="closeVerify">收起</el-button>
       </div>
-      <ul v-if="verify.breaks && verify.breaks.length" class="verify-breaks">
+      <!-- 校验失败不再只弹 toast（一关就没了）：落进结果卡里，与通过/异常同处可见 -->
+      <el-alert
+        v-if="verifyError"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="verifyError"
+        class="verify-err"
+      />
+      <ul v-if="verify && verify.breaks && verify.breaks.length" class="verify-breaks">
         <li v-for="(b, i) in verify.breaks" :key="i">
           第 {{ b.seq }} 条：<strong>{{ b.reason }}</strong> —— {{ b.detail }}
         </li>
       </ul>
-      <div v-if="verify.prunedSegments && verify.prunedSegments.length" class="verify-extra">
+      <div v-if="verify && verify.prunedSegments && verify.prunedSegments.length" class="verify-extra">
         合法裁剪区间：{{ verify.prunedSegments.map((s) => `${s.from}..${s.to}`).join('、') }}
         （保留策略按时间/条数移除，不算篡改）
       </div>
-      <div v-if="verify.note" class="verify-note">{{ verify.note }}</div>
-      <div class="verify-caveat">
+      <div v-if="verify && verify.note" class="verify-note">{{ verify.note }}</div>
+      <div v-if="verify" class="verify-caveat">
         这是「防篡改（**可检测**）」，不是「不可篡改」：拿到该机 root 的人仍能改库、读密钥、清日志。
         它让"改过 / 删过审计"变得**可检测**，而不是**不可为**。
       </div>
-    </div>
+    </SectionCard>
 
-    <div class="card" v-loading="loading">
-      <el-table :data="events" style="width: 100%">
+    <SectionCard
+      title="审计记录"
+      :subtitle="listSubtitle"
+      dense
+      :loading="loading && events.length === 0"
+      :error="loadError"
+      error-retry
+      @retry="loadEvents"
+    >
+      <el-table v-loading="loading" :data="events" :row-key="eventKey" style="width: 100%">
         <template #empty>
           <EmptyState
             title="暂无审计记录"
@@ -105,41 +122,49 @@
             ]"
           />
         </template>
-        <!-- 首列固定 + 两列 min-width 收窄：这张表 9 列合计约 1520px，
-             内容区只有约 1130px。此前横向滚动后既看不到时间、
-             「状态码 / 结果 / 资产改动」这三列排障最关心的信息也落在视野外。 -->
-        <el-table-column label="时间" width="180" fixed>
-          <template #default="{ row }">{{ formatTime(row.time) }}</template>
-        </el-table-column>
-        <el-table-column label="分类" width="110">
+        <!-- 首列固定 + 右侧三列固定：原 9 列合计约 1400px，横向滚动后
+             「状态码 / 结果 / 资产改动」这三列排障最关心的信息会滑出视野。
+             收窄后合计 1130px ≤ 实测可用宽 1142px（1440 − 232 侧栏 − 40 页边距，
+             卡片 dense 内边距 12px），1440 视口下不再横向滚动；窄屏时仍会滚，
+             故把右侧三列也固定，滚到哪儿都看得到。 -->
+        <el-table-column label="时间" width="160" fixed>
           <template #default="{ row }">
-            <el-tag size="small" effect="plain">{{ categoryLabel(row.category) }}</el-tag>
+            <div class="time-cell">
+              <span>{{ formatDate(row.time) }}</span>
+              <span class="time-clock">{{ formatClock(row.time) }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="user" label="操作者" width="140">
+        <el-table-column label="分类" width="84">
+          <template #default="{ row }">
+            <StatusPill tone="muted">{{ categoryLabel(row.category) }}</StatusPill>
+          </template>
+        </el-table-column>
+        <el-table-column prop="user" label="操作者" width="112">
           <template #default="{ row }">{{ row.user || '未登录/未知' }}</template>
         </el-table-column>
-        <el-table-column label="操作" min-width="240">
+        <el-table-column label="操作" min-width="180">
           <template #default="{ row }">
             <span class="method" :class="'method-' + (row.method || '').toLowerCase()">{{ row.method }}</span>
             <span class="path">{{ row.path }}</span>
             <div v-if="row.action" class="action">{{ row.action }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="变更摘要" min-width="240">
+        <el-table-column label="变更摘要" min-width="180">
           <template #default="{ row }">
-            <div v-if="changeSummary(row.detail).changed.length || changeSummary(row.detail).added.length || changeSummary(row.detail).removed.length" class="change-summary">
+            <!-- 摘要按行预计算（loadEvents 时一次算完），不再在单元格里重复解析 6 次 -->
+            <div v-if="row._summary.changed.length || row._summary.added.length || row._summary.removed.length" class="change-summary">
               <!-- 颜色按语义挂在各自的 class 上，不用 nth-child：
                    三段都带 v-if，缺「修改」时 nth-child 会整体前移，
                    出现「新增」显示成琥珀、「删除」显示成绿的语义反转。 -->
-              <span v-if="changeSummary(row.detail).changed.length" class="cs-changed">修改：{{ changeSummary(row.detail).changed.join('、') }}</span>
-              <span v-if="changeSummary(row.detail).added.length" class="cs-added">新增：{{ changeSummary(row.detail).added.join('、') }}</span>
-              <span v-if="changeSummary(row.detail).removed.length" class="cs-removed">删除：{{ changeSummary(row.detail).removed.join('、') }}</span>
+              <span v-if="row._summary.changed.length" class="cs-changed">修改：{{ row._summary.changed.join('、') }}</span>
+              <span v-if="row._summary.added.length" class="cs-added">新增：{{ row._summary.added.join('、') }}</span>
+              <span v-if="row._summary.removed.length" class="cs-removed">删除：{{ row._summary.removed.join('、') }}</span>
             </div>
             <span v-else class="muted">{{ row.detail || '-' }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="来源" min-width="200">
+        <el-table-column label="来源" min-width="150">
           <template #default="{ row }">
             <div class="source-cell">
               <span class="source-ip">{{ row.remoteIP }}</span>
@@ -148,17 +173,21 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态码" width="90" />
-        <el-table-column label="结果" width="90">
+        <el-table-column prop="status" label="状态码" width="80" fixed="right" />
+        <el-table-column label="结果" width="94" fixed="right">
           <template #default="{ row }">
-            <el-tag :type="row.succeeded ? 'success' : 'danger'" size="small">
+            <!-- 颜色 + 图标双重编码：色盲用户也能分清成功/失败 -->
+            <StatusPill
+              :tone="row.succeeded ? 'ok' : 'danger'"
+              :icon="row.succeeded ? CircleCheckFilled : CircleCloseFilled"
+            >
               {{ row.succeeded ? '成功' : '失败' }}
-            </el-tag>
+            </StatusPill>
           </template>
         </el-table-column>
         <!-- 反向入口：审计说"调了哪个接口"，这里回答"那次调用实际动了哪些资产的哪些字段"。
              没有关联 id 的行（旧数据、采集上报）不给入口——不为一个查不到的操作造按钮。 -->
-        <el-table-column label="资产改动" width="110">
+        <el-table-column label="资产改动" width="86" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="row.requestId && can('assets:read')"
@@ -184,7 +213,7 @@
         style="margin-top: 12px; justify-content: flex-end"
         @current-change="changePage"
       />
-    </div>
+    </SectionCard>
 
     <!-- 「本次改动」抽屉：把这一次操作在资产台账里改动的字段列清楚（可跨多个资产）。
          与资产页的变更历史互为反面：那条回答"这台资产经历了什么"，这条回答"那次操作动了谁"。
@@ -258,9 +287,13 @@
 import { reactive, ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
 import http, { getToken, setToken } from '../api/http'
 import PageHeader from './common/PageHeader.vue'
+import SectionCard from './common/SectionCard.vue'
 import EmptyState from './common/EmptyState.vue'
+import StatusPill from './common/StatusPill.vue'
+import FilterChips from './common/FilterChips.vue'
 import { getAssetChangesByRequest } from '../api/asset'
 import { useAuth } from '../composables/useAuth'
 import { printPage } from '../utils/print'
@@ -269,6 +302,9 @@ const route = useRoute()
 const router = useRouter()
 // 仅用于体验级隐藏（服务端才是安全边界）：没有 assets:read 时不给「本次改动」入口。
 const { can } = useAuth()
+
+// method 是有限枚举：做成下拉比让人手敲更省事，也避免大小写/拼写带来的"筛不出来"。
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 
 const loading = ref(false)
 const exporting = ref(false)
@@ -279,7 +315,17 @@ let latestRequest = 0
 const total = ref(0)
 const page = ref(1)
 // requestId 是"这一次操作"的关联 id：从资产变更历史跳进来时带上（见 applyDeepLink）。
-const filters = reactive({ category: '', user: '', path: '', limit: 100, range: [], requestId: '' })
+const filters = reactive({
+  category: '',
+  user: '',
+  path: '',
+  result: '',
+  method: '',
+  remoteIP: '',
+  limit: 100,
+  range: [],
+  requestId: '',
+})
 
 // 「本次改动」抽屉的状态。
 const changesDrawer = ref(false)
@@ -293,6 +339,11 @@ let latestChanges = 0
 
 const changesTitle = computed(() =>
   `本次操作改动的资产字段${changes.value.length ? `（${changes.value.length} 条）` : ''}`
+)
+
+// 卡片副标题：把"符合条件共 N 条"从分页器挪到卡片头，一眼就知道筛完还剩多少。
+const listSubtitle = computed(() =>
+  total.value ? `符合条件共 ${total.value} 条` : ''
 )
 
 // 空态里那条与关联 id 有关的提示：关联 id 是本次升级之后才写的，
@@ -340,6 +391,25 @@ function categoryLabel(value) {
   return categoryMap[value] || value || '其他'
 }
 
+const resultLabel = { ok: '只看成功', fail: '只看失败' }
+
+// 生效中的筛选回显：维度名 + 当前值，逐条可撤销。
+const filterChips = computed(() => {
+  const chips = []
+  if (filters.category) chips.push({ key: 'category', label: '分类', value: categoryLabel(filters.category) })
+  if (filters.user) chips.push({ key: 'user', label: '操作者', value: filters.user })
+  if (filters.path) chips.push({ key: 'path', label: '接口路径', value: filters.path })
+  if (filters.result) chips.push({ key: 'result', label: '结果', value: resultLabel[filters.result] || filters.result })
+  if (filters.method) chips.push({ key: 'method', label: '方法', value: filters.method })
+  if (filters.remoteIP) chips.push({ key: 'remoteIP', label: '来源 IP', value: filters.remoteIP })
+  if (filters.requestId) chips.push({ key: 'requestId', label: '本次操作', value: filters.requestId })
+  const [from, to] = filters.range || []
+  if (from) chips.push({ key: 'range', label: '时间范围', value: `${fmtShort(from)} ~ ${to ? fmtShort(to) : '现在'}` })
+  return chips
+})
+
+// 按行预计算变更摘要：原实现在单个单元格里调 6 次 changeSummary、每次 3 个 new RegExp，
+// 每行每次渲染 18 次正则匹配。改成加载时算一次，模板直接读。
 function changeSummary(detail) {
   const result = { changed: [], added: [], removed: [] }
   if (!detail) return result
@@ -349,11 +419,43 @@ function changeSummary(detail) {
   }
   return result
 }
+function decorate(rows) {
+  return (rows || []).map((r) => ({ ...r, _summary: changeSummary(r.detail) }))
+}
+
+// row-key：审计事件没有稳定主键，用"时间 + 人 + 方法 + 路径 + 状态 + 来源 IP"组合。
+// 目的是给 el-table 一个稳定的行标识（减少整表重绘），不是业务主键。
+function eventKey(row) {
+  return [row.time, row.user, row.method, row.path, row.status, row.remoteIP].join('|')
+}
+
+// 时间列拆成「日期 / 时分秒」两行：单行 toLocaleString 需要 180px，
+// 两行 160px 就够，省下的宽度留给排障真正要看的几列。
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+function toDate(v) {
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+function formatDate(value) {
+  const d = toDate(value)
+  return d ? `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` : value || '-'
+}
+function formatClock(value) {
+  const d = toDate(value)
+  return d ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}` : ''
+}
 function formatTime(value) {
   if (!value) return '-'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString('zh-CN', { hour12: false })
+}
+// 筛选条里时间范围用短格式（MM-DD HH:mm）：320px 的控件装不下完整年月日时分秒。
+function fmtShort(value) {
+  const d = toDate(value)
+  return d ? `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` : String(value || '')
 }
 
 // includeOffset=false 用于导出：导出的是「符合条件的前 N 条」，不该带上当前页码。
@@ -364,6 +466,10 @@ function queryString({ includeOffset = true, format = '' } = {}) {
     path: filters.path,
     category: filters.category,
   })
+  if (filters.result) params.set('result', filters.result)
+  if (filters.method) params.set('method', filters.method)
+  const ip = (filters.remoteIP || '').trim()
+  if (ip) params.set('remoteIP', ip)
   if (includeOffset && page.value > 1) params.set('offset', String((page.value - 1) * filters.limit))
   // 关联 id 是精确匹配（服务端不走子串）：带着它查就是"这一次操作"，不该被别的条件稀释
   if (filters.requestId) params.set('requestId', filters.requestId)
@@ -381,6 +487,9 @@ function printList() {
     `分类=${categoryLabel(filters.category)}`,
     `操作者=${filters.user || '全部'}`,
     `接口路径=${filters.path || '全部'}`,
+    `结果=${filters.result ? resultLabel[filters.result] : '全部'}`,
+    `方法=${filters.method || '全部'}`,
+    `来源 IP=${filters.remoteIP || '全部'}`,
     `关联 id=${filters.requestId || '不限'}`,
     `时间范围=${from ? `${formatTime(from)} ~ ${formatTime(to || new Date())}` : '不限'}`,
     `第 ${page.value} 页 / 每页 ${filters.limit} 条（符合条件共 ${total.value} 条）`,
@@ -394,7 +503,7 @@ async function loadEvents() {
   try {
     const data = await http.get(`/api/v1/audit/events?${queryString()}`)
     if (request !== latestRequest) return
-    events.value = data.events || []
+    events.value = decorate(data.events)
     total.value = Number(data.total) || 0
     loadError.value = ''
   } catch (error) {
@@ -418,6 +527,35 @@ function changePage(next) {
   loadEvents()
 }
 
+// 撤销单条筛选（FilterChips 的 × ）。
+function removeFilter(key) {
+  if (key === 'range') {
+    filters.range = []
+  } else if (key === 'requestId') {
+    filters.requestId = ''
+    stripRequestIdFromURL()
+  } else if (key in filters) {
+    filters[key] = ''
+  }
+  applyFilters()
+}
+
+// 一键清空：把筛选条上能改的都复位（limit 保持用户选择，属于"每页条数"不是"筛选条件"）。
+function clearFilters() {
+  filters.category = ''
+  filters.user = ''
+  filters.path = ''
+  filters.result = ''
+  filters.method = ''
+  filters.remoteIP = ''
+  filters.range = []
+  if (filters.requestId) {
+    filters.requestId = ''
+    stripRequestIdFromURL()
+  }
+  applyFilters()
+}
+
 // ---- 完整性校验（审计防篡改链）----
 //
 // 三档分开显示，且**都不说"安全"**：未启用/降级模式明说"没有完整性保护"，
@@ -426,6 +564,8 @@ function changePage(next) {
 // "全部通过"在这套机制下永远不成立。
 const verifying = ref(false)
 const verify = ref(null)
+const verifyError = ref('')
+const verifyAt = ref('')
 
 // 注意取值必须是 el-tag 认的那几个（success/info/warning/danger）。
 // 第一版写了 'error'，Element Plus 会**静默退化成默认样式**——"发现异常"显示成普通灰标签，
@@ -455,13 +595,21 @@ const verifySummary = computed(() => {
 })
 async function runVerify() {
   verifying.value = true
+  verifyError.value = ''
   try {
     verify.value = await http.get('/api/v1/audit/verify')
+    verifyAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   } catch (e) {
-    ElMessage.error(e && e.message ? e.message : '完整性校验失败')
+    // 失败落进结果卡（不再只弹 toast：toast 一关，失败就无从查证）
+    verifyError.value = (e && e.message) ? e.message : '完整性校验失败'
   } finally {
     verifying.value = false
   }
+}
+function closeVerify() {
+  verify.value = null
+  verifyError.value = ''
+  verifyAt.value = ''
 }
 
 async function exportCSV() {
@@ -501,16 +649,14 @@ function applyDeepLink() {
   if (typeof rid === 'string' && rid.trim()) filters.requestId = rid.trim()
 }
 
-// clearRequestId 关掉"只看这一次操作"这个条件，并把它从地址栏一起摘掉：
+// 关掉"只看这一次操作"这个条件时，要把它从地址栏一起摘掉：
 // 只清状态不清 URL 的话，刷新一次条件又回来了，用户会以为关不掉。
-function clearRequestId() {
-  filters.requestId = ''
+function stripRequestIdFromURL() {
   if (route.query.requestId) {
     const query = { ...route.query }
     delete query.requestId
     router.replace({ path: route.path, query })
   }
-  applyFilters()
 }
 
 // openChanges 打开「本次改动」：一次操作 = 一次请求 = 一个关联 id，
@@ -550,33 +696,32 @@ onUnmounted(() => { latestRequest++; latestChanges++ })
 .audit-view { display: flex; flex-direction: column; gap: 16px; }
 .audit-error :deep(.el-button--primary) { font-size: 13px; }
 /* 完整性校验结果卡：三档配色由 el-tag 的 type 决定（success/warning/danger） */
-.audit-verify { padding: 12px 16px; }
+.audit-verify { padding: 0; }
 .verify-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.verify-summary { font-size: 13px; color: var(--text); }
-.verify-breaks { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--danger, #d9534f); }
-.verify-extra, .verify-note { margin-top: 6px; font-size: 13px; color: var(--text-muted); }
+.verify-spacer { flex: 1; }
+.verify-summary { font-size: 13px; color: var(--t1); }
+.verify-time { font-size: 12px; color: var(--t3); }
+.verify-err { margin-top: var(--desc-base); }
+.verify-breaks { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--danger); }
+/* 描述段统一走 --desc-base（§1.6）：此前 .verify-note 6px 是全站最贴脸的距离 */
+.verify-extra, .verify-note { margin-top: var(--desc-base); font-size: 13px; color: var(--t3); }
 /* 常驻边界说明：这不是"不可删除"，不能给人虚假的安全感 */
 .verify-caveat {
-  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--bd);
-  font-size: 12px; color: var(--text-muted);
+  margin-top: var(--desc-base); padding-top: 8px; border-top: 1px dashed var(--bd);
+  font-size: 12px; color: var(--t3);
 }
-/* 页头与筛选分离：筛选条独立成一张薄卡，不再和标题挤在同一个容器里 */
-.filter-bar { padding: 12px 16px; }
-.toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
-.filters { display: flex; flex-wrap: wrap; gap: 8px; }
-.filters .el-input { width: 180px; }
-.method { display: inline-block; min-width: 48px; margin-right: 8px; color: var(--accent, #4a9df0); font-size: 13px; font-weight: 700; }
+/* 页头与筛选分离：筛选条走全局 .filter-bar（§1.5），不再自建 .card 双层包裹 */
+.method { display: inline-block; min-width: 48px; margin-right: 8px; color: var(--accent); font-size: 13px; font-weight: 700; }
 .method-post, .method-put, .method-patch, .method-delete { color: var(--warn); }
-.path { color: var(--text); font-family: var(--mono); font-size: 13px; }
-.change-summary { display: flex; flex-direction: column; gap: 3px; color: var(--text-muted); font-size: 13px; }
+.path { color: var(--t1); font-family: var(--mono); font-size: 13px; }
+.change-summary { display: flex; flex-direction: column; gap: 3px; color: var(--t3); font-size: 13px; }
 /* 按语义类名上色（不用 nth-child：三段都是条件渲染，位置会变） */
 .change-summary .cs-changed { color: var(--warn); }
 .change-summary .cs-added { color: var(--ok); }
 .change-summary .cs-removed { color: var(--danger); }
-.muted { color: var(--text-muted); font-size: 13px; }
 .mono { font-family: var(--mono); }
 /* 删除/旧值用删除线：与资产页的变更 diff 同一读法（那里也是"旧值划线 + 新值加粗"） */
-.struck { color: var(--text-muted); text-decoration: line-through; }
+.struck { color: var(--t3); text-decoration: line-through; }
 /* 「本次改动」抽屉：头部先把"这是哪一次操作"说清楚，再列改动 */
 .changes-head {
   display: flex;
@@ -584,13 +729,22 @@ onUnmounted(() => { latestRequest++; latestChanges++ })
   gap: 4px;
   margin-bottom: 12px;
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-bottom: 1px solid var(--bd);
   font-size: 13px;
 }
 .asset-cell { display: flex; flex-direction: column; gap: 2px; line-height: 1.3; font-size: 13px; }
 .source-cell { display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
 .source-ip { font-family: var(--mono); font-size: 13px; }
-.source-loc { font-size: 13px; color: var(--text-muted); }
+.source-loc { font-size: 13px; color: var(--t3); }
 .source-loc--unknown { font-style: italic; opacity: 0.7; }
-@media (max-width: 720px) { .toolbar { width: 100%; } }
+.time-cell { display: flex; flex-direction: column; line-height: 1.35; }
+.time-clock { color: var(--t3); font-size: 12px; }
+
+/* 窄屏：筛选条控件两两占行，时间选择器独占整行。
+   .filter-bar 自身已 flex-wrap，这里只调整"每行几个"，避免 6 个控件挤成一列。
+   用 :deep 提升特异度，压过全局 .w-* 的固定宽度。 */
+@media (max-width: 1024px) {
+  .filter-bar :deep(.el-date-editor.w-xl) { width: 100%; flex: 1 1 100%; }
+  .filter-bar :deep(.el-input.w-m) { width: calc(50% - 5px); }
+}
 </style>

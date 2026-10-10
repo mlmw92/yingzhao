@@ -5,38 +5,47 @@
       desc="把每个资产的配置快照与上一次快照比（新增 / 变更 / 缺失），再与「标杆资产」的期望值比合规偏差；只给结论，不自动修复"
     >
       <template #actions>
-        <el-button size="small" plain :icon="Printer" @click="printList">打印</el-button>
+        <el-button
+          size="small"
+          plain
+          :icon="Printer"
+          :title="printHint"
+          @click="printList"
+        >
+          {{ printLabel }}
+        </el-button>
       </template>
     </PageHeader>
 
-    <!-- 执行区：范围复用台账筛选（服务端仍按资源范围裁剪，前端只是体验） -->
-    <div class="card panel">
-      <div class="filter-bar">
+    <!-- 执行区（现在跑一次）：范围复用台账筛选（服务端仍按资源范围裁剪，前端只是体验） -->
+    <SectionCard title="执行巡检" subtitle="现在跑一次：按下方范围立即巡检，只出结论、不改配置">
+      <div class="filter-bar inline">
         <div class="field">
           <span class="field-label">类型</span>
-          <el-select v-model="filter.type" placeholder="全部类型" clearable size="small" style="width: 150px">
+          <el-select v-model="filter.type" placeholder="全部类型" clearable size="small" class="w-s">
             <el-option v-for="t in assetTypes" :key="t.key" :label="t.title" :value="t.key" />
           </el-select>
         </div>
         <div class="field">
           <span class="field-label">归属节点</span>
-          <el-input v-model="filter.node" clearable size="small" placeholder="如 web-01" style="width: 150px" />
+          <el-input v-model="filter.node" clearable size="small" placeholder="如 web-01" class="w-s" />
         </div>
-        <el-input v-model="filter.keyword" clearable size="small" placeholder="关键词（名称 / 自然键 / 属性值）" style="width: 240px" />
+        <el-input v-model="filter.keyword" clearable size="small" placeholder="关键词（名称 / 自然键 / 属性值）" class="w-l" />
         <el-button type="primary" size="small" :loading="running" :disabled="!canRun" @click="runInspect">
           执行巡检
         </el-button>
-        <span v-if="!canRun" class="muted">当前账号缺 inspect:run 权限，只能查看历史结果</span>
+        <span v-if="running" class="muted" aria-live="polite">已运行 {{ elapsedSec }}s…</span>
+        <span v-else-if="!canRun" class="muted">当前账号缺 inspect:run 权限，只能查看历史结果</span>
         <span v-else class="muted">运行态字段（up / status 等）默认不参与比对，避免探活翻转把差异清单淹掉</span>
       </div>
-    </div>
+    </SectionCard>
 
-    <!-- 周期化巡检：默认关闭，打开后按间隔自动跑一次。
+    <!-- 周期化巡检（以后自动跑）：默认关闭，打开后按间隔自动跑一次。
          与上方「执行巡检」的分工：那个是"现在跑一次"，这里是"以后每隔一段时间自动跑一次"。
          界面刻意**不提供范围开关**：范围由服务端按配置保存者的身份折算，并随他权限收窄——
          范围是授权的一部分，不是页面上的一个选项（否则受限用户能靠勾一个更宽的范围越权）。 -->
-    <SectionCard title="周期化巡检">
-      <div class="filter-bar">
+    <SectionCard title="周期化巡检" subtitle="以后自动跑：按间隔定时巡检，范围由服务端按配置保存者身份折算">
+      <div class="filter-bar inline">
         <el-switch v-model="schedule.enabled" :disabled="!canRun" @change="saveSchedule" />
         <span class="muted">每</span>
         <el-input-number
@@ -54,7 +63,7 @@
           placeholder="全部类型"
           clearable
           size="small"
-          style="width: 140px"
+          class="w-s"
           :disabled="!canRun"
           @change="saveSchedule"
         >
@@ -65,7 +74,7 @@
           clearable
           size="small"
           placeholder="归属节点"
-          style="width: 130px"
+          class="w-s"
           :disabled="!canRun"
           @change="saveSchedule"
         />
@@ -74,16 +83,17 @@
           clearable
           size="small"
           placeholder="关键词"
-          style="width: 170px"
+          class="w-m"
           :disabled="!canRun"
           @change="saveSchedule"
         />
         <el-button size="small" :loading="scheduleRunning" :disabled="!canRun" @click="runScheduleNow">
           立即执行一次
         </el-button>
-        <span v-if="!canRun" class="muted">缺 inspect:run 权限，只能查看</span>
+        <span v-if="scheduleRunning" class="muted" aria-live="polite">已运行 {{ elapsedSec }}s…</span>
+        <span v-else-if="!canRun" class="muted">缺 inspect:run 权限，只能查看</span>
       </div>
-      <div class="muted schedule-hint">
+      <div class="muted muted-base">
         <template v-if="scheduleLoadError">{{ scheduleLoadError }}</template>
         <template v-else-if="schedule.lastRunAt">
           上次{{ schedule.lastManual ? '手动' : '定时' }}执行 {{ fmtTime(schedule.lastRunAt) }}
@@ -108,6 +118,7 @@
     <!-- 巡检记录 -->
     <SectionCard title="巡检记录" dense>
       <el-table
+        ref="runsTableRef"
         :data="runs"
         v-loading="loading"
         highlight-current-row
@@ -123,13 +134,14 @@
             ]"
           />
         </template>
-      >
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ fmtTime(row.startedAt) }}</template>
         </el-table-column>
         <el-table-column label="范围" width="200">
-          <template #default="{ row }">            <span v-if="row.partialScope" class="muted">当前可见范围（局部结果）</span>
-            <span v-else class="mono">{{ row.scope }}</span></template>
+          <template #default="{ row }">
+            <span v-if="row.partialScope" class="muted">当前可见范围（局部结果）</span>
+            <span v-else class="mono">{{ row.scope }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="覆盖资产" width="100" prop="assets" />
         <el-table-column label="首次建基线" width="120">
@@ -160,72 +172,150 @@
           </template>
         </el-table-column>
       </el-table>
-      <p v-if="runs.some(row => row.partialScope)" class="muted note">覆盖资产、首次建基线和差异项均按当前可见资产重算；这不是原巡检的全量结论。</p>
-      <p v-if="runs.length" class="muted note">点击一行查看该次巡检的差异项。</p>
+      <p v-if="runs.some(row => row.partialScope)" class="muted muted-base">覆盖资产、首次建基线和差异项均按当前可见资产重算；这不是原巡检的全量结论。</p>
+      <p v-if="runs.length" class="muted muted-base">点击一行查看该次巡检的差异项。</p>
     </SectionCard>
 
-    <!-- 差异项 -->
-    <SectionCard v-if="selectedRun" dense>
+    <!-- 差异项：**常驻**（未选中时给引导空态，选中后显示"记录 #N · 时间"标题条并高亮记录行）。
+         与记录列表平级并排会让人不知道"这块属于谁"，常驻 + 标题条把从属关系写死在视觉上。 -->
+    <SectionCard
+      title="差异项"
+      dense
+      :error="findingError"
+      error-retry
+      :loading="findingLoading && !!selectedRun"
+      @retry="reloadFindings"
+    >
       <template #actions>
-        <div class="panel-title" style="margin: 0">
-          差异项（{{ findings.length }}）
-          <span v-if="selectedRun.partialScope" class="muted">· 仅显示当前可见资产的局部差异</span>
-          <span class="muted">· 记录 #{{ selectedRun.id }} · {{ fmtTime(selectedRun.startedAt) }}</span>
+        <div v-if="selectedRun" class="panel-title" style="margin: 0">
+          记录 #{{ selectedRun.id }} · {{ fmtTime(selectedRun.startedAt) }}
+          <span v-if="selectedRun.partialScope" class="muted">· 仅当前可见资产的局部差异</span>
+          <span class="muted">· {{ filteredFindings.length }} 条 · 涉及 {{ assetCount }} 个资产</span>
         </div>
       </template>
-      <el-alert
-        v-if="selectedRun.baselined > 0"
-        type="info"
-        :closable="false"
-        show-icon
-        class="alert-gap"
-        :title="`本次有 ${selectedRun.baselined} 个资产是首次见到，只建立了基线`"
-        description="数据不足不等于不合规：首次巡检没有可比对的上一份快照，所以它们不会产出差异。下一次巡检起就会比对。"
+
+      <!-- 未选中记录：给引导，而不是整块消失（消失会让人不知道点行会发生什么） -->
+      <EmptyState
+        v-if="!selectedRun"
+        title="未选择巡检记录"
+        :hints="[
+          '点击上方「巡检记录」里的任意一行，这里会显示那一次巡检的差异项',
+          '首次巡检只建立基线，因此可能没有差异',
+        ]"
       />
-      <el-table :data="findings" v-loading="findingLoading" style="width: 100%">
-        <template #empty>
-          <EmptyState
-            :title="selectedRun.partialScope ? '当前可见资产没有差异' : '本次没有差异'"
-            :hints="selectedRun.partialScope ? ['这里只代表当前可见资产，不能推断其他资产的巡检结果'] : ['所选范围内所有资产的配置与上一次快照一致，也没有偏离标杆']"
+
+      <template v-else>
+        <el-alert
+          v-if="selectedRun.baselined > 0"
+          type="info"
+          :closable="false"
+          show-icon
+          class="alert-gap"
+          :title="`本次有 ${selectedRun.baselined} 个资产是首次见到，只建立了基线`"
+          description="数据不足不等于不合规：首次巡检没有可比对的上一份快照，所以它们不会产出差异。下一次巡检起就会比对。"
+        />
+
+        <!-- 差异项筛选（级别 / 类型 / 资产关键词）——差异可能上百条，没有筛选就只能翻页硬找 -->
+        <div class="filter-bar inline">
+          <el-select v-model="findingFilter.level" placeholder="全部级别" clearable size="small" class="w-s">
+            <el-option label="提示" value="info" />
+            <el-option label="警告" value="warning" />
+            <el-option label="严重" value="critical" />
+          </el-select>
+          <el-select v-model="findingFilter.kind" placeholder="全部差异类型" clearable size="small" class="w-s">
+            <el-option label="新增" value="added" />
+            <el-option label="变更" value="changed" />
+            <el-option label="缺失" value="missing" />
+            <el-option label="合规偏差" value="deviation" />
+          </el-select>
+          <el-input
+            v-model="findingFilter.keyword"
+            clearable
+            size="small"
+            placeholder="资产名 / 自然键 / 字段"
+            class="w-l"
           />
-        </template>
-        <el-table-column label="级别" width="90">
-          <template #default="{ row }">
-            <span class="tag" :class="row.level">{{ levelLabel(row.level) }}</span>
+          <span class="muted">共 {{ filteredFindings.length }} 条差异，按资产分组</span>
+        </div>
+
+        <el-table :data="pagedFindings" :span-method="spanMethod" style="width: 100%">
+          <template #empty>
+            <EmptyState
+              :title="findings.length ? '当前筛选没有匹配的差异项' : (selectedRun.partialScope ? '当前可见资产没有差异' : '本次没有差异')"
+              :hints="findings.length
+                ? ['清空筛选条件可查看全部差异项']
+                : (selectedRun.partialScope
+                  ? ['这里只代表当前可见资产，不能推断其他资产的巡检结果']
+                  : ['所选范围内所有资产的配置与上一次快照一致，也没有偏离标杆'])"
+            />
           </template>
-        </el-table-column>
-        <el-table-column label="差异" width="100">
-          <template #default="{ row }">{{ kindLabel(row.kind) }}</template>
-        </el-table-column>
-        <el-table-column label="资产" min-width="200">
-          <template #default="{ row }">
-            <span class="name">{{ row.assetName || row.assetKey }}</span>
-            <div class="sub">{{ row.assetKey }}<template v-if="row.node"> · {{ row.node }}</template>
-              <template v-if="row.assetType === 'host'"> · 主机</template>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="字段" width="160">
-          <template #default="{ row }"><span class="mono">{{ row.field }}</span></template>
-        </el-table-column>
-        <el-table-column label="期望值" min-width="160">
-          <template #default="{ row }">
-            <span v-if="row.expected">{{ row.expected }}</span>
-            <span v-else class="muted">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="实际值" min-width="160">
-          <template #default="{ row }">
-            <span v-if="row.actual">{{ row.actual }}</span>
-            <span v-else class="muted">（字段已缺失）</span>
-          </template>
-        </el-table-column>
-      </el-table>
+          <el-table-column label="级别" width="90">
+            <template #default="{ row }">
+              <StatusPill :tone="LEVEL_TONE[row.level] || 'muted'" dot :text="levelLabel(row.level)" />
+            </template>
+          </el-table-column>
+          <el-table-column label="差异类型" width="120">
+            <template #default="{ row }">
+              <StatusPill
+                :tone="KIND_TONE[row.kind] || 'muted'"
+                :icon="KIND_ICON[row.kind]"
+                :text="kindLabel(row.kind)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column label="资产" prop="assetKey" min-width="200">
+            <template #default="{ row }">
+              <span class="name">{{ row.assetName || row.assetKey }}</span>
+              <div class="sub">
+                {{ row.assetKey }}<template v-if="row.node"> · {{ row.node }}</template>
+                <template v-if="row.assetType === 'host'"> · 主机</template>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="字段" width="160">
+            <template #default="{ row }"><span class="mono">{{ row.field }}</span></template>
+          </el-table-column>
+          <!-- 真 diff：期望（划掉）→ 实际。四类各自视觉编码，缺失/新增不靠占位符 -->
+          <el-table-column label="变更" min-width="300">
+            <template #default="{ row }">
+              <span v-if="row.kind === 'added'" class="diff">
+                <span class="muted">（原无）</span>
+                <span class="diff-arrow">→</span>
+                <b class="diff-new">{{ row.actual || '（空）' }}</b>
+              </span>
+              <span v-else-if="row.kind === 'missing'" class="diff">
+                <span class="struck">{{ row.expected || '（空）' }}</span>
+                <span class="diff-arrow">→</span>
+                <span class="diff-miss">（字段已缺失）</span>
+              </span>
+              <span v-else class="diff">
+                <span class="struck">{{ row.expected || '（空）' }}</span>
+                <span class="diff-arrow">→</span>
+                <b class="diff-new">{{ row.actual || '（已清除）' }}</b>
+              </span>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div v-if="filteredFindings.length > pageSize" class="pager">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            :total="filteredFindings.length"
+            :page-sizes="[20, 50, 100]"
+            layout="total, sizes, prev, pager, next"
+            size="small"
+          />
+        </div>
+      </template>
     </SectionCard>
 
     <!-- 期望值（标杆） -->
     <SectionCard title="期望值（标杆资产）" dense>
-      <p class="muted note">
+      <template #actions>
+        <el-button link type="primary" size="small" @click="goAssets">去资产台账设置标杆</el-button>
+      </template>
+      <p class="muted">
         合规偏差（deviation）的期望值来自「标杆」：在资产台账详情里把一台标准机设为该类型的期望值。
         每个资产类型只保留一个标杆；未设置标杆时只做快照前后比对。
       </p>
@@ -234,6 +324,8 @@
           <EmptyState
             title="当前可见范围内没有标杆资产"
             :hints="['可在资产台账详情里将可见资产设为该类型的标杆', '范围外标杆不会用于当前权限范围内的巡检']"
+            action-text="去资产台账"
+            @action="goAssets"
           />
         </template>
         <el-table-column label="资产类型" width="160">
@@ -260,12 +352,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Printer } from '@element-plus/icons-vue'
+import { Printer, CirclePlus, Edit, CircleClose, WarningFilled } from '@element-plus/icons-vue'
 import PageHeader from '../common/PageHeader.vue'
 import SectionCard from '../common/SectionCard.vue'
 import EmptyState from '../common/EmptyState.vue'
+import StatusPill from '../common/StatusPill.vue'
 import {
   runInspect as runInspectApi,
   listInspectRuns,
@@ -287,6 +381,9 @@ const { types: assetTypes } = useAssetTypes()
 const canRun = computed(() => auth.can('inspect:run'))
 const canWrite = computed(() => auth.can('assets:write'))
 
+// 测试环境可能没装 router（mount 时不注入）——用可选链兜底，缺 router 时跳转静默不生效
+const router = useRouter()
+
 const filter = ref({ type: '', node: '', keyword: '' })
 const runs = ref([])
 const findings = ref([])
@@ -294,7 +391,14 @@ const baselines = ref([])
 const selectedRun = ref(null)
 const loading = ref(false)
 const findingLoading = ref(false)
+const findingError = ref('')
 const running = ref(false)
+const runsTableRef = ref(null)
+
+// 差异项筛选（客户端）：级别 / 差异类型 / 资产关键词
+const findingFilter = ref({ level: '', kind: '', keyword: '' })
+const page = ref(1)
+const pageSize = ref(20)
 
 // 周期化巡检（配置与运行状态同文件；默认关闭）。
 // 这里只放可编辑的四项 + 运行状态；**范围**不在其中——它由服务端按身份折算。
@@ -319,13 +423,41 @@ const KIND_LABELS = { added: '新增', changed: '变更', missing: '缺失', dev
 const kindLabel = (k) => KIND_LABELS[k] || k
 const LEVEL_LABELS = { info: '提示', warning: '警告', critical: '严重' }
 const levelLabel = (l) => LEVEL_LABELS[l] || l
+// 四类差异的视觉编码：色 + 文案 + 图标（三重，不只靠颜色）
+const KIND_TONE = { added: 'info', changed: 'warn', missing: 'danger', deviation: 'warn' }
+const KIND_ICON = { added: CirclePlus, changed: Edit, missing: CircleClose, deviation: WarningFilled }
+const LEVEL_TONE = { info: 'info', warning: 'warn', critical: 'danger' }
 
 function fmtTime(ts) {
   if (!ts) return '—'
   return new Date(ts).toLocaleString('zh-CN', { hour12: false })
 }
 
+// 执行耗时：巡检可能跑十几秒，只有按钮转圈会让人以为卡死
+const elapsedSec = ref(0)
+let elapsedTimer = null
+function startElapsed() {
+  elapsedSec.value = 0
+  if (elapsedTimer) clearInterval(elapsedTimer)
+  const startedAt = Date.now()
+  elapsedTimer = setInterval(() => {
+    elapsedSec.value = Math.floor((Date.now() - startedAt) / 1000)
+  }, 1000)
+}
+function stopElapsed() {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+}
+onUnmounted(stopElapsed)
+
 // 巡检结论经常要作为整改工单的附件；选中了某次巡检就只打那次的差异项
+const printLabel = computed(() => (selectedRun.value ? '打印本次差异项' : '打印巡检记录'))
+const printHint = computed(() =>
+  selectedRun.value ? '打印当前选中巡检记录的差异项' : '打印上方巡检记录列表',
+)
+
 function printList() {
   const meta = []
   if (selectedRun.value) {
@@ -339,6 +471,62 @@ function printList() {
     if (filter.value.keyword) meta.push(`关键词=${filter.value.keyword}`)
   }
   printPage({ title: '配置巡检', meta })
+}
+
+// ---- 差异项筛选 / 分组 / 分页 ----
+const filteredFindings = computed(() => {
+  const f = findingFilter.value
+  const kw = (f.keyword || '').trim().toLowerCase()
+  return findings.value.filter((r) => {
+    if (f.level && r.level !== f.level) return false
+    if (f.kind && r.kind !== f.kind) return false
+    if (kw) {
+      const hay = [r.assetName, r.assetKey, r.node, r.field].filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(kw)) return false
+    }
+    return true
+  })
+})
+
+// 按资产分组：先按自然键排序，再用 span-method 合并同一资产的「资产」列单元格
+const sortedFindings = computed(() => {
+  const arr = [...filteredFindings.value]
+  arr.sort((a, b) => {
+    const ka = a.assetKey || ''
+    const kb = b.assetKey || ''
+    return ka < kb ? -1 : ka > kb ? 1 : 0
+  })
+  return arr
+})
+
+const pagedFindings = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return sortedFindings.value.slice(start, start + pageSize.value)
+})
+
+const assetCount = computed(() => new Set(filteredFindings.value.map((r) => r.assetKey)).size)
+
+// 筛选变化时回到第一页（否则会停在一个空页上）
+watch(findingFilter, () => { page.value = 1 }, { deep: true })
+
+// el-table 的合并单元格：同一资产在「资产」列上纵向合并，形成分组视觉
+function spanMethod({ row, column, rowIndex }) {
+  if (column.property !== 'assetKey') return
+  const rows = pagedFindings.value
+  const key = row.assetKey
+  if (rowIndex > 0 && rows[rowIndex - 1] && rows[rowIndex - 1].assetKey === key) {
+    return { rowspan: 0, colspan: 0 }
+  }
+  let span = 1
+  for (let i = rowIndex + 1; i < rows.length; i++) {
+    if (rows[i].assetKey === key) span++
+    else break
+  }
+  return { rowspan: span, colspan: 1 }
+}
+
+function goAssets() {
+  router?.push('/assets')
 }
 
 async function loadRuns() {
@@ -366,19 +554,29 @@ async function loadBaselines() {
 async function selectRun(row) {
   selectedRun.value = row
   findings.value = []
+  findingError.value = ''
+  page.value = 1
+  // 高亮记录行：从"现在跑一次"回来时也要能看出这块差异属于哪条记录
+  runsTableRef.value?.setCurrentRow?.(row)
   findingLoading.value = true
   try {
     const data = await listInspectFindings(row.id)
     findings.value = (data && data.findings) || []
   } catch (e) {
-    ElMessage.error(e.message || '加载差异项失败')
+    // 差异项加载失败要给错误态 + 重试（原来只 toast，整块会停在空白上）
+    findingError.value = e.message || '加载差异项失败'
   } finally {
     findingLoading.value = false
   }
 }
 
+function reloadFindings() {
+  if (selectedRun.value) selectRun(selectedRun.value)
+}
+
 async function runInspect() {
   running.value = true
+  startElapsed()
   try {
     const run = await runInspectApi({ ...filter.value })
     ElMessage.success(`巡检完成：覆盖 ${run.assets} 个资产，差异 ${run.findings} 条`)
@@ -388,6 +586,7 @@ async function runInspect() {
   } catch (e) {
     ElMessage.error(e.message || '执行巡检失败')
   } finally {
+    stopElapsed()
     running.value = false
   }
 }
@@ -443,6 +642,7 @@ async function saveSchedule() {
 async function runScheduleNow() {
   if (!canRun.value) return
   scheduleRunning.value = true
+  startElapsed()
   try {
     const run = await runInspectScheduleNow()
     ElMessage.success(`巡检完成：覆盖 ${run.assets} 个资产，差异 ${run.findings} 条`)
@@ -451,6 +651,7 @@ async function runScheduleNow() {
   } catch (e) {
     ElMessage.error(e.message || '执行巡检失败')
   } finally {
+    stopElapsed()
     scheduleRunning.value = false
     // 无论成败都刷新：失败/未执行的原因在 lastError 里，界面上要能看到
     await loadSchedule()
@@ -487,35 +688,31 @@ onMounted(() => {
 <style scoped>
 /* 内边距由 MainLayout 的 .content 统一提供，页面不再自己套一层 */
 .view { padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.muted { color: var(--text-dim); font-size: 13px; }
-.panel { padding: 12px 16px; }
-.panel-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
-.panel-title .muted { font-weight: 400; font-size: 13px; }
-.filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--fill-1);
-}
+.panel-title { font-size: var(--fs-base); font-weight: 600; margin-bottom: 12px; }
+.panel-title .muted { font-weight: 400; font-size: var(--fs-sm); }
 .field { display: inline-flex; align-items: center; gap: 6px; }
-.field-label { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+.field-label { font-size: var(--fs-sm); color: var(--t3); white-space: nowrap; }
 .mono { font-family: var(--mono); }
-.note { margin: 10px 0 0; line-height: 20px; }
-/* 周期化巡检：控件行沿用执行区那套 .filter-bar；下面这行小字与失败告警与报告页同一读法 */
-.schedule-hint { margin-top: 10px; }
-.tip { margin-top: 10px; }
+.note { margin: var(--desc-base) 0 0; line-height: 20px; }
+/* SectionCard 内的筛选行：去掉 .filter-bar 自带的边框/底色/padding，
+   否则卡片里再套一层带边框的框 = 双层边框（PS-11 原问题）。 */
+.filter-bar.inline {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin-bottom: 0;
+}
+.tip { margin-top: var(--desc-base); }
 .alert-gap { margin-bottom: 12px; }
 .has-finding { color: var(--warn); font-weight: 600; }
-.warn-text { color: var(--warn); font-size: 13px; }
+.warn-text { color: var(--warn); font-size: var(--fs-sm); }
 .name { color: var(--accent); font-weight: 500; }
-.sub { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
-/* 级别标签：与台账页同一套语义配色 */
-.tag { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 20px; font-size: 13px; font-weight: 500; }
-.tag.info { background: var(--fill-2); color: var(--text-dim); }
-.tag.warning { background: var(--warn-dim); color: var(--warn); }
-.tag.critical { background: var(--danger-dim); color: var(--danger); }
+.sub { color: var(--t3); font-size: var(--fs-xs); margin-top: 2px; }
+/* 真 diff：期望（划掉）→ 实际 */
+.diff { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.diff-arrow { color: var(--t3); }
+.struck { color: var(--t3); text-decoration: line-through; }
+.diff-new { color: var(--t1); font-weight: 600; }
+.diff-miss { color: var(--danger); }
+.pager { display: flex; justify-content: flex-end; margin-top: 12px; }
 </style>

@@ -102,7 +102,7 @@ async function saveNickname() {
 .page-sub {
   margin: 6px 0 0;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t3);
 }
 .card-title {
   font-size: 15px;
@@ -130,7 +130,7 @@ async function saveNickname() {
   margin-left: 6px;
 }
 .muted {
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .actions {
   margin-top: 4px;

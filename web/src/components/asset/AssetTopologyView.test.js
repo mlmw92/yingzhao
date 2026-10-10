@@ -1,8 +1,11 @@
-// 关系视图（全库）的用例（批次 22）。
+// 关系视图（全库）的用例（批次 22，批次 12 补四态）。
 //
 // 这一页最容易出的两类问题都**不报错**，所以用例盯的就是它们：
 //   ① 点总览的一行没把筛选带全 → 图看起来"点了没反应"，或者把别的类型也带进来（那是用户没点的东西）；
 //   ② 命中关系被上限截断却不说 → 用户以为"关系就这么多"，那正是这张图存在的意义所在。
+//
+// 批次 12 追加：总览与图各自持有 loading / error——一段接口挂了不该让另一段一起变空，
+// 也不该在数据还没回来时显示"没有关系"（那是误导，不是空态）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
@@ -72,6 +75,8 @@ function mountView() {
     attachTo: document.body,
   })
 }
+
+const findButton = (wrapper, text) => wrapper.findAll('button').find((b) => b.text().includes(text))
 
 describe('关系视图（全库）', () => {
   let wrapper
@@ -170,5 +175,86 @@ describe('关系视图（全库）', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('统计资产关系失败')
+  })
+
+  // —— 批次 12：两段各自四态 ——
+
+  it('关系图加载失败时给出错误与重试，总览不受影响', async () => {
+    getTopologyGraph.mockRejectedValue(new Error('查询资产关系图失败'))
+    wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('关系图加载失败')
+    expect(wrapper.text()).toContain('查询资产关系图失败')
+    // 总览是另一条请求，不该跟着一起变空
+    expect(wrapper.text()).toContain('运行于')
+    expect(wrapper.text()).toContain('45')
+    // 错误态要能重试
+    expect(findButton(wrapper, '重试')).toBeTruthy()
+  })
+
+  it('关系图错误态点重试会重新拉取并恢复', async () => {
+    getTopologyGraph.mockRejectedValue(new Error('boom'))
+    wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('boom')
+
+    getTopologyGraph.mockClear()
+    getTopologyGraph.mockResolvedValue(GRAPH)
+    await findButton(wrapper, '重试').trigger('click')
+    await flushPromises()
+
+    expect(getTopologyGraph).toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('boom')
+    expect(wrapper.findComponent(TopologyGraph).exists()).toBe(true)
+  })
+
+  it('总览错误态点重试会重新拉取', async () => {
+    getLinkStats.mockRejectedValue(new Error('统计失败'))
+    wrapper = mountView()
+    await flushPromises()
+
+    getLinkStats.mockClear()
+    getLinkStats.mockResolvedValue({ groups: GROUPS, totalLinks: 45, assetsWithoutLinks: 12 })
+    await findButton(wrapper, '重试').trigger('click')
+    await flushPromises()
+
+    expect(getLinkStats).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('运行于')
+  })
+
+  // 首次加载（还没有任何边）时不能显示"当前筛选下没有关系"——那是空态语义，
+  // 数据没回来就写这句会让人以为筛选把关系全过滤掉了。
+  it('关系图首次加载未返回时显示加载骨架而不是"没有关系"空态', async () => {
+    let resolveGraph
+    getTopologyGraph.mockReturnValue(new Promise((r) => { resolveGraph = r }))
+    wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('当前筛选下没有关系')
+    expect(wrapper.find('[aria-busy="true"]').exists()).toBe(true)
+
+    resolveGraph(GRAPH)
+    await flushPromises()
+    expect(wrapper.findComponent(TopologyGraph).exists()).toBe(true)
+  })
+
+  it('切筛选时把 loading 透传给关系图（旧图停留有反馈）', async () => {
+    wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findComponent(TopologyGraph).props('loading')).toBe(false)
+
+    let resolveGraph
+    getTopologyGraph.mockReturnValue(new Promise((r) => { resolveGraph = r }))
+    const selects = wrapper.findAllComponents({ name: 'ElSelect' })
+    await selects[0].vm.$emit('change')
+    await flushPromises()
+
+    // 旧图还在（edges 未清空），但 loading 已置起 → 图上盖遮罩，不会读成"点了没反应"
+    expect(wrapper.findComponent(TopologyGraph).props('loading')).toBe(true)
+
+    resolveGraph(GRAPH)
+    await flushPromises()
+    expect(wrapper.findComponent(TopologyGraph).props('loading')).toBe(false)
   })
 })

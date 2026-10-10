@@ -12,10 +12,25 @@
     </PageHeader>
 
     <!-- 次级导航条：Tab 与刷新状态合并到同一行。
-         原为独立的 el-tabs 条 + 刷新条两张卡片，纵向占约 160px，首屏只剩 11 行数据。 -->
-    <div class="subnav">
-      <div class="subnav-item" :class="{ on: hostTab === 'hosts' }" @click="hostTab = 'hosts'">普通主机</div>
-      <div class="subnav-item" :class="{ on: hostTab === 'proxy' }" @click="hostTab = 'proxy'">网闸代理 · Hub / Edge</div>
+         原为独立的 el-tabs 条 + 刷新条两张卡片，纵向占约 160px，首屏只剩 11 行数据。
+         用带 role="tab" 的语义控件（而不是 div + @click）：键盘可达、读屏能读出选中态。 -->
+    <div class="subnav" role="tablist" aria-label="主机视图">
+      <button
+        type="button"
+        role="tab"
+        class="subnav-item"
+        :class="{ on: hostTab === 'hosts' }"
+        :aria-selected="hostTab === 'hosts'"
+        @click="hostTab = 'hosts'"
+      >普通主机</button>
+      <button
+        type="button"
+        role="tab"
+        class="subnav-item"
+        :class="{ on: hostTab === 'proxy' }"
+        :aria-selected="hostTab === 'proxy'"
+        @click="hostTab = 'proxy'"
+      >网闸代理 · Hub / Edge</button>
       <div class="subnav-right">
         <el-tooltip :content="refreshInterval === 0 ? '已暂停自动刷新' : `${countdown}s 后刷新`" placement="top">
           <el-button :icon="Refresh" size="small" circle @click="manualRefresh" />
@@ -23,7 +38,7 @@
         <StatusPill v-if="loadError" tone="danger" dot>{{ loadError }}</StatusPill>
         <span class="refresh-text" v-if="lastRefresh && !loadError">上次刷新：{{ lastRefresh }}</span>
         <span class="refresh-label">自动刷新</span>
-        <el-select v-model="refreshInterval" size="small" style="width: 100px" @change="onIntervalChange">
+        <el-select v-model="refreshInterval" size="small" class="w-xs" @change="onIntervalChange">
           <el-option :value="0" label="关闭" />
           <el-option :value="10" label="10 秒" />
           <el-option :value="20" label="20 秒" />
@@ -37,7 +52,7 @@
     <!-- 工具栏：只保留筛选与搜索，主操作已上移到页头。
          主机状态/分组/关键词都是主机维度的筛选口径，网闸代理页签下必须整条隐藏，
          否则会拿主机的「全部/在线/离线」计数去描述代理节点。 -->
-    <div v-if="hostTab === 'hosts'" class="toolbar">
+    <div v-if="hostTab === 'hosts'" class="toolbar filter-bar">
       <div class="toolbar-left">
         <el-radio-group v-model="statusFilter" size="small">
           <el-radio-button value="">全部 ({{ filteredNodes.length }})</el-radio-button>
@@ -45,7 +60,7 @@
           <el-radio-button value="offline">离线 ({{ offlineCount }})</el-radio-button>
           <el-radio-button value="warning">异常 ({{ warningCount }})</el-radio-button>
         </el-radio-group>
-        <el-select v-model="groupFilter" placeholder="分组" clearable size="small" style="width: 120px">
+        <el-select v-model="groupFilter" placeholder="分组" clearable size="small" class="w-s">
           <el-option v-for="g in groups" :key="g.name" :value="g.name" :label="g.name" />
         </el-select>
       </div>
@@ -55,7 +70,7 @@
           placeholder="搜索主机名 / IP"
           size="small"
           clearable
-          style="width: 200px"
+          class="w-l"
           @input="pinnedNode = ''"
           @clear="pinnedNode = ''"
         >
@@ -84,15 +99,17 @@
       dense
     >
       <template #actions>
-        <span v-if="proxyStatus.length" class="proxy-summary">在线 {{ proxyOnlineCount }} / {{ proxyStatus.length }}</span>
+        <span v-if="proxyStatus.length" class="proxy-summary">
+          共 {{ proxyStatus.length }} 个 · 在线 {{ proxyOnlineCount }} / {{ proxyStatus.length }}
+        </span>
       </template>
-      <el-table v-if="proxyStatus.length" :data="proxyStatus" size="small" stripe>
-        <el-table-column prop="node" label="节点" min-width="180" />
+      <el-table v-if="proxyStatus.length" :data="proxyStatus" size="small" stripe row-key="node">
+        <el-table-column prop="node" label="节点" min-width="180" sortable />
         <el-table-column label="角色" width="90"><template #default="{ row }"><el-tag size="small" :type="row.mode === 'hub' ? 'warning' : 'primary'">{{ row.mode === 'hub' ? 'Hub' : 'Edge' }}</el-tag></template></el-table-column>
         <el-table-column label="状态" width="90"><template #default="{ row }"><el-tag size="small" :type="row.online ? 'success' : 'danger'">{{ row.online ? '在线' : '离线' }}</el-tag></template></el-table-column>
-        <el-table-column prop="connActive" label="活跃连接" width="100" />
-        <el-table-column prop="forwardTotal" label="转发请求" width="110" />
-        <el-table-column prop="reconnectTotal" label="重连次数" width="100" />
+        <el-table-column prop="connActive" label="活跃连接" width="110" align="right" sortable />
+        <el-table-column prop="forwardTotal" label="转发请求" width="120" align="right" sortable />
+        <el-table-column prop="reconnectTotal" label="重连次数" width="110" align="right" sortable />
       </el-table>
       <EmptyState
         v-else
@@ -108,6 +125,17 @@
 
     <!-- 主机列表 -->
     <SectionCard v-if="hostTab === 'hosts'" dense>
+      <!-- 窄屏自动收起列时必须说明原因，否则会被读成"我的列不见了"。
+           仅收起元数据列（版本/分组），指标类列任何宽度都保留（§0.4 红线）。 -->
+      <el-alert
+        v-if="autoHiddenCols.length"
+        type="info"
+        :closable="false"
+        show-icon
+        class="narrow-cols-tip"
+        title="窄屏已自动收起「版本 / 分组」列"
+        description="窗口放大到 1280px 以上会自动恢复；CPU / 内存 / 磁盘 / 流量 / 负载等指标类列任何宽度下都保留。"
+      />
       <el-table
         ref="hostTable"
         v-loading="loading"
@@ -128,8 +156,11 @@
             :hints="emptyHints"
           />
         </template>
+        <!-- 列宽重排（D8）：原 12 列合计 1254px，1440 视口下内容区实测 1142px，横向溢出 112px。
+             重排后合计 1128px：只压元数据列（分组/版本）与堆叠列宽度，
+             ❌ 不动 CPU / 内存 / 磁盘使用 三列的进度条（80px 以下会把 mini-bar 挤到 min-width 之下）。 -->
         <el-table-column type="selection" width="44" :reserve-selection="true" />
-        <el-table-column v-if="colVisible('host')" label="主机名称 / IP" prop="hostname" sortable="custom" min-width="160">
+        <el-table-column v-if="colVisible('host')" label="主机名称 / IP" prop="hostname" sortable="custom" min-width="140">
           <template #default="{ row }">
             <div class="host-name">
               <div class="hn-top">
@@ -149,7 +180,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column v-if="colVisible('status')" label="状态" prop="status" sortable="custom" min-width="80">
+        <el-table-column v-if="colVisible('status')" label="状态" prop="status" sortable="custom" min-width="72">
           <template #default="{ row }">
             <span class="status-led" :class="row.status === 'online' ? 'on' : 'off'"></span>
             <span :class="['status-text', row.status === 'online' ? 'on' : 'off']">
@@ -158,7 +189,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column v-if="colVisible('group')" label="分组" prop="group" sortable="custom" min-width="100">
+        <el-table-column v-if="colVisible('group')" label="分组" prop="group" sortable="custom" min-width="76">
           <template #default="{ row }">
             <el-dropdown trigger="click" @command="(cmd) => changeGroup(row, cmd)" @click.stop>
               <span class="group-tag clickable" @click.stop>
@@ -181,7 +212,10 @@
           </template>
         </el-table-column>
 
-        <el-table-column v-if="colVisible('version')" label="Agent 版本" prop="version" sortable="custom" min-width="110">
+        <!-- 表头用「版本」而不是「Agent 版本」：加上排序图标后 110px 容不下 6 个字符，
+             列头会被裁（改动前就已存在）。短表头在主机列表上下文里不产生歧义（唯一版本列，
+             值形如 v1.30.35），同时释放 20px 给其他列。 -->
+        <el-table-column v-if="colVisible('version')" label="版本" prop="version" sortable="custom" min-width="90">
           <template #default="{ row }">
             <span class="ver-cell" :class="verClass(row.version)">
               <span v-if="needUpgrade(row)" class="ver-dot"></span>{{ row.version || '-' }}
@@ -225,7 +259,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column v-if="colVisible('netIn')" label="流量↓/↑" prop="netIn" sortable="custom" min-width="120" align="right">
+        <el-table-column v-if="colVisible('netIn')" label="流量↓/↑" prop="netIn" sortable="custom" min-width="100" align="right">
           <template #default="{ row }">
             <div class="net-traffic" v-if="hasMetric(row)">
               <div>↓ {{ fmtRate(m(row).netIn) }}/s</div>
@@ -235,27 +269,31 @@
           </template>
         </el-table-column>
 
-        <el-table-column v-if="colVisible('load1')" label="负载" prop="load1" sortable="custom" min-width="70">
+        <el-table-column v-if="colVisible('load1')" label="负载" prop="load1" sortable="custom" min-width="72">
           <template #default="{ row }">
             <span :class="['rate-sm', loadClass(row)]">{{ fmtNum(m(row).load1, 2) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column v-if="colVisible('diskRW')" label="磁盘读写" prop="diskRead" sortable="custom" min-width="120">
+        <!-- 磁盘读写：由「读 x / 写 y」一行改为两行堆叠。一行写法在 126px 下要
+             把两个速率挤进同一行（全表最紧的单元格），两行堆叠后每行只有一个数值，
+             宽度由较长一行决定 —— 与「流量↓/↑」的读法保持一致，也不再需要加宽到 140px。 -->
+        <el-table-column v-if="colVisible('diskRW')" label="磁盘读写" prop="diskRead" sortable="custom" min-width="116">
           <template #default="{ row }">
-            <span class="rate mono sm">
-              读{{ fmtRate(m(row).diskRead) }}
-              <small class="sep">/</small>
-              写{{ fmtRate(m(row).diskWr) }}
-            </span>
+            <div class="disk-rw">
+              <div>读 {{ fmtRate(m(row).diskRead) }}/s</div>
+              <div class="rw-write">写 {{ fmtRate(m(row).diskWr) }}/s</div>
+            </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" min-width="170" fixed="right">
+        <el-table-column label="操作" min-width="126" fixed="right">
           <template #default="{ row }">
-            <el-button link size="small" @click.stop="goDetail(row)">详情</el-button>
-            <el-button link size="small" type="warning" @click.stop="upgrade(row)">升级</el-button>
-            <el-button link size="small" type="danger" @click.stop="remove(row)">删除</el-button>
+            <div class="row-ops">
+              <el-button link size="small" @click.stop="goDetail(row)">详情</el-button>
+              <el-button link size="small" type="warning" @click.stop="upgrade(row)">升级</el-button>
+              <el-button link size="small" type="danger" @click.stop="remove(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -280,10 +318,43 @@
           按部署场景选择安装方式：常规直连直接执行安装命令；跨网闸隔离场景使用 Edge/Hub 代理隧道。
         </el-alert>
 
+        <!-- 安装信息（Server 地址 / secret / 命令模板）来自后端 /install-info。
+             取不到时必须显式给错误 + 重试：否则命令区只停在"等待 Server 安装地址加载…"，
+             用户会以为是网络慢，而不是接口失败。 -->
+        <el-alert
+          v-if="installInfoError"
+          type="error"
+          :closable="false"
+          show-icon
+          class="add-tip"
+          title="读取安装信息失败"
+          :description="installInfoError"
+        >
+          <template #default>
+            <el-button size="small" :loading="installInfoLoading" @click="loadInstallInfo">重试</el-button>
+          </template>
+        </el-alert>
+        <div v-else-if="installInfoLoading" class="install-skeleton" aria-busy="true" aria-label="加载安装信息">
+          <div class="sk sk-row" style="width: 62%"></div>
+          <div class="sk sk-row" style="width: 84%"></div>
+        </div>
+
         <el-radio-group v-model="deployScene" size="small" class="scene-tabs">
           <el-radio-button value="direct">直连场景</el-radio-button>
           <el-radio-button value="proxy">网闸代理</el-radio-button>
         </el-radio-group>
+
+        <!-- 锚点导航：网闸代理场景约 10 个分节、纵向很长，没有目录只能一路滚到底。
+             只在代理场景出现（直连场景只有一段命令，加了反而是噪音）。 -->
+        <nav v-if="deployScene === 'proxy'" class="anchor-nav" aria-label="抽屉分节导航">
+          <button
+            v-for="a in proxyAnchors"
+            :key="a.id"
+            type="button"
+            class="anchor-link"
+            @click="scrollToSection(a.id)"
+          >{{ a.label }}</button>
+        </nav>
 
         <!-- 直连场景 -->
         <div v-if="deployScene === 'direct'" class="scene-pane">
@@ -299,7 +370,7 @@
 
         <!-- 网闸代理场景 -->
         <div v-else class="scene-pane">
-          <div class="drawer-section">
+          <div id="sec-intro" class="drawer-section">
             <h4 class="section-label">说明</h4>
             <p class="block-desc">
               适用于两个网区经网闸隔离的场景。区 A 部署 Monitor Server 和 Hub，区 B 部署 Edge 与普通采集
@@ -307,7 +378,7 @@
             </p>
           </div>
 
-          <div class="drawer-section">
+          <div id="sec-tls" class="drawer-section">
             <h4 class="section-label">TLS 证书</h4>
             <p class="section-desc">
               隧道使用 mTLS 双向校验。推荐<b>自动生成</b>：安装时加 <code>--tls-auto</code>，
@@ -355,7 +426,7 @@ openssl x509 -req -in edge.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 36
             </template>
           </div>
 
-          <div class="drawer-section">
+          <div id="sec-hub" class="drawer-section">
             <h4 class="section-label">Hub Proxy（区 A · Server 所在侧）</h4>
             <div class="form-item">
               <label>TLS 监听地址</label><el-input v-model="hubForm.listen" placeholder=":8443" />
@@ -373,7 +444,7 @@ openssl x509 -req -in edge.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 36
             </template>
           </div>
 
-          <div class="drawer-section">
+          <div id="sec-edge" class="drawer-section">
             <h4 class="section-label">Edge Proxy（区 B · 被监控侧）</h4>
             <div class="form-item">
               <label>本地监听地址</label><el-input v-model="edgeForm.listen" placeholder=":18080" />
@@ -407,14 +478,14 @@ openssl x509 -req -in edge.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 36
             </div>
           </div>
 
-          <div class="drawer-section">
+          <div id="sec-cmds" class="drawer-section">
             <h4 class="section-label">Hub 安装命令（区 A 执行）</h4>
-            <div class="cmd-box"><div class="cmd-header"><span class="cmd-label">bash</span><el-button size="small" @click="copy(hubCommand)">复制</el-button></div><pre class="cmd-text">{{ hubCommand }}</pre></div>
+            <details class="cmd-box"><summary class="cmd-header"><span class="cmd-label"><span class="cmd-caret"></span>bash</span><el-button size="small" @click.stop="copy(hubCommand)">复制</el-button></summary><pre class="cmd-text">{{ hubCommand }}</pre></details>
           </div>
 
           <div class="drawer-section">
             <h4 class="section-label">Hub agent.yaml 模板</h4>
-            <div class="cmd-box"><div class="cmd-header"><span class="cmd-label">yaml</span><el-button size="small" @click="copy(hubYaml)">复制</el-button></div><pre class="cmd-text">{{ hubYaml }}</pre></div>
+            <details class="cmd-box"><summary class="cmd-header"><span class="cmd-label"><span class="cmd-caret"></span>yaml</span><el-button size="small" @click.stop="copy(hubYaml)">复制</el-button></summary><pre class="cmd-text">{{ hubYaml }}</pre></details>
           </div>
 
           <div class="drawer-section">
@@ -423,7 +494,7 @@ openssl x509 -req -in edge.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 36
               区 A Agent 与 Monitor Server 位于同一网区，无需经过 Hub 或 Edge。安装脚本、Agent 二进制下载和运行后的指标上报均使用
               Server 地址；直接执行以下命令即可。
             </p>
-            <div class="cmd-box"><div class="cmd-header"><span class="cmd-label">bash</span><el-button size="small" @click="copy(zoneAAgentCommand)">复制</el-button></div><pre class="cmd-text">{{ zoneAAgentCommand }}</pre></div>
+            <details class="cmd-box"><summary class="cmd-header"><span class="cmd-label"><span class="cmd-caret"></span>bash</span><el-button size="small" @click.stop="copy(zoneAAgentCommand)">复制</el-button></summary><pre class="cmd-text">{{ zoneAAgentCommand }}</pre></details>
           </div>
 
           <div class="drawer-section">
@@ -432,12 +503,12 @@ openssl x509 -req -in edge.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 36
               请填写 Edge 经网闸可访问的下载与上报地址。下载地址用于获取安装脚本和二进制；上报地址写入
               Edge 配置，用于发送 <code>proxy_*</code> 自监控指标。
             </p>
-            <div class="cmd-box"><div class="cmd-header"><span class="cmd-label">bash</span><el-button size="small" @click="copy(edgeCommand)">复制</el-button></div><pre class="cmd-text">{{ edgeCommand }}</pre></div>
+            <details class="cmd-box"><summary class="cmd-header"><span class="cmd-label"><span class="cmd-caret"></span>bash</span><el-button size="small" @click.stop="copy(edgeCommand)">复制</el-button></summary><pre class="cmd-text">{{ edgeCommand }}</pre></details>
           </div>
 
           <div class="drawer-section">
             <h4 class="section-label">Edge agent.yaml 模板</h4>
-            <div class="cmd-box"><div class="cmd-header"><span class="cmd-label">yaml</span><el-button size="small" @click="copy(edgeYaml)">复制</el-button></div><pre class="cmd-text">{{ edgeYaml }}</pre></div>
+            <details class="cmd-box"><summary class="cmd-header"><span class="cmd-label"><span class="cmd-caret"></span>yaml</span><el-button size="small" @click.stop="copy(edgeYaml)">复制</el-button></summary><pre class="cmd-text">{{ edgeYaml }}</pre></details>
           </div>
 
           <div class="drawer-section">
@@ -446,10 +517,10 @@ openssl x509 -req -in edge.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 36
               先确认区 B Edge 已启动且已连接 Hub。区 B Agent 的安装脚本、二进制下载、指标上报、实时命令和后续自升级均使用“区 B Agent 安装/上报地址”，
               由 Edge 转发到区 A Hub/Server；普通 Agent 无需直连区 A Server。
             </p>
-            <div class="cmd-box"><div class="cmd-header"><span class="cmd-label">bash</span><el-button size="small" @click="copy(proxyAgentCommand)">复制</el-button></div><pre class="cmd-text">{{ proxyAgentCommand }}</pre></div>
+            <details class="cmd-box"><summary class="cmd-header"><span class="cmd-label"><span class="cmd-caret"></span>bash</span><el-button size="small" @click.stop="copy(proxyAgentCommand)">复制</el-button></summary><pre class="cmd-text">{{ proxyAgentCommand }}</pre></details>
           </div>
 
-          <div class="drawer-section deploy-steps">
+          <div id="sec-steps" class="drawer-section deploy-steps">
             <h4 class="section-label">部署步骤</h4>
             <ol class="steps-list">
               <li><b>区 B 部署 Hub</b>：在监控中心侧主机执行 Hub 安装命令，监听 8443 接收隧道连接并转发至真实 Server。</li>
@@ -473,7 +544,7 @@ openssl x509 -req -in edge.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 36
 
     <!-- 编辑显示名弹窗 -->
     <el-dialog v-model="showNameModal" title="编辑显示名" width="420px" @closed="nameInput = ''">
-      <p style="color: var(--text-dim); margin-bottom: 12px; font-size: 13px">
+      <p style="color: var(--t2); margin-bottom: 12px; font-size: 13px">
         为「{{ nameTarget }}」设置一个便于识别的显示名（别名）。留空则恢复使用原始主机名，不影响 Agent 上报的真实主机名。
       </p>
       <el-input
@@ -540,8 +611,23 @@ const nameTarget = ref('')
 
 // ===== 添加主机：部署场景与安装信息 =====
 const installInfo = ref({ serverURL: '', authEnabled: false, secret: '', command: '' })
+const installInfoLoading = ref(false)
+const installInfoError = ref('')
 const deployScene = ref('direct') // direct | proxy
 const tlsAuto = ref(true) // 网闸代理证书自动生成（推荐）
+
+// 网闸代理场景的锚点目录（与模板里的 section id 一一对应）
+const proxyAnchors = [
+  { id: 'sec-intro', label: '说明' },
+  { id: 'sec-tls', label: 'TLS 证书' },
+  { id: 'sec-hub', label: 'Hub Proxy' },
+  { id: 'sec-edge', label: 'Edge Proxy' },
+  { id: 'sec-cmds', label: '安装命令' },
+  { id: 'sec-steps', label: '部署步骤' },
+]
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 // 网闸代理：Hub / Edge 表单
 const hubForm = reactive({
@@ -664,7 +750,7 @@ const colOptions = [
   { key: 'host', label: '主机名称/IP' },
   { key: 'status', label: '状态' },
   { key: 'group', label: '分组' },
-  { key: 'version', label: 'Agent 版本' },
+  { key: 'version', label: '版本' },
   { key: 'cpu', label: 'CPU' },
   { key: 'mem', label: '内存' },
   { key: 'disk', label: '磁盘使用' },
@@ -673,7 +759,23 @@ const colOptions = [
   { key: 'diskRW', label: '磁盘读写' },
 ]
 const selectedCols = ref(colOptions.map((c) => c.key))
+
+/* 窄屏（≤1280px）自动收起「元数据」类列（版本 / 分组）。
+ * 设计红线（UI-SPEC §0.4 第 7 条）：磁盘读写 / 负载 / 流量等**指标类**列
+ * 任何宽度下都保留，不得以"低频"为由收起；只有元数据列才允许窄屏降级。
+ * 这里只影响"渲染时是否可见"，**不改动 `selectedCols` 用户勾选**——
+ * 窗口放大后原样恢复，用户无需重新勾选。 */
+const AUTO_HIDE_NARROW = ['version', 'group']
+const narrow = ref(false)
+let narrowMql = null
+function onNarrowChange(e) {
+  narrow.value = e.matches
+}
+const autoHiddenCols = computed(() =>
+  narrow.value ? AUTO_HIDE_NARROW.filter((k) => selectedCols.value.includes(k)) : []
+)
 function colVisible(k) {
+  if (narrow.value && AUTO_HIDE_NARROW.includes(k)) return false
   return selectedCols.value.includes(k)
 }
 
@@ -929,16 +1031,23 @@ function printList() {
 
 function openAddNode() {
   showAddModal.value = true
-  http
-    .get('/api/v1/install-info')
-    .then((info) => {
-      installInfo.value = info
-      if (info.serverURL) hubForm.server = info.serverURL
-    })
-    .catch(() => {
-      installInfo.value = { serverURL: '', authEnabled: false, secret: '' }
-      ElMessage.error('获取安装信息失败，请检查 Server 是否正常')
-    })
+  loadInstallInfo()
+}
+
+// 安装信息单独抽出来：失败时界面要能就地重试（不再只 toast 后把命令区留在"等待加载…"）
+async function loadInstallInfo() {
+  installInfoLoading.value = true
+  installInfoError.value = ''
+  try {
+    const info = await http.get('/api/v1/install-info')
+    installInfo.value = info
+    if (info.serverURL) hubForm.server = info.serverURL
+  } catch (e) {
+    installInfo.value = { serverURL: '', authEnabled: false, secret: '', command: '' }
+    installInfoError.value = e.message || '请检查 Server 是否正常'
+  } finally {
+    installInfoLoading.value = false
+  }
 }
 
 async function changeGroup(row, group) {
@@ -1027,7 +1136,6 @@ const hostTable = ref(null)
 function handleSelectionChange(val) {
   selectedRows.value = val
 }
-
 async function batchUpgrade() {
   if (selectedRows.value.length === 0) return
   const rowsToUpgrade = selectedRows.value.filter((r) => needUpgrade(r))
@@ -1135,6 +1243,13 @@ function applyDeepLink() {
 }
 
 onMounted(async () => {
+  // 窄屏列降级：监听 1280px 断点（jsdom 无 matchMedia 时静默跳过）
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    narrowMql = window.matchMedia('(max-width: 1280px)')
+    narrow.value = narrowMql.matches
+    if (narrowMql.addEventListener) narrowMql.addEventListener('change', onNarrowChange)
+    else if (narrowMql.addListener) narrowMql.addListener(onNarrowChange)
+  }
   await load()
   applyDeepLink()
   loadVersion()
@@ -1142,6 +1257,11 @@ onMounted(async () => {
   document.addEventListener('visibilitychange', onVis)
 })
 onUnmounted(() => {
+  if (narrowMql) {
+    if (narrowMql.removeEventListener) narrowMql.removeEventListener('change', onNarrowChange)
+    else if (narrowMql.removeListener) narrowMql.removeListener(onNarrowChange)
+    narrowMql = null
+  }
   if (loadTimer) clearInterval(loadTimer)
   if (countdownTimer) clearInterval(countdownTimer)
   document.removeEventListener('visibilitychange', onVis)
@@ -1156,13 +1276,16 @@ defineExpose({ reload: load })
   flex-direction: column;
   gap: 14px;
 }
-/* 工具栏不再包卡片：表格已经是卡片，工具栏再包一层会平白吃掉 56px 纵向空间 */
+/* 窄屏自动收起列的说明条：与批量条/表格同处一个卡片内，留出下间距 */
+.narrow-cols-tip {
+  margin-bottom: 10px;
+}
+/* 主机工具栏 = 筛选条（§1.5）：容器外观（边框/底色/padding/圆角）走全局 .filter-bar，
+   本类只保留「左右两端对齐」与 margin-bottom 归零（父级 .hosts-view 已用 gap 提供间距，
+   再叠加 .filter-bar 的 12px 会多出一截）。 */
 .toolbar {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
+  margin-bottom: 0;
 }
 .toolbar-left,
 .toolbar-right {
@@ -1173,12 +1296,12 @@ defineExpose({ reload: load })
 }
 .refresh-text {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   font-family: var(--mono);
 }
 .refresh-label {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .countdown {
   font-size: 13px;
@@ -1202,7 +1325,7 @@ defineExpose({ reload: load })
   flex-wrap: nowrap;
 }
 .hn-name {
-  color: var(--text);
+  color: var(--t1);
   font-weight: 600;
   font-size: 13px;
   overflow: hidden;
@@ -1212,13 +1335,13 @@ defineExpose({ reload: load })
   flex: 1;
 }
 .hn-ip {
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 13px;
   font-family: var(--mono);
 }
 .hn-edit {
   margin-left: 2px;
-  color: var(--text-muted);
+  color: var(--t3);
   flex-shrink: 0;
 }
 .hn-edit:hover {
@@ -1233,7 +1356,7 @@ defineExpose({ reload: load })
   line-height: 18px;
 }
 .ver-cell.dev {
-  color: var(--text-muted);
+  color: var(--t3);
   background: var(--fill-1);
 }
 .ver-cell.release {
@@ -1277,7 +1400,7 @@ defineExpose({ reload: load })
 /* 分组标签 */
 .group-tag {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .group-tag.clickable {
   cursor: pointer;
@@ -1290,7 +1413,7 @@ defineExpose({ reload: load })
 }
 .group-tag.clickable:hover {
   background: var(--fill-2);
-  color: var(--text);
+  color: var(--t1);
 }
 .group-arrow {
   font-size: 13px;
@@ -1324,14 +1447,14 @@ defineExpose({ reload: load })
 .rate {
   font-family: var(--mono);
   font-size: 13px;
-  color: var(--text);
+  color: var(--t1);
 }
 .rate.sm { font-size: 13px; }
 .rate.mono { font-family: var(--mono); }
 .rate-sm {
   font-family: var(--mono);
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   white-space: nowrap;
 }
 .rate-sm.green { color: var(--accent); }
@@ -1340,14 +1463,14 @@ defineExpose({ reload: load })
 .rate small {
   font-size: 13px;
   margin-left: 1px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .rate .sep {
   margin: 0 3px;
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .dim {
-  color: var(--text-muted);
+  color: var(--t3);
   font-size: 13px;
 }
 
@@ -1355,7 +1478,8 @@ defineExpose({ reload: load })
 .host-table :deep(.el-table__row) {
   cursor: pointer;
 }
-/* 表头不换行，避免“Agent 版本”等列头被挤压换行 */
+/* 表头不换行：宁可列头被裁也不让它折行（折行会让整行表头高度翻倍）。
+   注意：nowrap + 排序图标意味着列头文字超宽时会被裁，新增列头文案前先看列宽够不够。 */
 .host-table :deep(th .cell) {
   white-space: nowrap;
 }
@@ -1365,16 +1489,36 @@ defineExpose({ reload: load })
   font-size: 13px;
 }
 .net-traffic .net-up {
-  color: var(--text-muted);
+  color: var(--t3);
 }
-.host-table :deep(.row-offline) {
-  background: var(--danger-dim) !important;
+/* 磁盘读写两行堆叠（与 .net-traffic 同读法：主值在上、次值弱化） */
+.disk-rw {
+  line-height: 1.5;
+  font-family: var(--mono);
+  font-size: 13px;
 }
-.host-table :deep(.row-critical) {
-  background: rgba(244, 63, 94, 0.08) !important;
+.disk-rw .rw-write {
+  color: var(--t3);
 }
-.host-table :deep(.row-warning) {
-  background: var(--warn-dim) !important;
+/* 行内操作允许换行：列宽压到 140px 后，三个 link 按钮在窄屏下需要能折行而不是被裁掉 */
+.row-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.row-ops :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+/* 行高亮三档：统一走 dim 令牌（此前 row-critical 写死 rgba(244,63,94,.08)，与任一主题的
+   --danger 都不是同一个红）。
+   目标单元格 td 而不是 tr：el-table 开了 stripe，条纹背景落在 td 上，只给 tr 上色会被 td 盖住；
+   也因此不再需要 !important（选择器权重已高于 EP 的条纹规则）。 */
+.host-table :deep(.row-offline) > td.el-table__cell,
+.host-table :deep(.row-critical) > td.el-table__cell {
+  background: var(--danger-dim);
+}
+.host-table :deep(.row-warning) > td.el-table__cell {
+  background: var(--warn-dim);
 }
 .pagination-wrap {
   margin-top: 14px;
@@ -1396,7 +1540,7 @@ defineExpose({ reload: load })
 }
 .col-set-title {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-bottom: 2px;
 }
 .col-set-group {
@@ -1434,7 +1578,7 @@ defineExpose({ reload: load })
 .section-label {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin: 0;
   position: relative;
   padding-left: 10px;
@@ -1452,7 +1596,7 @@ defineExpose({ reload: load })
 .section-desc {
   font-size: 13px;
   line-height: 1.7;
-  color: var(--text-muted);
+  color: var(--t3);
   margin: 0;
 }
 .form-item {
@@ -1462,19 +1606,19 @@ defineExpose({ reload: load })
 }
 .form-item label {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .field-help {
   margin: 0;
   font-size: 13px;
   line-height: 1.55;
-  color: var(--text-muted);
+  color: var(--t3);
 }
 /* 次级导航条（替代已删除的 el-tabs + 刷新条） */
 .subnav-right :deep(.el-select) {
   width: 100px;
 }
-.proxy-summary { font-size: 13px; color: var(--text-muted); }
+.proxy-summary { font-size: 13px; color: var(--t3); }
 .field-help code {
   font-family: var(--mono);
   color: var(--accent);
@@ -1490,7 +1634,7 @@ defineExpose({ reload: load })
 .block-desc {
   font-size: 13px;
   line-height: 1.7;
-  color: var(--text-dim);
+  color: var(--t2);
   background: var(--fill-1);
   border: 1px solid var(--bd);
   border-radius: var(--r-md);
@@ -1511,7 +1655,7 @@ defineExpose({ reload: load })
   gap: 5px;
   font-size: 13px;
   line-height: 1.7;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .steps-list code {
   font-family: var(--mono);
@@ -1522,7 +1666,7 @@ defineExpose({ reload: load })
   font-size: 13px;
 }
 .steps-list b {
-  color: var(--text);
+  color: var(--t1);
 }
 .cmd-box {
   border: 1px solid var(--bd-strong);
@@ -1530,6 +1674,8 @@ defineExpose({ reload: load })
   overflow: hidden;
   background: rgba(0, 0, 0, 0.35);
 }
+/* 命令块默认折叠（details/summary，零 JS + 原生可访问）：
+   网闸抽屉里有 6 段命令，全部展开会把后面的部署步骤顶到很远，也让锚点导航失去意义 */
 .cmd-header {
   display: flex;
   align-items: center;
@@ -1537,12 +1683,31 @@ defineExpose({ reload: load })
   padding: 6px 10px;
   border-bottom: 1px solid var(--bd);
   background: var(--fill-1);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
 }
+.cmd-header::-webkit-details-marker { display: none; }
+.cmd-header:hover { background: var(--fill-2); }
+.cmd-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cmd-box:not([open]) .cmd-header { border-bottom: none; }
 .cmd-label {
+  display: inline-flex;
+  align-items: center;
   font-family: var(--mono);
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
 }
+.cmd-caret {
+  width: 0;
+  height: 0;
+  margin-right: 7px;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s var(--ease);
+}
+.cmd-box[open] .cmd-caret { transform: rotate(90deg); }
 .cmd-text {
   margin: 0;
   padding: 10px 12px;
@@ -1560,9 +1725,79 @@ defineExpose({ reload: load })
 .drawer-body :deep(.el-drawer__header) {
   margin-bottom: 0;
   padding-bottom: 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--bd);
 }
 .drawer-body :deep(.el-drawer__body) {
   padding: 16px 18px;
+}
+
+/* 安装信息加载骨架（.sk / .sk-row 走全局定义） */
+.install-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+}
+
+/* 抽屉锚点导航：横向可滚的一行胶囊，粘在抽屉顶部（滚动时仍可见） */
+.anchor-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+  margin-bottom: 4px;
+  border-bottom: 1px dashed var(--bd);
+}
+.anchor-link {
+  appearance: none;
+  border: 1px solid var(--bd);
+  background: var(--fill-1);
+  color: var(--t3);
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.anchor-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.anchor-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 响应式：窄屏（≤1200）让刷新区换行、筛选区上下堆叠；
+   ≤900 时次级导航的两颗 Tab 也允许换行，避免把"自动刷新"挤出屏幕。 */
+@media (max-width: 1280px) {
+  .subnav {
+    flex-wrap: wrap;
+    gap: var(--sp-4);
+  }
+  .subnav-right {
+    gap: var(--sp-2);
+  }
+  .toolbar.filter-bar {
+    flex-wrap: wrap;
+  }
+  .toolbar-left,
+  .toolbar-right {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}
+@media (max-width: 1024px) {
+  .subnav-right {
+    width: 100%;
+    margin-left: 0;
+    padding-bottom: 8px;
+  }
+  .toolbar-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 </style>

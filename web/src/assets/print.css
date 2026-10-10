@@ -40,30 +40,17 @@
     --s2: #f8fafc;
     --s3: #f1f5f9;
     --bg: #ffffff;
-    --bg-elev: #ffffff;
-    --bg-card: #ffffff;
-    --bg-primary: #ffffff;
-    --bg-secondary: #f8fafc;
-    --panel-bg: #ffffff;
 
     /* 描边：深色下用 rgba 半透明是对的，打印下半透明会被 CMYK 冲淡成"看不见"，
        所以这里全部换成实色 */
     --bd: #cbd5e1;
     --bd-strong: #94a3b8;
     --bd-hi: #64748b;
-    --border: #cbd5e1;
-    --border-color: #cbd5e1;
-    --border-strong: #94a3b8;
 
     /* 文本：三级灰阶，保证最小 4.5:1 对比度 */
     --t1: #0f172a;
     --t2: #334155;
     --t3: #5b6a80;
-    --text: #0f172a;
-    --text-main: #0f172a;
-    --text-dim: #334155;
-    --label: #1e293b;
-    --text-muted: #5b6a80;
 
     /* 语义色：深色下的亮色（#22c55e / #ffb454）在白纸上对比度不够，
        统一降一到两级明度 */
@@ -199,6 +186,11 @@
   .filter-row,
   .view-actions,
   .panel-actions,
+  /* 吸底保存条 / 锚点导航 / 批量条：纸上都是无效控件 */
+  .save-bar,
+  .anchor-nav,
+  .fc-clear,
+  .fc-x,
   /* 交互提示 / 浮层 */
   .el-overlay,
   .el-dialog,
@@ -210,13 +202,16 @@
   .el-tooltip__trigger,
   .el-backtop,
   .el-loading-mask,
+  .el-alert__close-btn,
   /* 分页器：纸上是第 1 页？第 3 页？信息已经失真 */
   .el-pagination,
   .pagination-wrap,
-  /* 滚动容器 / 变换动画 */
+  /* 滚动容器 / 变换动画 / 骨架 */
   .el-scrollbar__bar,
   .animate-pulse,
   .sk,
+  .sk-pulse,
+  .sec-skeleton,
   .partial-bar {
     display: none !important;
   }
@@ -375,11 +370,17 @@
   /* 状态药丸 / 徽标：实心改成 1px 描边，省墨且清晰 */
   .el-tag,
   .status-pill,
+  .pill,
+  .fc-chip,
   .sev-tag,
   .sev-badge {
     border: 1px solid currentColor !important;
     background: transparent !important;
     color: #1e293b !important;
+    box-shadow: none !important;
+  }
+  /* 药丸里的圆点/图标在黑白打印下仍有区分度，保留 */
+  .pill-dot {
     box-shadow: none !important;
   }
 
@@ -401,9 +402,15 @@
   .el-progress-bar__outer,
   .progress-bar,
   .usage-bar,
-  .bar-track {
+  .bar-track,
+  .mini-bar,
+  .mini-bar-fill {
     border: 1px solid var(--bd) !important;
     background: #f1f5f9 !important;
+  }
+  .mini-bar-fill {
+    /* 迷你条填充在纸上改实色，避免半透明被冲淡 */
+    background: #94a3b8 !important;
   }
 
   /* 链接：屏幕上靠颜色，纸上加下划线 */

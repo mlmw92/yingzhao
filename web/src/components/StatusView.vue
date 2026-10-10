@@ -118,10 +118,9 @@ onUnmounted(() => {
 .pill.partial { background: rgba(217, 119, 6, 0.08); color: #b45309; }
 .pill.down { background: rgba(220, 38, 38, 0.08); color: #b91c1c; }
 .pill.unknown { background: rgba(100, 116, 139, 0.08); color: #64748b; }
-.muted { color: var(--text-muted, #64748b); font-size: 13px; }
 .gap { margin-bottom: 12px; }
 .list { display: flex; flex-direction: column; gap: 8px; }
-.item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border-color, #d7dfe8); border-radius: 8px; background: var(--bg-card, #fff); }
+.item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--bd); border-radius: 8px; background: var(--s1); }
 /* 状态点：异常态加一圈淡光晕，让"有问题"在扫视时先跳出来 */
 .dot { width: 10px; height: 10px; border-radius: 50%; background: #94a3b8; flex: 0 0 auto; }
 .item.up .dot { background: #16a34a; }
@@ -130,9 +129,9 @@ onUnmounted(() => {
 .name { font-weight: 500; }
 .type { font-size: 12px; text-transform: uppercase; }
 .metrics { margin-left: auto; display: flex; gap: 14px; font-size: 13px; flex-wrap: wrap; }
-.empty { color: var(--text-muted, #64748b); font-size: 14px; }
+.empty { color: var(--t3); font-size: 14px; }
 .foot { margin-top: 20px; }
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .item { align-items: flex-start; flex-direction: column; }
   .metrics { margin-left: 0; }
 }
@@ -160,26 +159,14 @@ html.status-light body {
   --s2: #f8fafc;
   --s3: #f1f5f9;
   --bg: #f6f8fb;
-  --bg-elev: #ffffff;
-  --bg-card: #ffffff;
-  --bg-primary: #ffffff;
-  --panel-bg: #ffffff;
 
   --bd: #d7dfe8;
   --bd-strong: #b6c2d1;
   --bd-hi: #94a3b8;
-  --border: #d7dfe8;
-  --border-color: #d7dfe8;
-  --border-strong: #b6c2d1;
 
   --t1: #0f172a;
   --t2: #475569;
   --t3: #64748b;
-  --text: #0f172a;
-  --text-main: #0f172a;
-  --text-dim: #475569;
-  --label: #1e293b;
-  --text-muted: #64748b;
 
   --accent: #2563eb;
   --accent-dim: rgba(37, 99, 235, 0.10);

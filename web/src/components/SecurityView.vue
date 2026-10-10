@@ -12,38 +12,40 @@
       show-icon
       class="sec-load-error"
     >
-      <template #title>安全模块数据加载失败：{{ loadError }}
-        <el-button link type="primary" @click="refreshAll">重试</el-button>
+      <template #title>{{ failedCount }} 个模块加载失败：{{ loadError }}
+        <el-button link type="primary" @click="refreshAll">全部重试</el-button>
       </template>
     </el-alert>
 
     <!-- 顶部 KPI 概览 -->
-    <div class="card kpi-row" v-loading="loading">
-      <div class="kpi-card score-kpi" :class="scoreClass">
-        <div class="kpi-ring" :style="ringStyle">
-          <div class="kpi-score">{{ summary.score.toFixed(0) }}</div>
+    <SectionCard id="sec-overview" title="安全概览" :loading="loading" :error="summaryErr" error-retry @retry="loadSummary">
+      <div class="kpi-row">
+        <div class="kpi-card score-kpi" :class="scoreClass">
+          <div class="kpi-ring" :style="ringStyle">
+            <div class="kpi-score">{{ summary.score.toFixed(0) }}</div>
+          </div>
+          <div class="kpi-meta">
+            <div class="kpi-title">安全合规评分</div>
+            <div class="kpi-sub">{{ summary.baselineHosts }} 台主机已评估</div>
+          </div>
         </div>
-        <div class="kpi-meta">
-          <div class="kpi-title">安全合规评分</div>
-          <div class="kpi-sub">{{ summary.baselineHosts }} 台主机已评估</div>
-        </div>
+
+        <KpiCard :value="summary.eventCount" label="安全事件" :tone="summary.eventCount > 0 ? 'alert' : 'total'">
+          <template #icon>⚠</template>
+        </KpiCard>
+
+        <KpiCard :value="summary.riskNodes" label="风险主机" tone="warn">
+          <template #icon>🛡</template>
+        </KpiCard>
+
+        <KpiCard :value="summary.fimChanges" label="文件完整性变化" tone="conn">
+          <template #icon>📄</template>
+        </KpiCard>
       </div>
-
-      <KpiCard :value="summary.eventCount" label="安全事件" :tone="summary.eventCount > 0 ? 'alert' : 'total'">
-        <template #icon>⚠</template>
-      </KpiCard>
-
-      <KpiCard :value="summary.riskNodes" label="风险主机" tone="warn">
-        <template #icon>🛡</template>
-      </KpiCard>
-
-      <KpiCard :value="summary.fimChanges" label="文件完整性变化" tone="conn">
-        <template #icon>📄</template>
-      </KpiCard>
-    </div>
+    </SectionCard>
 
     <!-- 入侵防御（受控 fail2ban 专属 SSH 防护） -->
-    <SectionCard title="入侵防御" dense v-loading="defenseLoading">
+    <SectionCard id="sec-defense" title="入侵防御" dense v-loading="defenseLoading" :error="defenseErr" error-retry @retry="loadDefense">
       <template #actions>
         <span class="defense-tip">仅托管 nebula-monitor-sshd 专属 jail，不覆盖既有 fail2ban 配置</span>
       </template>
@@ -72,9 +74,9 @@
             <span v-if="!row.agentSupported" class="need-upgrade">需升级 Agent</span>
           </template>
         </el-table-column>
-        <el-table-column label="防护状态" width="140">
+        <el-table-column label="防护状态" width="150">
           <template #default="{ row }">
-            <span class="def-badge" :class="defenseBadgeClass(row)">{{ defenseStateText(row) }}</span>
+            <StatusPill :tone="defensePill(row).tone" :icon="defensePill(row).icon" :text="defenseStateText(row)" />
           </template>
         </el-table-column>
         <el-table-column label="jail" min-width="160">
@@ -116,7 +118,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div style="margin-top: 12px; display: flex; justify-content: flex-end">
+      <div class="pager-row">
         <el-pagination
           v-model:current-page="defCurrentPage"
           v-model:page-size="defPageSize"
@@ -148,7 +150,16 @@
 
     <!-- 护栏组合风险：平时是空的，因此**整卡不显示**（占着位置只会让人习惯性忽略它）；
          只有真有风险、或有节点没上报过这个检查时才出现 -->
-    <SectionCard v-if="guardRiskNodes.length || guardUnreported" title="护栏组合风险" dense v-loading="guardLoading">
+    <SectionCard
+      v-if="guardRiskNodes.length || guardUnreported || guardErr"
+      id="sec-guard"
+      title="护栏组合风险"
+      dense
+      v-loading="guardLoading"
+      :error="guardErr"
+      error-retry
+      @retry="loadGuardRisks"
+    >
       <template #actions>
         <span class="defense-tip">
           要消除它：去该机器的 agent.yaml 收掉 guards.ops.file.dirs 或 guards.ops.units 里的一个（改完需重启 Agent）
@@ -159,12 +170,10 @@
           <span class="node-name">
             {{ n.displayName || n.node }}<span v-if="n.nodeIp" class="node-ip"> · {{ n.nodeIp }}</span>
           </span>
-          <el-tag type="danger" size="small">{{ n.risks.length }} 条风险</el-tag>
+          <StatusPill tone="danger" :text="n.risks.length + ' 条风险'" />
         </div>
         <div v-for="(r, i) in n.risks" :key="i" class="guard-risk-item">
-          <el-tag size="small" :type="r.kind === 'exec' ? 'danger' : 'warning'">
-            {{ r.kind === 'exec' ? '可执行文件暴露' : '写入即持久化' }}
-          </el-tag>
+          <StatusPill :tone="r.kind === 'exec' ? 'danger' : 'warn'" :text="r.kind === 'exec' ? '可执行文件暴露' : '写入即持久化'" />
           <span class="guard-risk-desc">{{ r.description }}</span>
         </div>
       </div>
@@ -175,15 +184,13 @@
     </SectionCard>
 
     <!-- 安全事件区 -->
-    <SectionCard title="安全事件" dense v-loading="loading">
+    <SectionCard id="sec-events" title="安全事件" dense v-loading="loading" :error="eventsErr" error-retry @retry="loadEvents">
       <template #actions>
-        <div class="filters">
-          <el-select v-model="filterCategory" placeholder="全部类别" clearable size="small" style="width: 160px" @change="loadEvents">
+        <el-select v-model="filterCategory" placeholder="全部类别" clearable size="small" class="w-s" @change="loadEvents">
             <el-option v-for="c in categoryOptions" :key="c.value" :label="c.label" :value="c.value" />
           </el-select>
-          <el-input v-model="filterNode" placeholder="按节点筛选" clearable size="small" style="width: 150px" @change="loadEvents" @clear="loadEvents" />
+          <el-input v-model="filterNode" placeholder="按节点筛选" clearable size="small" class="w-s" @change="loadEvents" @clear="loadEvents" />
           <el-button size="small" @click="refreshAll">刷新</el-button>
-        </div>
       </template>
 
       <!-- 原本 max-height 写死 460：每页条数可切 10/20/50/100，
@@ -199,12 +206,15 @@
         </template>
         <el-table-column label="级别" width="90">
           <template #default="{ row }">
-            <span class="sev-tag" :class="'sev-' + row.severity">{{ sevLabel(row.severity) }}</span>
+            <StatusPill :tone="sevTone(row.severity)" :text="sevLabel(row.severity)" />
           </template>
         </el-table-column>
         <el-table-column label="类别" width="130">
           <template #default="{ row }">
-            <span class="cat-tag">{{ catLabel(row.category) }}</span>
+            <el-tooltip v-if="catFix(row.category)" :content="'处置建议：' + catFix(row.category)" placement="top">
+              <span class="cat-tag has-fix">{{ catLabel(row.category) }}</span>
+            </el-tooltip>
+            <span v-else class="cat-tag">{{ catLabel(row.category) }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="nodeIp" label="节点" width="150">
@@ -227,7 +237,7 @@
           <template #default="{ row }">{{ fmtTime(row.timestamp) }}</template>
         </el-table-column>
       </el-table>
-      <div style="margin-top: 12px; display: flex; justify-content: flex-end">
+      <div class="pager-row">
         <el-pagination
           v-model:current-page="evCurrentPage"
           v-model:page-size="evPageSize"
@@ -242,9 +252,17 @@
     <!-- 基线与 FIM 区 -->
     <div class="grid-2">
       <!-- 基线合规明细 -->
-      <SectionCard title="基线合规明细" dense v-loading="loading">
+      <SectionCard id="sec-baseline" title="基线合规明细" dense v-loading="loading" :error="baselinesErr" error-retry @retry="loadBaselines">
         <template #actions>
           <div class="panel-tools">
+            <!-- 上百台服务器时，逐个滚动找一台很难；给一个节点名/IP 检索框 -->
+            <el-input
+              v-model="baselineKw"
+              size="small"
+              clearable
+              placeholder="搜索节点 / IP"
+              class="bl-search"
+            />
             <el-button
               v-if="canExportMatrix"
               size="small"
@@ -265,10 +283,14 @@
         <EmptyState
           v-if="!filteredBaselines.length"
           :icon="Lock"
-          :title="baselines.length ? '没有未通过的节点' : '暂无基线数据'"
+          :title="baselines.length ? (baselineKw ? '没有匹配的节点' : '没有未通过的节点') : '暂无基线数据'"
           :hints="
             baselines.length
-              ? ['当前所有节点都通过基线检查，关闭「仅未通过」可看全量明细']
+              ? [
+                  baselineKw
+                    ? '清空搜索框可看全部节点'
+                    : '当前所有节点都通过基线检查，关闭「仅未通过」可看全量明细',
+                ]
               : ['基线数据来自配置巡检的 L2 快照，先跑一次巡检生成基线', '未产生快照的资产不会出现在这里']
           "
         />
@@ -276,13 +298,15 @@
           <div v-for="b in filteredBaselines" :key="b.node" class="baseline-node">
             <div class="baseline-head">
               <span class="node-name">{{ b.displayName || b.node }}<span v-if="b.nodeIp" class="node-ip"> · {{ b.nodeIp }}</span></span>
-              <span class="score-pill" :class="scorePillClass(b.score)">{{ b.score.toFixed(0) }}</span>
+              <StatusPill :tone="scoreTone(b.score)" :text="b.score.toFixed(0)" />
             </div>
             <div class="baseline-items">
               <div v-for="it in b.items" :key="it.key" class="bl-item" :class="it.pass ? 'pass' : 'fail'">
                 <span class="bl-dot"></span>
                 <span class="bl-name">{{ it.name }}</span>
                 <span class="bl-state">{{ it.pass ? '通过' : '未通过' }}</span>
+                <!-- 修复建议：未通过项必须给出「怎么改」，否则只有"有问题"没有"怎么办" -->
+                <span v-if="!it.pass && baselineFix(it.key)" class="bl-fix">整改：{{ baselineFix(it.key) }}</span>
               </div>
             </div>
           </div>
@@ -290,7 +314,7 @@
       </SectionCard>
 
       <!-- FIM 变化时间线 -->
-      <SectionCard title="文件完整性变化" dense v-loading="loading">
+      <SectionCard title="文件完整性变化" dense v-loading="loading" :error="eventsErr" error-retry @retry="loadEvents">
         <EmptyState
           v-if="!fimEvents.length"
           :icon="Lock"
@@ -316,16 +340,34 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getSecuritySummary, getSecurityEvents, getSecurityBaselines, getDefenseStatuses, postDefenseAction, exportComplianceMatrix, getGuardRisks } from '../api/security'
 import useAuth from '../composables/useAuth'
-import { Lock } from '@element-plus/icons-vue'
+import { Lock, Check, Warning, WarningFilled } from '@element-plus/icons-vue'
 import RefreshBar from './RefreshBar.vue'
 import KpiCard from './KpiCard.vue'
 import PageHeader from './common/PageHeader.vue'
 import SectionCard from './common/SectionCard.vue'
 import EmptyState from './common/EmptyState.vue'
+import StatusPill from './common/StatusPill.vue'
 
 const loading = ref(false)
 const refreshing = ref(false)
-const loadError = ref('')
+
+// B4：错误**按模块拆分**。原实现共用一个 loadError，Promise.all 并发下
+// 任一模块成功就把它清空 → 部分失败被静默吞掉。现在每个模块各持一个错误，
+// 页面级汇总只用于"一眼看到几块挂了"。
+const summaryErr = ref('')
+const eventsErr = ref('')
+const baselinesErr = ref('')
+const defenseErr = ref('')
+const guardErr = ref('')
+const loadError = computed(() =>
+  [summaryErr.value, eventsErr.value, baselinesErr.value, defenseErr.value, guardErr.value]
+    .filter(Boolean)
+    .join('；')
+)
+const failedCount = computed(() =>
+  [summaryErr.value, eventsErr.value, baselinesErr.value, defenseErr.value, guardErr.value].filter(Boolean).length
+)
+
 const summary = ref({ score: 0, eventCount: 0, riskNodes: 0, fimChanges: 0, baselineHosts: 0 })
 const events = ref([])
 const baselines = ref([])
@@ -349,9 +391,23 @@ const eventHints = computed(() => {
   ]
 })
 const onlyFailedBaseline = ref(false)
+// 节点检索：上百台服务器时靠滚动逐个找不现实
+const baselineKw = ref('')
 const filteredBaselines = computed(() => {
-  if (!onlyFailedBaseline.value) return baselines.value
-  return baselines.value.filter((b) => !b.items || b.items.some((it) => !it.pass))
+  const kw = baselineKw.value.trim().toLowerCase()
+  let list = baselines.value
+  if (onlyFailedBaseline.value) {
+    list = list.filter((b) => !b.items || b.items.some((it) => !it.pass))
+  }
+  if (kw) {
+    list = list.filter((b) => {
+      const name = (b.displayName || '').toLowerCase()
+      const node = (b.node || '').toLowerCase()
+      const ip = (b.nodeIp || '').toLowerCase()
+      return name.includes(kw) || node.includes(kw) || ip.includes(kw)
+    })
+  }
+  return list
 })
 
 // 合规矩阵导出：服务端单设 security:export（一次把全部可见节点的合规结论落盘，
@@ -415,6 +471,14 @@ function defenseStateText(row) {
   if (!row.supported) return '不支持'
   return '未知'
 }
+// 状态 → StatusPill 的 tone + 图标（图标是"颜色之外的第二编码"，色盲/黑白打印下仍可分辨）
+function defensePill(row) {
+  const cls = defenseBadgeClass(row)
+  if (cls === 'good') return { tone: 'ok', icon: Check }
+  if (cls === 'bad') return { tone: 'danger', icon: WarningFilled }
+  if (cls === 'warn') return { tone: 'warn', icon: Warning }
+  return { tone: 'muted', icon: null }
+}
 function defenseBadgeClass(row) {
   if (!row.agentSupported || !row.supported) return 'bad'
   if (row.managedJail && row.running && row.firewallVerified) return 'good'
@@ -424,13 +488,17 @@ function defenseBadgeClass(row) {
 }
 
 async function loadDefense() {
+  // B5：defenseLoading 原从未置 true，却绑在 v-loading 上（等于永远不显示加载态）
+  defenseLoading.value = true
   try {
     const d = await getDefenseStatuses()
     defenseStatuses.value = d.statuses || []
-    loadError.value = ''
+    defenseErr.value = ''
   } catch (e) {
     defenseStatuses.value = []
-    if (e && e.message) loadError.value = e.message
+    defenseErr.value = (e && e.message) || '入侵防御状态加载失败'
+  } finally {
+    defenseLoading.value = false
   }
 }
 
@@ -518,10 +586,44 @@ const ringStyle = computed(() => {
   }
 })
 
-function scorePillClass(score) {
-  if (score >= 80) return 'good'
+// 评分 → StatusPill tone（原 .score-pill 自绘一套）
+function scoreTone(score) {
+  if (score >= 80) return 'ok'
   if (score >= 60) return 'warn'
-  return 'bad'
+  return 'danger'
+}
+
+const SEV_TONE = { critical: 'danger', warning: 'warn', info: 'info' }
+function sevTone(s) {
+  return SEV_TONE[s] || 'muted'
+}
+
+// 修复建议：基线未通过项（数量最大）此前只有名称 + "未通过"，没有任何整改指引。
+// 后端 SecurityBaselineItem 只给 Key/Name/Pass/Detail（检查说明，非整改指引），
+// 因此整改动作由前端按 key 给出（与 Agent 侧 mkBaselineItem 的 key 一一对应）。
+const BASELINE_FIX = {
+  ssh_root_login: '编辑 /etc/ssh/sshd_config 设 PermitRootLogin no，执行 systemctl reload sshd 生效',
+  ssh_password_auth: '设 PasswordAuthentication no 后 reload sshd（改前先确认密钥登录可用，避免把自己锁在外面）',
+  firewall_enabled: '启用 ufw（ufw enable）或 firewalld（systemctl enable --now firewalld），并放行必要端口',
+  fail2ban_running: '安装并启动 fail2ban：包管理器安装后 systemctl enable --now fail2ban',
+  no_empty_password: '为存在空口令的账户设置口令或锁定：passwd <账户> / usermod -L <账户>',
+}
+function baselineFix(key) {
+  return BASELINE_FIX[key] || ''
+}
+
+// 安全事件处置建议：按类别给出"下一步该做什么"，从"知道有问题"推进到"知道怎么改"
+const CAT_FIX = {
+  ssh_bruteforce: '确认来源 IP 是否可信；必要时在防火墙封禁，并启用 fail2ban 防护',
+  ssh_audit: '核对登录时间与账户是否为本人操作；非本人立即改口令并排查来源 IP',
+  fim: '确认该文件变更是否为你自己的配置调整；非预期变更立即回滚并排查入侵',
+  process_anomaly: '核对该进程的启动来源与命令行；可疑时隔离主机并排查持久化项',
+  sudo_audit: '确认提权操作是否已授权；异常提权立即改口令并检查 sudoers 配置',
+  high_risk_cmd: '确认该高危命令是否授权执行；非预期执行立即排查来源与影响范围',
+  cat_ban: '确认被封禁 IP 是否为攻击源；若为误封可将来源加入白名单',
+}
+function catFix(c) {
+  return CAT_FIX[c] || ''
 }
 
 function sevLabel(s) {
@@ -559,9 +661,9 @@ async function loadSummary() {
       fimChanges: d.fimChanges || 0,
       baselineHosts: d.baselineHosts || 0,
     }
-    loadError.value = ''
+    summaryErr.value = ''
   } catch (e) {
-    if (e && e.message) loadError.value = e.message
+    summaryErr.value = (e && e.message) || '安全概览加载失败'
   }
 }
 async function loadEvents() {
@@ -569,20 +671,20 @@ async function loadEvents() {
     const d = await getSecurityEvents({ limit: 2000, category: filterCategory.value, node: filterNode.value })
     events.value = d.events || []
     evCurrentPage.value = 1
-    loadError.value = ''
+    eventsErr.value = ''
   } catch (e) {
     events.value = []
-    if (e && e.message) loadError.value = e.message
+    eventsErr.value = (e && e.message) || '安全事件加载失败'
   }
 }
 async function loadBaselines() {
   try {
     const d = await getSecurityBaselines()
     baselines.value = d.baselines || []
-    loadError.value = ''
+    baselinesErr.value = ''
   } catch (e) {
     baselines.value = []
-    if (e && e.message) loadError.value = e.message
+    baselinesErr.value = (e && e.message) || '基线数据加载失败'
   }
 }
 async function loadGuardRisks() {
@@ -590,41 +692,46 @@ async function loadGuardRisks() {
   try {
     const d = await getGuardRisks()
     guardRisks.value = d.nodes || []
+    guardErr.value = ''
   } catch (e) {
     guardRisks.value = []
-    if (e && e.message) loadError.value = e.message
+    guardErr.value = (e && e.message) || '护栏风险加载失败'
   } finally {
     guardLoading.value = false
   }
 }
 async function refreshAll() {
+  // 二次及以后的刷新此前**无任何加载反馈**（loading 只在 onMounted 置位）→ KPI/事件/基线/FIM 静默变数据。
+  // 现在刷新也置 loading（RefreshBar 另有 refreshing 指示，两者不冲突）。
   refreshing.value = true
+  loading.value = true
   await Promise.all([loadSummary(), loadEvents(), loadBaselines(), loadDefense(), loadGuardRisks()])
+  loading.value = false
   refreshing.value = false
 }
 
-onMounted(async () => {
-  loading.value = true
-  await refreshAll()
-  loading.value = false
-})
+onMounted(refreshAll)
 </script>
 
 <style scoped>
 .security-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+}
+/* 刷新条自带 16px 下边距，与容器的 14px 间距叠加成 30px，顶部会显得空；
+   收掉它，间距统一由容器 gap 控制。 */
+.security-view :deep(.refresh-bar) {
+  margin-bottom: 0;
 }
 .sec-load-error {
   margin-bottom: 0;
 }
-.sec-load-error :deep(.el-button--primary) { font-size: 13px; }
+.sec-load-error :deep(.el-button--primary) { font-size: var(--fs-sm); }
 .kpi-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  padding: 18px;
 }
 .kpi-row > :deep(.kpi-card) {
   height: 100%;
@@ -654,55 +761,47 @@ onMounted(async () => {
   place-items: center;
   font-size: 22px;
   font-weight: 700;
-  color: var(--text);
+  color: var(--t1);
   line-height: 1;
 }
 .score-kpi .kpi-meta {
   min-width: 0;
 }
 .score-kpi .kpi-title {
-  font-size: 14px;
-  color: var(--text);
+  font-size: var(--fs-base);
+  color: var(--t1);
   margin-top: 2px;
 }
 .score-kpi .kpi-sub {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
 }
 .score-kpi.good .kpi-score { color: var(--ok); }
 .score-kpi.warn .kpi-score { color: var(--warn); }
 .score-kpi.bad .kpi-score { color: var(--danger); }
 
-/* 卡片标题统一走 SectionCard，不再自写 .panel-title / .panel-title-row */
-.filters {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
+/* 卡片标题统一走 SectionCard，不再自写 .panel-title / .panel-title-row。
+   安全事件区的筛选控件直接进 SectionCard 的 #actions（.sec-actions 已提供
+   flex + gap + wrap），不再自建 .filters 裸 flex 容器（§1.5 阶段 A）。 */
 .grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
-.section {
-  padding: 16px;
-}
 
-.sev-tag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
+.pager-row {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
 }
-.sev-tag.sev-critical { background: var(--danger-dim); color: var(--danger); }
-.sev-tag.sev-warning { background: var(--warn-dim); color: var(--warn); }
-.sev-tag.sev-info { background: var(--accent-dim); color: var(--accent); }
 
 .cat-tag {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.cat-tag.has-fix {
+  cursor: help;
+  border-bottom: 1px dashed var(--bd-strong);
 }
 /* 行状态色条：row-class-name 把类名加在 <tr> 自身，所以必须直接命中 tr——
    此前写成 `.row-critical :deep(.el-table__row)` 是后代选择器（要求 tr 的后代里有
@@ -712,8 +811,7 @@ onMounted(async () => {
 :deep(tr.row-critical) td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 :deep(tr.row-warning) td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 
-.dim { color: var(--text-dim); font-size: 13px; }
-.muted { color: var(--text-muted); font-size: 13px; }
+.dim { color: var(--t2); font-size: var(--fs-sm); }
 
 /* 来源 IP 属地标签 */
 .src-block { display: flex; flex-direction: column; gap: 2px; }
@@ -723,9 +821,9 @@ onMounted(async () => {
   max-width: 100%;
   padding: 0 6px;
   border-radius: 4px;
-  background: rgba(74, 157, 240, 0.15);
+  background: var(--accent-dim);
   color: var(--accent);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 18px;
   white-space: nowrap;
   overflow: hidden;
@@ -737,11 +835,16 @@ onMounted(async () => {
   margin-left: auto;
   display: flex;
   align-items: center;
+  gap: var(--sp-2);
 }
+.bl-search {
+  width: 180px;
+}
+/* 基线明细：上百台服务器时给一个固定高度的内滚动区，
+   配合「仅未通过」与节点检索把目标缩小——否则整页会被基线明细撑到几屏长。 */
 .baseline-scroll {
-  max-height: 460px;
+  max-height: 560px;
   overflow-y: auto;
-  overflow-x: hidden;
   padding-right: 4px;
 }
 .baseline-node {
@@ -758,24 +861,15 @@ onMounted(async () => {
   margin-bottom: 10px;
 }
 .node-name {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
 }
 .node-ip {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 400;
-  color: var(--text-dim);
+  color: var(--t2);
 }
-.score-pill {
-  font-size: 13px;
-  font-weight: 700;
-  padding: 2px 10px;
-  border-radius: 20px;
-}
-.score-pill.good { background: var(--ok-dim); color: var(--ok); }
-.score-pill.warn { background: var(--warn-dim); color: var(--warn); }
-.score-pill.bad { background: var(--danger-dim); color: var(--danger); }
 
 .baseline-items {
   display: flex;
@@ -785,8 +879,9 @@ onMounted(async () => {
 .bl-item {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   padding: 4px 6px;
   border-radius: 6px;
   transition: background 0.15s;
@@ -800,20 +895,26 @@ onMounted(async () => {
 }
 .bl-item.pass .bl-dot { background: var(--ok); box-shadow: 0 0 8px var(--ok-dim); }
 .bl-item.fail .bl-dot { background: var(--danger); box-shadow: 0 0 8px var(--danger-dim); }
-.bl-name { color: var(--text-dim); flex: 1; }
+.bl-name { color: var(--t2); flex: 1; }
 /* 同一条「未通过」此前是圆点红、名称琥珀、状态文字红三处不一致，
    扫读时「这到底算警告还是失败」没有统一答案。这里统一成 --danger。 */
 .bl-item.fail .bl-name { color: var(--danger); }
-.bl-state { font-size: 13px; color: var(--text-muted); }
+.bl-state { font-size: var(--fs-sm); color: var(--t3); }
 .bl-item.fail .bl-state { color: var(--danger); }
+/* 未通过项的整改建议：独占一行，弱化但不隐藏 */
+.bl-fix {
+  flex-basis: 100%;
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  padding-left: 15px;
+  line-height: 1.5;
+}
 
 /* FIM 时间线 */
 .timeline {
   display: flex;
   flex-direction: column;
   gap: 0;
-  max-height: 420px;
-  overflow-y: auto;
 }
 .tl-item {
   display: flex;
@@ -834,22 +935,17 @@ onMounted(async () => {
 }
 .tl-dot.tl-added { background: var(--accent); box-shadow: 0 0 8px var(--accent-dim); }
 .tl-dot.tl-modified { background: var(--warn); box-shadow: 0 0 8px var(--warn-dim); }
-.tl-dot.tl-deleted { background: var(--danger); box-shadow: 0 0 8px rgba(255,93,108,0.7); }
+.tl-dot.tl-deleted { background: var(--danger); box-shadow: 0 0 8px var(--danger-dim); }
 .tl-body { min-width: 0; }
 .tl-msg {
-  font-size: 13px;
-  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  color: var(--t2);
   line-height: 1.4;
 }
 .tl-time {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
   margin-top: 2px;
-}
-
-@media (max-width: 1100px) {
-  .kpi-row { grid-template-columns: repeat(2, 1fr); }
-  .grid-2 { grid-template-columns: 1fr; }
 }
 
 /* 网格里的卡片等高，避免左右两张卡底部参差 */
@@ -857,8 +953,8 @@ onMounted(async () => {
   height: 100%;
 }
 .defense-tip {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
 }
 /* 护栏组合风险：一条风险一行，描述用服务端给的人话（界面不自己拼措辞） */
 .guard-risk-node {
@@ -881,25 +977,19 @@ onMounted(async () => {
   padding: 4px 0;
 }
 .guard-risk-desc {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
-  color: var(--text);
+  color: var(--t1);
 }
 .guard-risk-unknown {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
   padding-top: 4px;
 }
 .defense-kpi {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-}
-/* 本文件其余网格都有 1100px 断点，唯独这里没有：平板宽度下 4 张卡会被压到 180px 以内 */
-@media (max-width: 1100px) {
-  .defense-kpi {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 .dk-card {
   background: var(--fill-1);
@@ -914,43 +1004,31 @@ onMounted(async () => {
 .dk-val {
   font-size: 22px;
   font-weight: 700;
-  color: var(--text);
+  color: var(--t1);
 }
 .dk-val.ok { color: var(--ok); }
 .dk-val.warn { color: var(--warn); }
 .dk-val.bad { color: var(--danger); }
 .dk-label {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
 }
-.def-badge {
-  font-size: 13px;
-  padding: 2px 10px;
-  border-radius: 20px;
-  font-weight: 600;
-}
-.def-badge.good { background: var(--ok-dim); color: var(--ok); }
-.def-badge.warn { background: var(--warn-dim); color: var(--warn); }
-.def-badge.bad { background: var(--danger-dim); color: var(--danger); }
-.def-badge.neutral { background: var(--fill-3); color: var(--text-dim); }
-.node-cell { font-weight: 600; color: var(--text); margin-right: 8px; }
-.need-upgrade { font-size: 13px; color: var(--warn); border: 1px solid var(--warn-bd); border-radius: 10px; padding: 1px 8px; }
+.node-cell { font-weight: 600; color: var(--t1); margin-right: 8px; }
+.need-upgrade { font-size: var(--fs-sm); color: var(--warn); border: 1px solid var(--warn-bd); border-radius: 10px; padding: 1px 8px; }
 .jail-tag {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--ok);
-  background: rgba(0,217,163,0.12);
+  background: var(--ok-dim);
   border-radius: 8px;
   padding: 2px 8px;
 }
-.defense-action, .ban-ips { margin-top: 4px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ban-count { color: var(--warn); font-size: 13px; font-weight: 600; }
-.dim { color: var(--text-dim); }
-.muted { color: var(--text-muted); }
+.defense-action, .ban-ips { margin-top: 4px; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ban-count { color: var(--warn); font-size: var(--fs-sm); font-weight: 600; }
 .def-confirm {
   margin: 8px 0 0;
   padding-left: 18px;
-  color: var(--text-dim);
-  font-size: 13px;
+  color: var(--t2);
+  font-size: var(--fs-sm);
   line-height: 1.7;
 }
 .def-confirm code {
@@ -958,5 +1036,12 @@ onMounted(async () => {
   padding: 0 4px;
   border-radius: 4px;
   color: var(--accent);
+}
+
+/* 合并原先两处独立的 1100px 断点 */
+@media (max-width: 1024px) {
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .grid-2 { grid-template-columns: 1fr; }
+  .defense-kpi { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

@@ -164,7 +164,7 @@ watch(
   gap: 8px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   letter-spacing: 0.04em;
 }
 .st-bar {
@@ -176,7 +176,7 @@ watch(
 }
 .st-count {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   font-family: var(--mono);
 }
 .st-grid {
@@ -185,8 +185,8 @@ watch(
 .st-col-head {
   padding: 6px 8px;
   font-size: 13px;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
+  color: var(--t3);
+  border-bottom: 1px solid var(--bd);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   white-space: nowrap;
@@ -215,7 +215,7 @@ watch(
 .st-cell {
   padding: 0 8px;
   font-size: 13px;
-  color: var(--text);
+  color: var(--t1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -235,7 +235,7 @@ watch(
   box-shadow: 0 0 6px var(--chart-green);
 }
 .st-dot.off {
-  background: var(--text-muted);
+  background: var(--t3);
 }
 .st-badge {
   display: inline-block;
@@ -295,7 +295,7 @@ watch(
 .st-empty {
   padding: 30px 0;
   text-align: center;
-  color: var(--text-muted);
+  color: var(--t3);
   font-size: 13px;
 }
 </style>

@@ -19,7 +19,7 @@
     />
 
     <div class="card panel">
-      <div class="toolbar">
+      <div class="filter-bar">
         <el-date-picker
           v-model="range"
           type="datetimerange"
@@ -28,9 +28,10 @@
           start-placeholder="开始时间"
           end-placeholder="结束时间"
           :shortcuts="shortcuts"
-          style="width: 400px; max-width: 100%"
+          class="w-xl"
+          style="max-width: 100%"
         />
-        <el-select v-model="mode" size="small" style="width: 96px">
+        <el-select v-model="mode" size="small" class="w-xs">
           <el-option label="关键词" value="kw" />
           <el-option label="正则" value="re" />
         </el-select>
@@ -38,7 +39,7 @@
           v-model="keyword"
           size="small"
           clearable
-          style="width: 240px"
+          class="w-l"
           :placeholder="mode === 're' ? '正则，如 disk|oom' : '子串，如 error'"
           @keyup.enter="search"
         />
@@ -50,7 +51,7 @@
           clearable
           placeholder="全部节点"
           size="small"
-          style="width: 200px"
+          class="w-m"
         >
           <el-option v-for="n in nodeNames" :key="n" :label="n" :value="n" />
         </el-select>
@@ -62,7 +63,7 @@
           clearable
           placeholder="全部来源"
           size="small"
-          style="width: 180px"
+          class="w-m"
         >
           <el-option v-for="s in sourceNames" :key="s" :label="s" :value="s" />
         </el-select>
@@ -70,7 +71,7 @@
           v-model="fieldInput"
           size="small"
           clearable
-          style="width: 210px"
+          class="w-m"
           placeholder="字段过滤，如 status:500，回车添加"
           @keyup.enter="addFieldFilter"
         />
@@ -79,39 +80,24 @@
         <el-button size="small" @click="exampleVisible = true">配置示例</el-button>
       </div>
 
-      <!-- 字段过滤：服务端在**解析出的键值**上做等值匹配，比关键词精确（关键词会命中别的字段的值）。
+      <!-- 生效中的筛选条件**全部**回显（时间/模式/关键词/节点/来源/字段/容器）：
+           此前只有字段过滤与容器过滤可见，其余改完就"隐形"，用户无法确认条件还在不在生效，
+           于是"日志怎么少了"变成下一个问题。撤销任一条会立即重查，避免 chips 与实际结果脱节。 -->
+      <FilterChips
+        :chips="filterChips"
+        class="chips-gap"
+        clear-text="清空全部"
+        @remove="removeFilter"
+        @clear="clearFilters"
+      />
+
+      <!-- 字段过滤候选：服务端在**解析出的键值**上做等值匹配，比关键词精确（关键词会命中别的字段的值）。
            候选只列服务端真的见过的字段名，避免用户按一个永远查不到的名字去筛。 -->
-      <div v-if="fieldFilters.length || fieldCandidates.length" class="field-row">
-        <el-tag
-          v-for="f in fieldFilters"
-          :key="f"
-          closable
-          size="small"
-          class="field-tag"
-          @close="removeFieldFilter(f)"
-        >
-          {{ f }}
-        </el-tag>
-        <span v-if="fieldCandidates.length" class="muted field-hint">
-          已知字段：
+      <div v-if="fieldCandidates.length" class="field-row">
+        <span class="muted field-hint">
+          已知字段（点一下填入输入框，补上值后回车）：
           <el-button v-for="n in fieldCandidates" :key="n" link size="small" @click="pickField(n)">{{ n }}</el-button>
         </span>
-      </div>
-
-      <!-- 容器过滤：按 Pod 收窄。生效中的过滤条件必须**看得见、删得掉**——
-           否则"日志怎么少了"会变成下一个问题（同理见上面的字段过滤）。 -->
-      <div v-if="pods.length" class="field-row">
-        <el-tag
-          v-for="p in pods"
-          :key="p"
-          closable
-          size="small"
-          type="warning"
-          class="field-tag"
-          @close="removePodFilter(p)"
-        >
-          容器 {{ podFilterLabel(p) }}
-        </el-tag>
       </div>
 
       <el-alert
@@ -141,7 +127,15 @@
         class="alert-gap"
       />
 
-      <el-table v-loading="loading" :data="lines" style="width: 100%">
+      <el-table
+        ref="logTable"
+        v-loading="loading"
+        :data="lines"
+        :row-key="rowKey"
+        style="width: 100%"
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column type="selection" width="40" />
         <!-- 空态分两种：查过之后没有命中才是「没有命中的日志」；
              一次都没查过时不能复用这句话，否则首屏就给出一个错误结论。 -->
         <template #empty>
@@ -208,20 +202,33 @@
             >建规则</el-button>
           </template>
         </el-table-column>
-        <el-table-column label="日志" min-width="420">
+        <!-- 日志列 min-width 由 420 收到 380：本表列宽合计必须 ≤ 可用宽 1142px
+             （1440 − 232 侧栏 − 40 页边距）。加多选列（40px）后原合计 1180px 会横向溢出 38px，
+             日志列是唯一弹性列（单行省略 + 点击展开），收它代价最小。 -->
+        <el-table-column label="日志" min-width="380">
           <template #default="{ row }">
             <!-- 结构化字段贴在原文上方：两者是同一行的两面，分开一列会让阅读来回跳 -->
             <div v-if="fieldPairs(row).length" class="field-chips">
               <span v-for="p in fieldPairs(row)" :key="p" class="tag field-chip">{{ p }}</span>
             </div>
-            <!-- 默认单行省略，点击展开（多行堆栈合并后的日志需要看全） -->
-            <div
-              class="logline"
-              :class="{ open: isOpen(row) }"
-              :title="isOpen(row) ? '点击收起' : '点击展开'"
-              @click="toggle(row)"
-            >
-              {{ row.text }}
+            <!-- 默认单行省略，点击展开（多行堆栈合并后的日志需要看全）。
+                 命中词就地高亮：否则关键词往往落在省略号之后，用户看到的是"一条都不像命中的结果"。
+                 用 button 而不是 div：可 Tab 聚焦、带 aria-expanded，键盘用户同样能展开。 -->
+            <div class="logline-row">
+              <button
+                type="button"
+                class="logline"
+                :class="{ open: isOpen(row) }"
+                :aria-expanded="isOpen(row)"
+                :title="isOpen(row) ? '点击收起' : '点击展开'"
+                @click="toggle(row)"
+                v-html="highlight(row.text)"
+              ></button>
+              <span
+                v-if="hitCount(row.text)"
+                class="hit-badge"
+                :title="`本行命中 ${hitCount(row.text)} 处`"
+              >{{ hitCount(row.text) }}</span>
             </div>
           </template>
         </el-table-column>
@@ -231,11 +238,20 @@
         <el-button v-if="hasMore" size="small" :loading="loadingMore" @click="loadMore">
           加载更多
         </el-button>
-        <span v-else-if="lines.length" class="muted">已到末尾（本轮共 {{ lines.length }} 条）</span>
+        <span v-else-if="lines.length" class="muted">已到末尾</span>
         <span v-if="!lines.length && !loading" class="muted">
           {{ emptyHint }}
           <el-button link type="primary" @click="exampleVisible = true">查看配置示例</el-button>
         </span>
+        <span class="foot-spacer"></span>
+        <!-- 导出/复制是排障留证的最后一步：此前只有本页没有，用户只能手抄 -->
+        <span v-if="lines.length" class="muted">已加载 {{ lines.length }} 条</span>
+        <el-button v-if="selectedRows.length" size="small" @click="copySelected">
+          复制选中 {{ selectedRows.length }} 行
+        </el-button>
+        <el-button v-if="lines.length" size="small" @click="exportLogs">
+          <el-icon><Download /></el-icon> 导出 CSV
+        </el-button>
       </div>
     </div>
 
@@ -283,10 +299,12 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Download } from '@element-plus/icons-vue'
 import http from '../api/http'
 import useAuth from '../composables/useAuth'
 import PageHeader from './common/PageHeader.vue'
 import EmptyState from './common/EmptyState.vue'
+import FilterChips from './common/FilterChips.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -460,6 +478,15 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const loadError = ref('')
 const expanded = ref(new Set())
+// 表格多选（用于「复制选中行」）。row-key 复用 rowKey()，翻页追加后选中态不会错位。
+const logTable = ref(null)
+const selectedRows = ref([])
+function onSelectionChange(rows) {
+  selectedRows.value = rows || []
+}
+// 高亮用的是"本次查询真正生效的关键词"，而不是输入框里的当前值：
+// 用户改了输入框但没点查询时结果仍是旧的，此时按新词高亮会把位置标错。
+const applied = ref({ kw: '', mode: 'kw' })
 
 // ---------- 配置示例 ----------
 // 为什么放在页面里：logSources 配在 Agent 侧，界面上一个字段都看不到，
@@ -614,6 +641,165 @@ function fmtTime(ts) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
+function fmtShort(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// ---------- 生效条件回显（FilterChips） ----------
+// 六个筛选维度全部列出：时间范围（总是存在）、关键词/正则、节点、来源、每个字段过滤、每个容器过滤。
+const filterChips = computed(() => {
+  const chips = []
+  const r = range.value
+  if (r && r[0] && r[1]) chips.push({ key: 'range', label: '时间', value: `${fmtShort(r[0])} ~ ${fmtShort(r[1])}` })
+  const kw = keyword.value.trim()
+  if (kw) chips.push({ key: 'keyword', label: mode.value === 're' ? '正则' : '关键词', value: kw })
+  if (nodes.value.length) chips.push({ key: 'nodes', label: '节点', value: nodes.value.join('、') })
+  if (sources.value.length) chips.push({ key: 'sources', label: '来源', value: sources.value.join('、') })
+  for (const f of fieldFilters.value) chips.push({ key: 'field:' + f, label: '字段', value: f })
+  for (const p of pods.value) chips.push({ key: 'pod:' + p, label: '容器', value: podFilterLabel(p) })
+  return chips
+})
+
+// 撤销一条 chip 后立即重查：chips 与结果必须始终一致，
+// 否则会出现"条件已经删了、列表还是旧结果"的错觉（这是回显条最容易踩的坑）。
+function removeFilter(key) {
+  if (key === 'range') range.value = defaultRange()
+  else if (key === 'keyword') keyword.value = ''
+  else if (key === 'nodes') nodes.value = []
+  else if (key === 'sources') sources.value = []
+  else if (key.startsWith('field:')) removeFieldFilter(key.slice(6))
+  else if (key.startsWith('pod:')) removePodFilter(key.slice(4))
+  else return
+  search()
+}
+
+function clearFilters() {
+  range.value = defaultRange()
+  keyword.value = ''
+  nodes.value = []
+  sources.value = []
+  fieldFilters.value = []
+  pods.value = []
+  search()
+}
+
+// ---------- 命中高亮 ----------
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// 高亮用正则：关键词模式下把用户输入当字面量（先转义），正则模式原样使用。
+// 用户的正则可能写错（如括号不配），编译失败时静默不高亮——不能因为高亮把整页结果弄崩。
+const highlightRe = computed(() => {
+  const kw = applied.value.kw
+  if (!kw) return null
+  try {
+    return new RegExp(applied.value.mode === 're' ? kw : escapeRegExp(kw), 'gi')
+  } catch (e) {
+    return null
+  }
+})
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ))
+}
+
+// 匹配次数上限：用户写的正则可能是灾难性回溯，日志又是长文本。
+// 超过上限就停（宁可少标几处，也不能把浏览器卡住）。
+const MAX_HL = 300
+
+// highlight 返回可 v-html 的片段：原文先转义，只有命中的片段包 <mark>。
+// 顺序很关键——必须在转义**之前**切分原文（转义后偏移量就变了），再对每段分别转义。
+function highlight(text) {
+  const t = String(text === undefined || text === null ? '' : text)
+  const re = highlightRe.value
+  if (!re) return escapeHtml(t)
+  re.lastIndex = 0
+  let out = ''
+  let last = 0
+  let m
+  let n = 0
+  while ((m = re.exec(t)) !== null) {
+    if (m[0] === '') { re.lastIndex += 1; continue }
+    out += escapeHtml(t.slice(last, m.index)) + '<mark>' + escapeHtml(m[0]) + '</mark>'
+    last = m.index + m[0].length
+    if (++n >= MAX_HL) break
+  }
+  return out + escapeHtml(t.slice(last))
+}
+
+function hitCount(text) {
+  const re = highlightRe.value
+  if (!re) return 0
+  const t = String(text === undefined || text === null ? '' : text)
+  re.lastIndex = 0
+  let n = 0
+  let m
+  while ((m = re.exec(t)) !== null) {
+    if (m[0] === '') { re.lastIndex += 1; continue }
+    if (++n >= MAX_HL) break
+  }
+  return n
+}
+
+// ---------- 导出 / 复制 ----------
+function toCsv(rows) {
+  const head = ['时间', '节点', '来源', '容器', '命中模式', '字段', '日志']
+  const esc = (v) => `"${String(v === undefined || v === null ? '' : v).replace(/"/g, '""')}"`
+  const out = [head.join(',')]
+  for (const r of rows) {
+    const o = podOrigin(r)
+    out.push([
+      fmtTime(r.ts),
+      r.node,
+      r.source,
+      o ? `${o.namespace}/${o.pod}${o.container ? ' · ' + o.container : ''}` : '',
+      r.pattern || '',
+      fieldPairs(r).join(' '),
+      r.text || '',
+    ].map(esc).join(','))
+  }
+  // BOM：不带它 Excel 打开中文列会乱码（导出功能最常见的"看起来坏了"）
+  return '\ufeff' + out.join('\r\n')
+}
+
+function download(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportLogs() {
+  if (!lines.value.length) { ElMessage.warning('没有可导出的日志'); return }
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`
+  download(`logs-${stamp}.csv`, toCsv(lines.value))
+  ElMessage.success(`已导出 ${lines.value.length} 条`)
+}
+
+// 复制选中行：与 OpsView 同一取向——剪贴板失败要**如实报错**，
+// 静默失败最气人（用户以为复制到了，粘出来却是旧内容）。
+function copySelected() {
+  if (!selectedRows.value.length) return
+  const text = selectedRows.value
+    .map((r) => `${fmtTime(r.ts)} [${r.node}] [${r.source}] ${r.text || ''}`)
+    .join('\n')
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text)
+      .then(() => ElMessage.success(`已复制 ${selectedRows.value.length} 行`))
+      .catch(() => fallbackCopy(text))
+    return
+  }
+  fallbackCopy(text)
+}
+
 function rowKey(row) {
   return `${row.node}|${row.source}|${row.ts}|${row.text.slice(0, 32)}`
 }
@@ -706,6 +892,8 @@ async function search() {
   loading.value = true
   loadError.value = ''
   expanded.value = new Set()
+  selectedRows.value = []
+  logTable.value?.clearSelection()
   try {
     const data = await http.get('/api/v1/logs?' + buildQuery(false))
     lines.value = data.lines || []
@@ -716,6 +904,8 @@ async function search() {
     assetMap.value = data.assets || {}
     // 容器身份 → Pod 资产（键 `<namespace>|<pod>`）：与上面的主机映射分开两张表
     podAssetMap.value = data.podAssets || {}
+    // 只有查询成功才把"当前输入"认作"本次生效的条件"（失败时结果被清空，高亮也无意义）
+    applied.value = { kw: keyword.value.trim(), mode: mode.value }
   } catch (e) {
     loadError.value = e.message || '查询失败'
     lines.value = []
@@ -723,6 +913,7 @@ async function search() {
     truncated.value = false
     assetMap.value = {}
     podAssetMap.value = {}
+    applied.value = { kw: '', mode: 'kw' }
   } finally {
     loading.value = false
     searched.value = true
@@ -816,13 +1007,13 @@ onMounted(async () => {
 <style scoped>
 /* 内边距由 MainLayout 的 .content 统一提供，页面不再自己套一层 */
 .view { padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.muted { color: var(--text-muted); font-size: 12px; }
 /* .card 只给底色与描边，内边距由此处的 .panel 提供（与元素表共用一套卡片语言） */
 .panel { padding: 12px; }
-.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .alert-gap { margin-bottom: 10px; }
 .tag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--accent-dim); font-size: 12px; }
-/* 字段过滤行：已生效的条件（可删）+ 候选字段名（点击填入输入框） */
+/* 生效条件回显条与筛选条之间留一口气 */
+.chips-gap { margin-bottom: 10px; }
+/* 字段候选行（点击填入输入框） */
 .field-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .field-hint { display: inline-flex; align-items: center; gap: 2px; flex-wrap: wrap; }
 .field-hint .el-button + .el-button { margin-left: 0; }
@@ -834,9 +1025,47 @@ onMounted(async () => {
    （可点的是它下面的 Pod 资产标签） */
 .pod-line { font-size: 12px; margin-top: 2px; }
 .field-chip { background: var(--ok-dim); font-family: var(--mono); }
-.logline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 12px; cursor: pointer; }
+/* 日志行 = 可聚焦按钮 + 命中计数徽标。button 做视觉重置，但保留键盘可达性。 */
+.logline-row { display: flex; align-items: flex-start; gap: 6px; }
+.logline {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
 .logline.open { white-space: pre-wrap; word-break: break-all; }
-.foot { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.logline:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+/* v-html 里的 <mark> 拿不到 scoped 的 data 属性，必须用 :deep 才能着色 */
+.logline :deep(mark) {
+  background: var(--warn-dim);
+  color: var(--warn);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.hit-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--warn-dim);
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.foot { margin-top: var(--desc-base); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.foot-spacer { flex: 1; }
 /* 配置示例弹窗 */
 .ex-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
 .ex-row .muted { flex: 1; min-width: 200px; }
@@ -846,14 +1075,14 @@ onMounted(async () => {
   max-height: 300px;
   overflow: auto;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.6;
   white-space: pre;
   background: rgba(127, 127, 127, 0.08);
-  border: 1px solid var(--border);
+  border: 1px solid var(--bd);
   border-radius: 6px;
-  color: var(--text);
+  color: var(--t1);
 }
-.ex-notes { margin: 12px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-dim); line-height: 1.9; }
+.ex-notes { margin: 12px 0 0; padding-left: 18px; font-size: 13px; color: var(--t2); line-height: 1.9; }
 .ex-notes code { font-family: var(--mono); background: rgba(127, 127, 127, 0.12); padding: 0 4px; border-radius: 3px; }
 </style>

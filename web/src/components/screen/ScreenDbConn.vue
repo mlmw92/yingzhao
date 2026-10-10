@@ -111,7 +111,7 @@ onUnmounted(() => {
 .db-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 10px;
 }
 .db-empty {
@@ -119,7 +119,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 13px;
 }
 .db-kpi {
@@ -138,23 +138,23 @@ onUnmounted(() => {
   font-size: 18px;
   font-weight: 700;
   line-height: 1.1;
-  color: var(--text);
+  color: var(--t1);
 }
 .dbk-v.cyan { color: var(--info); }
 .dbk-v.amber { color: var(--warn); }
 .dbk-l {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 3px;
 }
 .db-usage-head {
   display: flex;
   justify-content: space-between;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-bottom: 5px;
 }
-.db-usage-head b { color: var(--text); }
+.db-usage-head b { color: var(--t1); }
 .db-usage-track {
   height: 8px;
   background: rgba(255, 255, 255, 0.06);
@@ -180,7 +180,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .db-bd .d {
   width: 8px;
@@ -191,7 +191,7 @@ onUnmounted(() => {
 .db-bd .d.pg { background: var(--violet); }
 .db-bd .d.mongo { background: var(--chart-green); }
 .db-bd b {
-  color: var(--text);
+  color: var(--t1);
   margin-left: 2px;
 }
 </style>

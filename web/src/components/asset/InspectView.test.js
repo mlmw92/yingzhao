@@ -7,6 +7,7 @@
 //      那会让人以为"巡检在跑，只是没问题"。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import ElementPlus from 'element-plus'
 import {
   listInspectRuns,
@@ -17,6 +18,11 @@ import {
   runInspectScheduleNow,
 } from '../../api/asset'
 import InspectView from './InspectView.vue'
+
+// 组件用 useRouter().push 做「去资产台账」跳转；测试环境不装 router，
+// 用桩替掉，既能消掉 injection 告警，也能断言跳转目标。
+const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: pushMock }) }))
 
 vi.mock('../../api/asset', () => ({
   runInspect: vi.fn(),
@@ -74,6 +80,7 @@ function findButton(w, text) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  pushMock.mockClear()
   canRun = true
   wrappers = []
   listInspectRuns.mockResolvedValue({ runs: [] })
@@ -219,5 +226,158 @@ describe('InspectView 记录与周期化的衔接', () => {
 
     expect(listInspectFindings).toHaveBeenCalledWith(42)
     expect(w.text()).toContain('cpuCores')
+  })
+})
+
+// —— 批次 12（PS-11）：差异项从"选中才出现的一块"升级为"常驻 + 真 diff + 可筛可分组" ——
+//
+// 这几条都在守"错了也不报错"的地方：
+//   ① 差异项区块未选中时必须给引导（整块消失会让人不知道点行会发生什么）；
+//   ② diff 不能用占位符顶替（"（字段已缺失）"写在期望列里，等于没说清谁变谁）；
+//   ③ 筛选/分页与数据不同步时最容易静默出错（筛选后停在空页）。
+describe('InspectView 差异项（常驻 + 真 diff + 筛选）', () => {
+  const RUNS = [
+    { id: 42, scope: 'scale:mine', actor: 'admin', startedAt: 1_800_000_000_000, assets: 2, baselined: 0, findings: 2, truncated: false },
+  ]
+
+  function withFindings(findings) {
+    listInspectRuns.mockResolvedValue({ runs: RUNS })
+    listInspectFindings.mockResolvedValue({ findings })
+  }
+
+  async function selectFirstRun(w) {
+    const row = w.find('.el-table__row')
+    await row.trigger('click')
+    await flushPromises()
+  }
+
+  it('未选中记录时差异项区块常驻并给引导空态（而不是整块消失）', async () => {
+    const w = mountView()
+    await flushPromises()
+
+    // 区块常驻：标题在
+    expect(w.text()).toContain('差异项')
+    // 引导空态在
+    expect(w.text()).toContain('未选择巡检记录')
+    expect(w.text()).toContain('点击上方「巡检记录」里的任意一行')
+  })
+
+  it('变更类差异渲染成"期望（划掉）→ 实际"的真 diff', async () => {
+    withFindings([{
+      id: 1, runId: 42, assetId: 3, assetType: 'host', assetKey: 'web-01', assetName: 'web-01',
+      node: 'web-01', field: 'cpuCores', kind: 'changed', level: 'warning', expected: '4', actual: '8',
+    }])
+    const w = mountView()
+    await flushPromises()
+    await selectFirstRun(w)
+
+    const struck = w.find('.struck')
+    expect(struck.exists()).toBe(true)
+    expect(struck.text()).toBe('4')
+    const fresh = w.find('.diff-new')
+    expect(fresh.exists()).toBe(true)
+    expect(fresh.text()).toBe('8')
+    // 有箭头，不是两列并排
+    expect(w.find('.diff-arrow').exists()).toBe(true)
+  })
+
+  it('缺失类差异用"（字段已缺失）"标在实际侧，而不是把占位符塞进期望列', async () => {
+    withFindings([{
+      id: 2, runId: 42, assetId: 3, assetType: 'host', assetKey: 'web-01', assetName: 'web-01',
+      node: 'web-01', field: 'maxMemory', kind: 'missing', level: 'critical', expected: '2g', actual: '',
+    }])
+    const w = mountView()
+    await flushPromises()
+    await selectFirstRun(w)
+
+    expect(w.find('.struck').text()).toBe('2g')
+    const miss = w.find('.diff-miss')
+    expect(miss.exists()).toBe(true)
+    expect(miss.text()).toContain('字段已缺失')
+  })
+
+  it('新增类差异用"（原无）→ 实际"表达', async () => {
+    withFindings([{
+      id: 3, runId: 42, assetId: 3, assetType: 'host', assetKey: 'web-01', assetName: 'web-01',
+      node: 'web-01', field: 'newField', kind: 'added', level: 'info', expected: '', actual: 'on',
+    }])
+    const w = mountView()
+    await flushPromises()
+    await selectFirstRun(w)
+
+    expect(w.find('.diff-new').text()).toBe('on')
+    // 新增没有"期望"侧，应显示"（原无）"而不是空占位
+    expect(w.text()).toContain('（原无）')
+  })
+
+  it('按差异类型筛选后只保留匹配项', async () => {
+    withFindings([
+      { id: 1, runId: 42, assetKey: 'web-01', assetName: 'web-01', field: 'alpha', kind: 'changed', level: 'warning', expected: '1', actual: '2' },
+      { id: 2, runId: 42, assetKey: 'web-02', assetName: 'web-02', field: 'beta', kind: 'missing', level: 'critical', expected: '9', actual: '' },
+    ])
+    const w = mountView()
+    await flushPromises()
+    await selectFirstRun(w)
+    expect(w.text()).toContain('alpha')
+    expect(w.text()).toContain('beta')
+
+    w.vm.findingFilter.kind = 'missing'
+    await nextTick()
+    await flushPromises()
+
+    expect(w.text()).toContain('beta')
+    expect(w.text()).not.toContain('alpha')
+  })
+
+  it('同一资产的多条差异在「资产」列上纵向合并（按资产分组）', async () => {
+    withFindings([
+      { id: 1, runId: 42, assetKey: 'web-01', assetName: 'web-01', field: 'f1', kind: 'changed', level: 'warning', expected: '1', actual: '2' },
+      { id: 2, runId: 42, assetKey: 'web-01', assetName: 'web-01', field: 'f2', kind: 'changed', level: 'warning', expected: '3', actual: '4' },
+    ])
+    const w = mountView()
+    await flushPromises()
+    await selectFirstRun(w)
+
+    // 合并后只剩一个「资产」单元格，rowspan=2
+    expect(w.find('td[rowspan="2"]').exists()).toBe(true)
+  })
+
+  it('「去资产台账设置标杆」给出跳转入口（与「清除」成对）', async () => {
+    listInspectRuns.mockResolvedValue({ runs: RUNS })
+    listInspectBaselines.mockResolvedValue({
+      baselines: [{ typeKey: 'host', assetKey: 'web-01', assetId: 3, setBy: 'admin', setAt: 1_800_000_000_000 }],
+    })
+    const w = mountView()
+    await flushPromises()
+
+    const link = findButton(w, '去资产台账设置标杆')
+    expect(link).toBeTruthy()
+    await link.trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/assets')
+  })
+
+  it('打印按钮文案随选中状态变化，并带 title 说明', async () => {
+    listInspectRuns.mockResolvedValue({ runs: RUNS })
+    const w = mountView()
+    await flushPromises()
+
+    let btn = findButton(w, '打印')
+    expect(btn.text()).toContain('打印巡检记录')
+
+    await selectFirstRun(w)
+    btn = findButton(w, '打印')
+    expect(btn.text()).toContain('打印本次差异项')
+    expect(btn.attributes('title')).toContain('差异项')
+  })
+
+  it('差异项加载失败给错误态与重试，而不是只 toast 后停在空白', async () => {
+    listInspectRuns.mockResolvedValue({ runs: RUNS })
+    listInspectFindings.mockRejectedValue(new Error('findings 接口挂了'))
+    const w = mountView()
+    await flushPromises()
+    await selectFirstRun(w)
+
+    expect(w.text()).toContain('findings 接口挂了')
+    expect(findButton(w, '重试')).toBeTruthy()
   })
 })

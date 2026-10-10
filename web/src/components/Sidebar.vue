@@ -318,7 +318,7 @@ onMounted(() => {
   flex-direction: column;
   padding: 16px 12px;
   border-radius: 0;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--bd);
   border-left: none;
   border-top: none;
   border-bottom: none;
@@ -338,7 +338,7 @@ onMounted(() => {
      所以品牌区高度取 40px（16 + 40 = 56），而不是此前算错账的 52px（落到 68px）。 */
   padding: 3px 6px;
   height: 40px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--bd);
   margin-bottom: 14px;
 }
 .brand-logo {
@@ -364,7 +364,7 @@ onMounted(() => {
 }
 .brand-text p {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .nav {
   flex: 1;
@@ -384,7 +384,7 @@ onMounted(() => {
   gap: 10px;
   height: 36px;
   padding: 0 10px;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: var(--fs-base);
   border-radius: var(--r-sm);
   text-decoration: none;
@@ -393,7 +393,7 @@ onMounted(() => {
 }
 .nav-item:hover {
   background: var(--fill-1);
-  color: var(--text);
+  color: var(--t1);
 }
 .nav-item.active {
   background: var(--accent-dim);
@@ -427,9 +427,9 @@ onMounted(() => {
   gap: 10px;
   padding: 6px 10px;
   color: var(--t3);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   border-radius: var(--r-sm);
   cursor: pointer;
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
@@ -437,7 +437,7 @@ onMounted(() => {
 }
 .nav-group-title:hover {
   background: var(--fill-1);
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .nav-group.group-active .nav-group-title {
   color: var(--accent);
@@ -459,7 +459,7 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: var(--fs-base);
   border-radius: var(--r-sm);
   text-decoration: none;
@@ -467,7 +467,7 @@ onMounted(() => {
 }
 .nav-subitem:hover {
   background: var(--fill-1);
-  color: var(--text);
+  color: var(--t1);
 }
 .nav-subitem.active {
   background: var(--accent-dim);
@@ -501,7 +501,7 @@ onMounted(() => {
    避免"点了怎么多出一个页签"的困惑；同时区分于普通菜单项 */
 .ext-icon {
   margin-left: auto;
-  color: var(--text-muted);
+  color: var(--t3);
 }
 /* 用户卡：头像 + 用户名 + 角色 · 版本 */
 .nav-foot {
@@ -534,14 +534,14 @@ onMounted(() => {
 .u-name {
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .u-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--t3);
   white-space: nowrap;
   overflow: hidden;
@@ -555,7 +555,7 @@ onMounted(() => {
 /* 版本信息（保持与改造前一致的呈现：左侧「版本」标签 + 右侧等宽字体版本号） */
 .version-info {
   padding: 8px 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--bd);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -567,10 +567,10 @@ onMounted(() => {
   font-size: 13px;
 }
 .ver-label {
-  color: var(--text-muted);
+  color: var(--t3);
 }
 .ver-val {
-  color: var(--text-dim);
+  color: var(--t2);
   font-family: var(--mono);
   font-size: 13px;
 }
@@ -581,7 +581,7 @@ onMounted(() => {
   width: 100%;
   justify-content: flex-start;
   gap: 12px;
-  color: var(--text-dim);
+  color: var(--t2);
   height: 36px;
   padding: 0 12px;
 }

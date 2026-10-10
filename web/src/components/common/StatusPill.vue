@@ -1,17 +1,21 @@
 <template>
   <span class="pill" :class="[tone, size]">
     <i v-if="dot" class="pill-dot"></i>
-    <slot />
+    <el-icon v-if="icon" class="pill-icon"><component :is="icon" /></el-icon>
+    <slot>{{ text }}</slot>
   </span>
 </template>
 
 <script setup>
 // 12px 轻量药丸：用于高密度列表的状态表达。
 // tone 只允许表达真实状态（ok/warn/danger/info），muted 用于"无状态"。
+// icon 提供"颜色之外的第二编码"（色盲友好）；text 用于免插槽的简单用法。
 defineProps({
   tone: { type: String, default: 'muted' }, // ok | warn | danger | info | muted
   dot: { type: Boolean, default: false },
   size: { type: String, default: 'sm' }, // sm | md
+  icon: { type: [Object, Function], default: null },
+  text: { type: String, default: '' },
 })
 </script>
 
@@ -37,6 +41,10 @@ defineProps({
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+  flex-shrink: 0;
+}
+.pill-icon {
+  font-size: 1em;
   flex-shrink: 0;
 }
 

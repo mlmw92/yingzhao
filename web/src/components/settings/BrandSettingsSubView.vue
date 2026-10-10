@@ -13,6 +13,17 @@
       </div>
     </template>
 
+    <!-- 影响范围提示放在这里（此前挂在设置页左侧导航下方，与本页操作离得远）：
+         这几项是全局品牌，改动会外溢到登录页 / 浏览器标签 / 对外状态页，
+         在真正编辑它们的地方说清楚，比在导航栏角落提示更有效。 -->
+    <el-alert
+      type="info"
+      :closable="false"
+      show-icon
+      class="brand-scope-tip"
+      title="图标、名称与主题色的改动会同步到登录页、浏览器标签与对外状态页"
+    />
+
     <el-form label-position="top" class="two-col-form">
       <el-row :gutter="28">
         <el-col :xs="24" :md="12">
@@ -92,20 +103,36 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBrand } from '../../composables/useBrand'
 
 const { brand, saveBrand } = useBrand()
-const form = ref({ name: 'NebulaEye', logo: '', footer: '', subtitle: '监控中心' })
+const DEFAULTS = { name: 'NebulaEye', logo: '', footer: '', subtitle: '监控中心' }
+const form = ref({ ...DEFAULTS })
+const baseline = ref({ ...DEFAULTS })
 const fileInput = ref(null)
 const saving = ref(false)
 
 onMounted(() => {
-  form.value.name = brand.name || 'NebulaEye'
-  form.value.logo = brand.logo || ''
-  form.value.footer = brand.footer || ''
-  form.value.subtitle = brand.subtitle || '监控中心'
+  const loaded = {
+    name: brand.name || DEFAULTS.name,
+    logo: brand.logo || '',
+    footer: brand.footer || '',
+    subtitle: brand.subtitle || DEFAULTS.subtitle,
+  }
+  form.value = { ...loaded }
+  baseline.value = { ...loaded }
+})
+
+const dirty = computed(() => {
+  const b = baseline.value
+  return (
+    form.value.name !== b.name ||
+    form.value.logo !== b.logo ||
+    form.value.footer !== b.footer ||
+    form.value.subtitle !== b.subtitle
+  )
 })
 
 function pickFile() {
@@ -127,6 +154,10 @@ function onFile(e) {
   reader.onload = () => {
     form.value.logo = reader.result
   }
+  // 读取失败（文件损坏 / 权限）时必须给反馈，否则点了「选择图片」毫无动静
+  reader.onerror = () => {
+    ElMessage.error('图片读取失败，请换一张再试')
+  }
   reader.readAsDataURL(f)
   e.target.value = ''
 }
@@ -135,11 +166,17 @@ function clearLogo() {
   form.value.logo = ''
 }
 
-function resetDefault() {
-  form.value.name = 'NebulaEye'
-  form.value.logo = ''
-  form.value.footer = ''
-  form.value.subtitle = '监控中心'
+async function resetDefault() {
+  try {
+    await ElMessageBox.confirm(
+      '将把系统名称、副标题、Logo、页脚恢复为默认值。注意：需再点「保存」才会真正生效。',
+      '恢复默认',
+      { type: 'warning', confirmButtonText: '恢复默认', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  form.value = { ...DEFAULTS }
 }
 
 async function save() {
@@ -150,6 +187,7 @@ async function save() {
   saving.value = true
   try {
     await saveBrand(form.value.name.trim(), form.value.logo, form.value.footer, form.value.subtitle.trim())
+    baseline.value = { ...form.value }
     ElMessage.success('已保存，全局即时生效')
   } catch (e) {
     ElMessage.error(e.message || '保存失败')
@@ -157,26 +195,36 @@ async function save() {
     saving.value = false
   }
 }
+
+function reset() {
+  form.value = { ...baseline.value }
+}
+
+// dirty 契约：供 SettingsView 容器渲染吸底「未保存改动」条
+defineExpose({ dirty, save, reset })
 </script>
 
 <style scoped>
 .settings-card {
-  border-radius: 12px;
+  border-radius: var(--r-lg);
+}
+.brand-scope-tip {
+  margin-bottom: var(--sp-4);
 }
 .card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--sp-3);
 }
 .card-head .title {
-  font-size: 15px;
+  font-size: var(--fs-base);
   font-weight: 600;
   margin-right: 10px;
 }
 .card-head .sub {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
 }
 .head-actions {
   display: flex;
@@ -187,26 +235,26 @@ async function save() {
   padding-bottom: 6px;
 }
 .field-hint {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
   line-height: 1.5;
   margin-top: 6px;
 }
 .logo-row {
   display: flex;
-  gap: 16px;
+  gap: var(--sp-4);
   align-items: flex-start;
 }
 .logo-preview {
   width: 80px;
   height: 80px;
-  border-radius: 12px;
-  border: 1px dashed var(--border);
+  border-radius: var(--r-lg);
+  border: 1px dashed var(--bd);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: var(--bg-soft, var(--fill-1));
+  background: var(--fill-1);
   flex-shrink: 0;
 }
 .logo-preview img {
@@ -215,8 +263,8 @@ async function save() {
   object-fit: contain;
 }
 .logo-empty {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  color: var(--t3);
   padding: 8px;
   text-align: center;
 }
@@ -233,18 +281,18 @@ async function save() {
 .footer-preview {
   width: 100%;
   padding: 16px 20px;
-  border-radius: 8px;
-  border: 1px dashed var(--border);
-  background: var(--bg-soft, var(--fill-1));
+  border-radius: var(--r-md);
+  border: 1px dashed var(--bd);
+  background: var(--fill-1);
   text-align: center;
-  color: var(--text-dim);
-  font-size: 13px;
+  color: var(--t2);
+  font-size: var(--fs-sm);
 }
 .preview-text {
-  color: var(--text);
+  color: var(--t1);
   white-space: pre-wrap;
 }
 .preview-empty {
-  color: var(--text-muted);
+  color: var(--t3);
 }
 </style>

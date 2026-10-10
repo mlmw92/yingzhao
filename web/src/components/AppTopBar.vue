@@ -169,7 +169,7 @@ const initials = computed(() => {
   border-left: none;
   border-right: none;
   border-top: none;
-  background: var(--bg-elev);
+  background: var(--s1);
 }
 .topbar-left {
   display: flex;
@@ -187,11 +187,11 @@ const initials = computed(() => {
   font-weight: 400;
 }
 .topbar :deep(.el-breadcrumb__inner.is-link:hover) {
-  color: var(--text);
+  color: var(--t1);
 }
 /* 当前页用正文色，形成"你在哪"的落点 */
 .topbar :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
-  color: var(--text);
+  color: var(--t1);
   font-weight: 600;
 }
 
@@ -228,7 +228,7 @@ const initials = computed(() => {
 }
 .cmdk-kbd {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 5px;
   border-radius: var(--r-xs);
   background: var(--fill-3);
@@ -258,7 +258,7 @@ const initials = computed(() => {
 .screen-btn:hover {
   background: var(--fill-hover);
   border-color: var(--bd-hi);
-  color: var(--text);
+  color: var(--t1);
 }
 
 .icon-btn {

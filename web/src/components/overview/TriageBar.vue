@@ -1,5 +1,13 @@
 <template>
-  <div v-if="triage" class="triage" :class="'sev-' + (triage.severity || 'warn')">
+  <!-- 单根元素：根前放注释会让组件变成多根，外部透传的属性/类会失配 -->
+  <div
+    v-if="triage"
+    class="triage"
+    role="alert"
+    :class="'sev-' + (triage.severity || 'warn')"
+  >
+    <!-- role="alert"：这条是"最该处理的一件事"，出现/变化时读屏应立即播报，
+         而不是等用户逐个区块扫过去才发现。 -->
     <span class="triage-badge">研判</span>
     <div class="triage-text">
       <b>{{ triage.headline }}</b>
@@ -26,10 +34,17 @@ const router = useRouter()
 // 无告警时返回 null，整条不渲染
 const triage = computed(() => buildTriage(props.alerts, props.nodes, props.latestMap))
 
+// 带着这条研判告警的 node / rule 跳转：告警中心据此直接过滤，
+// 用户不用在几百条里再自己找一遍。
 function goAlerts() {
-  router.push('/alerts')
+  const a = (triage.value && triage.value.alert) || {}
+  const query = {}
+  if (a.node) query.node = String(a.node)
+  if (a.ruleName) query.rule = String(a.ruleName)
+  router.push({ path: '/alerts', query })
 }
 </script>
+
 
 <style scoped>
 .triage {
@@ -55,7 +70,7 @@ function goAlerts() {
 }
 .triage-badge {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   padding: 2px 6px;
@@ -77,7 +92,7 @@ function goAlerts() {
   line-height: 1.6;
 }
 .triage-text b {
-  color: var(--text);
+  color: var(--t1);
   font-weight: 600;
   margin-right: 6px;
 }

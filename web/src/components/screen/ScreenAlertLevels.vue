@@ -59,7 +59,7 @@ const rows = computed(() => [
 .al-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
   margin-bottom: 12px;
 }
 .al-list {
@@ -84,7 +84,7 @@ const rows = computed(() => [
 .al-name {
   width: 36px;
   flex-shrink: 0;
-  color: var(--text);
+  color: var(--t1);
 }
 .al-track {
   flex: 1;
@@ -103,16 +103,16 @@ const rows = computed(() => [
   width: 34px;
   text-align: right;
   font-weight: 700;
-  color: var(--text);
+  color: var(--t1);
 }
 .al-foot {
   margin-top: 12px;
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .al-foot b {
-  color: var(--text);
+  color: var(--t1);
 }
 </style>

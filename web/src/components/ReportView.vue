@@ -21,7 +21,8 @@
         </el-checkbox-group>
       </div>
       <div class="schedule-hint">
-        默认全选。覆盖范围（能看哪些节点与资产）由服务端按你的权限折算，不受此处影响；
+        报告是**当前状态快照**：时间窗口由报告类型固定（日报 / 周报 / 月报），不支持自定义时间与节点范围；
+        覆盖范围（能看哪些节点与资产）由服务端按你的权限折算，不受此处影响；
         缺少某域权限的章节会被跳过，并在报告头部标注原因。
       </div>
       <el-alert
@@ -92,72 +93,125 @@
       <div v-if="historyLoading" class="sk-list">
         <div v-for="i in 4" :key="i" class="sk sk-row"></div>
       </div>
-      <el-table v-else-if="history.length > 0" :data="history" style="width: 100%">
-        <el-table-column label="类型" width="80">
-          <template #default="{ row }">
-            <el-tag v-if="row.type" size="small">{{ typeLabel(row.type) }}</el-tag>
-            <span v-else style="color: var(--text-muted)">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="统计周期" min-width="150">
-          <template #default="{ row }">{{ row.period || '—' }}</template>
-        </el-table-column>
-        <el-table-column label="生成时间" width="180">
-          <template #default="{ row }">{{ formatTime(row.generatedAt) }}</template>
-        </el-table-column>
-        <el-table-column label="范围" min-width="180">
-          <template #default="{ row }">
-            <span>{{ row.scope || '—' }}</span>
-            <el-tag
-              v-if="row.skipped && row.skipped.length"
-              size="small"
-              type="warning"
-              style="margin-left: 6px;"
-            >已跳过 {{ row.skipped.length }} 章</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="200">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="preview(row.id)">预览</el-button>
-            <el-button link @click="openNewTab(row.id)">新标签页</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <EmptyState
-        v-else-if="!historyError && !historyLoading"
-        title="暂无历史报告"
-        :hints="['在上方选择日报 / 周报 / 月报，点「生成报告」创建第一份']"
-        action-text="生成报告"
-        @action="generate"
-      />
+      <template v-else-if="!historyError">
+        <div v-if="history.length" class="filter-bar">
+          <el-input v-model="historyKw" size="small" class="w-m" clearable placeholder="搜索周期 / 类型 / 范围" />
+        </div>
+        <el-table v-if="filteredHistory.length > 0" :data="pagedHistory" style="width: 100%">
+          <el-table-column label="类型" width="80">
+            <template #default="{ row }">
+              <StatusPill v-if="row.type" size="sm" :tone="typeTone(row.type)" :text="typeLabel(row.type)" />
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="统计周期" min-width="150">
+            <template #default="{ row }">{{ row.period || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="生成时间" width="180">
+            <template #default="{ row }">{{ formatTime(row.generatedAt) }}</template>
+          </el-table-column>
+          <el-table-column label="范围" min-width="180">
+            <template #default="{ row }">
+              <span>{{ row.scope || '—' }}</span>
+              <el-tag
+                v-if="row.skipped && row.skipped.length"
+                size="small"
+                type="warning"
+                class="skip-tag"
+              >已跳过 {{ row.skipped.length }} 章</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="200" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="preview(row.id)">预览</el-button>
+              <el-button link @click="openNewTab(row.id)">新标签页</el-button>
+              <el-button link type="danger" @click="deleteReport(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <EmptyState
+          v-else
+          :title="history.length ? '没有匹配的报告' : '暂无历史报告'"
+          :hints="history.length ? ['换个关键词，或清空搜索框'] : ['在上方选择日报 / 周报 / 月报，点「生成报告」创建第一份']"
+          :action-text="history.length ? '' : '生成报告'"
+          @action="generate"
+        />
+        <div v-if="filteredHistory.length > historyPageSize" class="pager">
+          <el-pagination
+            layout="prev, pager, next, total"
+            :total="filteredHistory.length"
+            :page-size="historyPageSize"
+            :current-page="historyPage"
+            @current-change="(p) => (historyPage = p)"
+          />
+        </div>
+      </template>
     </SectionCard>
 
-    <SectionCard v-if="previewUrl" title="报告预览" class="report-frame">
-      <template #actions>
-        <el-button size="small" @click="openNewTabById(currentId)">新标签页打开</el-button>
-        <el-button size="small" @click="printReport(currentId)">打印</el-button>
-        <el-button size="small" type="primary" @click="download(currentId)">下载 HTML</el-button>
+    <!-- 预览改用右侧抽屉：此前预览是页尾一整块卡片，历史长时要点「预览」再往下滚很远，
+         关掉预览也没有入口。抽屉常驻在视口右侧，关闭即回到列表原位。 -->
+    <el-drawer v-model="previewOpen" title="报告预览" size="min(880px, 92vw)" direction="rtl">
+      <template #header>
+        <div class="drawer-head">
+          <span class="drawer-title">报告预览</span>
+          <div class="drawer-actions">
+            <el-button size="small" @click="openNewTabById(currentId)">新标签页打开</el-button>
+            <!-- 「打印」在报告这种交付物上等于「存 PDF」，但用户不一定知道——
+                 按钮上直接写出来，比让人猜 Ctrl+P 之后能干什么强 -->
+            <el-button
+              size="small"
+              title="在弹出窗口里调起浏览器打印，目标选「另存为 PDF」即可。报告自带 A4 纵向打印样式，无需另配"
+              @click="printReport(currentId)"
+            >打印 / 存为 PDF</el-button>
+            <el-button size="small" type="primary" @click="download(currentId)">下载 HTML</el-button>
+          </div>
+        </div>
       </template>
-      <iframe :src="previewUrl" class="report-iframe" title="巡检报告预览"></iframe>
-    </SectionCard>
+      <div class="report-frame">
+        <div v-if="previewLoading" class="frame-state">
+          <span class="frame-spin"></span>
+          <span>正在加载报告…</span>
+        </div>
+        <div v-if="previewError" class="frame-state error">
+          <span>{{ previewError }}</span>
+          <el-button size="small" @click="openNewTabById(currentId)">新标签页打开</el-button>
+        </div>
+        <iframe
+          v-show="!previewError"
+          :src="previewUrl"
+          class="report-iframe"
+          title="巡检报告预览"
+          @load="onIframeLoad"
+          @error="onIframeError"
+        ></iframe>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import PageHeader from './common/PageHeader.vue'
 import SectionCard from './common/SectionCard.vue'
 import EmptyState from './common/EmptyState.vue'
+import StatusPill from './common/StatusPill.vue'
 
 const reportType = ref('daily')
 const generating = ref(false)
 const history = ref([])
 const historyError = ref('')
 const historyLoading = ref(false)
+const historyKw = ref('')
+const historyPage = ref(1)
+const historyPageSize = 10
 const previewUrl = ref('')
 const currentId = ref('')
+const previewOpen = ref(false)
+const previewLoading = ref(false)
+const previewError = ref('')
+let previewTimer = 0
 
 // 报告章节（设计件 2026-10-08-reporting-views-design.md）。
 // 空数组在后端表示"全选"，因此初始就是全选；手动生成与周期化生成共用这一组选择。
@@ -172,12 +226,28 @@ const sectionOptions = [
 ]
 const sections = ref(sectionOptions.map((o) => o.value))
 
+const filteredHistory = computed(() => {
+  const k = historyKw.value.trim().toLowerCase()
+  if (!k) return history.value
+  return history.value.filter((r) =>
+    [r.id, r.type, typeLabel(r.type), r.period, r.scope]
+      .some((v) => String(v || '').toLowerCase().includes(k))
+  )
+})
+const pagedHistory = computed(() => {
+  const start = (historyPage.value - 1) * historyPageSize
+  return filteredHistory.value.slice(start, start + historyPageSize)
+})
+
 async function loadHistory() {
   historyLoading.value = true
   try {
     const data = await http.get('/api/v1/report/history')
     history.value = data.reports || []
     historyError.value = ''
+    if (historyPage.value > 1 && (historyPage.value - 1) * historyPageSize >= filteredHistory.value.length) {
+      historyPage.value = 1
+    }
   } catch (e) {
     console.error(e)
     historyError.value = e.message || '网络异常，请稍后重试'
@@ -199,6 +269,25 @@ async function generate() {
     console.error(e)
     ElMessage.error('生成报告失败：' + (e.message || '请稍后重试'))
   } finally { generating.value = false }
+}
+
+async function deleteReport(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除报告 ${row.id}？删除后不可恢复。`, '删除报告', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  try {
+    await http.del(`/api/v1/report/history/${encodeURIComponent(row.id)}`)
+    ElMessage.success('已删除')
+    await loadHistory()
+  } catch (e) {
+    ElMessage.error(e.message || '删除失败')
+  }
 }
 
 /* ================= 周期化生成（全景表 11-4） ================= */
@@ -268,18 +357,43 @@ async function runScheduleNow() {
   }
 }
 
-function preview(id) {
-  currentId.value = id
-  previewUrl.value = `/api/v1/report/download?id=${encodeURIComponent(id)}`
-  // 滚动到预览区域
-  setTimeout(() => {
-    const el = document.querySelector('.report-frame')
-    // 与 CommandPalette 一致加存在性判断：jsdom（单元测试环境）不实现 scrollIntoView
-    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, 60)
+function clearPreviewTimer() {
+  if (previewTimer) {
+    clearTimeout(previewTimer)
+    previewTimer = 0
+  }
 }
 
-function openNewTab(id) { window.open(`/api/v1/report/download?id=${encodeURIComponent(id)}`, '_blank') }
+function preview(id) {
+  if (!id) return
+  currentId.value = id
+  previewUrl.value = `/api/v1/report/download?id=${encodeURIComponent(id)}`
+  previewError.value = ''
+  previewLoading.value = true
+  previewOpen.value = true
+  // iframe 的 load 事件在多数浏览器里连 404 页也会触发，光靠 load 判断不了"没加载上"。
+  // 用一个兜底超时：迟迟没有 load 就给出失败提示 + 新标签页入口。
+  clearPreviewTimer()
+  previewTimer = setTimeout(() => {
+    if (previewLoading.value) {
+      previewLoading.value = false
+      previewError.value = '报告预览加载超时，可点「新标签页打开」查看'
+    }
+  }, 8000)
+}
+
+function onIframeLoad() {
+  clearPreviewTimer()
+  previewLoading.value = false
+}
+
+function onIframeError() {
+  clearPreviewTimer()
+  previewLoading.value = false
+  previewError.value = '报告预览加载失败，可点「新标签页打开」查看'
+}
+
+function openNewTab(id) { if (id) window.open(`/api/v1/report/download?id=${encodeURIComponent(id)}`, '_blank') }
 function openNewTabById(id) { if (id) openNewTab(id) }
 
 // 报告本身是独立 HTML（自带 @media print），必须在新窗口里打，
@@ -294,6 +408,7 @@ function printReport(id) {
   w.addEventListener('load', () => { w.focus(); w.print() }, { once: true })
 }
 function download(id) {
+  if (!id) return
   const a = document.createElement('a')
   a.href = `/api/v1/report/download?id=${encodeURIComponent(id)}`
   a.download = `${id}.html`
@@ -304,6 +419,7 @@ function download(id) {
 }
 
 function typeLabel(t) { return { daily: '日报', weekly: '周报', monthly: '月报' }[t] || t }
+function typeTone(t) { return { daily: 'info', weekly: 'ok', monthly: 'warn' }[t] || 'muted' }
 function formatTime(ms) { return new Date(ms).toLocaleString('zh-CN') }
 
 onMounted(() => {
@@ -313,32 +429,47 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.report-view { padding: 4px 0 16px; }
-.schedule-label { color: var(--text-dim); font-size: 13px; }
-.schedule-hint { margin-top: 8px; color: var(--text-dim); font-size: 12.5px; }
+.report-view { display: flex; flex-direction: column; gap: 12px; }
+.schedule-label { color: var(--t3); font-size: var(--fs-sm); }
+.schedule-hint { margin-top: 8px; color: var(--t3); font-size: var(--fs-sm); }
 .schedule-fail { color: var(--danger); }
-/* .page-header / .page-title / .page-desc / .chart-section / .section-title
-   是改用 PageHeader + SectionCard 之后遗留的死规则（模板里已无对应元素），
-   留着只会让后续改样式时误以为这里有生效的排版。 */
 .sections-row {
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.generate-row { display: flex; gap: 12px; align-items: center; }
+.generate-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .tip { margin-top: 14px; }
 .history-error { margin-bottom: 12px; }
+.filter-bar { margin-bottom: 10px; }
+.skip-tag { margin-left: 6px; }
+.pager { display: flex; justify-content: flex-end; margin-top: 10px; }
 /* 骨架占位（.sk / .sk-row 是全局类）：与表格行的纵向节奏对齐，避免加载完成时高度突变 */
 .sk-list { padding: 10px 0; }
-.frame-head { display: flex; align-items: center; justify-content: space-between; }
-.frame-actions { display: flex; gap: 8px; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; width: 100%; }
+.drawer-title { font-size: var(--fs-base); font-weight: 600; color: var(--t1); }
+.drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.report-frame { position: relative; height: 100%; }
+.frame-state {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  gap: 8px; font-size: var(--fs-sm); color: var(--t3); background: var(--s1); border-radius: var(--r-md);
+}
+.frame-state.error { flex-direction: column; color: var(--danger); }
+.frame-spin {
+  width: 14px; height: 14px; border: 2px solid var(--bd); border-top-color: var(--accent);
+  border-radius: 50%; animation: frame-spin 0.7s linear infinite;
+}
+@keyframes frame-spin { to { transform: rotate(360deg); } }
 .report-iframe {
   width: 100%;
-  /* 此前写死 860px：笔记本上预览区顶到视口外、页面与 iframe 嵌套双滚动；
-     内容短的周报又会在卡片下方留好几百 px 空白。改成随视口收放，但不矮于 420px。 */
-  height: clamp(420px, calc(100vh - 280px), 860px);
-  border: 1px solid var(--border, #ebeef5);
-  border-radius: 10px;
+  height: 100%;
+  min-height: 420px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-md);
   background: #fff;
+}
+@media (max-width: 768px) {
+  .generate-row { align-items: flex-start; }
+  .generate-row :deep(.el-select) { width: 100% !important; }
 }
 </style>

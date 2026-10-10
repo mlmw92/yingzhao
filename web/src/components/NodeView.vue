@@ -12,6 +12,15 @@
           <div><div class="obj-kpi-label">磁盘</div><div class="obj-kpi-value" :class="rateClass(rt.disk)">{{ num(rt.disk) }}<small>%</small></div></div>
           <div><div class="obj-kpi-label">负载</div><div class="obj-kpi-value">{{ rt.load1 ?? '-' }}</div></div>
         </div>
+        <el-switch
+          v-model="autoRefresh"
+          size="small"
+          inline-prompt
+          active-text="自动"
+          inactive-text="暂停"
+          class="auto-refresh-switch"
+          :title="autoRefresh ? '实时刷新已开启（WebSocket 实时指标 + 15s 主机 / 30s 告警轮询）' : '已暂停实时刷新与轮询；重新开启会自动重连'"
+        />
         <el-select
           v-model="selected"
           filterable
@@ -37,7 +46,7 @@
       <!-- ============ Tab 1：主机概览 ============ -->
       <el-tab-pane label="主机概览" name="overview">
         <!-- 设备信息 -->
-        <div class="section-title">设备信息</div>
+        <h3 class="section-title">设备信息</h3>
         <!-- 定义列表：标签固定宽度左对齐、值紧随其后，比四列平铺更容易纵向扫读 -->
         <dl class="def-list def-2col">
           <dt>主机名</dt>
@@ -59,33 +68,42 @@
         </dl>
 
         <!-- 系统情况：环形图 -->
-        <div class="section-title">系统情况</div>
-        <div class="gauge-row">
-          <div class="gauge-card">
-            <div :ref="(el) => setRef(el, 'cpuGauge')" class="gauge"></div>
-            <div class="gauge-label">CPU 使用率</div>
-            <div class="gauge-sub">{{ hostInfo?.cpuCores || '-' }} 核</div>
+        <h3 class="section-title">系统情况</h3>
+        <!-- WS 首帧到达前用骨架占位：此前环形图先渲染成 0%，会被读成「使用率为 0」而不是「还没数据」 -->
+        <div class="rt-block">
+          <div class="gauge-row" :class="{ 'is-pending': !rtReady }">
+            <div class="gauge-card">
+              <div :ref="(el) => setRef(el, 'cpuGauge')" class="gauge"></div>
+              <div class="gauge-label">CPU 使用率</div>
+              <div class="gauge-sub">{{ hostInfo?.cpuCores || '-' }} 核</div>
+            </div>
+            <div class="gauge-card">
+              <div :ref="(el) => setRef(el, 'memGauge')" class="gauge"></div>
+              <div class="gauge-label">内存使用率</div>
+              <div class="gauge-sub">{{ memUsedText }} / {{ memTotalText }}</div>
+            </div>
+            <div class="gauge-card">
+              <div :ref="(el) => setRef(el, 'diskGauge')" class="gauge"></div>
+              <div class="gauge-label">磁盘使用率</div>
+              <div class="gauge-sub">{{ diskUsedText }} / {{ diskTotalText }}</div>
+            </div>
+            <div class="gauge-card">
+              <div :ref="(el) => setRef(el, 'swapGauge')" class="gauge"></div>
+              <div class="gauge-label">SWAP 使用率</div>
+              <div class="gauge-sub">{{ swapUsedText }} / {{ swapTotalText }}</div>
+            </div>
           </div>
-          <div class="gauge-card">
-            <div :ref="(el) => setRef(el, 'memGauge')" class="gauge"></div>
-            <div class="gauge-label">内存使用率</div>
-            <div class="gauge-sub">{{ memUsedText }} / {{ memTotalText }}</div>
-          </div>
-          <div class="gauge-card">
-            <div :ref="(el) => setRef(el, 'diskGauge')" class="gauge"></div>
-            <div class="gauge-label">磁盘使用率</div>
-            <div class="gauge-sub">{{ diskUsedText }} / {{ diskTotalText }}</div>
-          </div>
-          <div class="gauge-card">
-            <div :ref="(el) => setRef(el, 'swapGauge')" class="gauge"></div>
-            <div class="gauge-label">SWAP 使用率</div>
-            <div class="gauge-sub">{{ swapUsedText }} / {{ swapTotalText }}</div>
+          <div v-if="!rtReady" class="rt-skel gauge-skel" aria-hidden="true">
+            <div v-for="n in 4" :key="n" class="rt-skel-cell">
+              <div class="sk rt-skel-ring"></div>
+              <div class="sk rt-skel-line"></div>
+            </div>
           </div>
         </div>
 
         <!-- 端口状态 -->
         <div v-if="portStatuses.length > 0" class="port-section">
-          <div class="section-title">端口状态</div>
+          <h3 class="section-title">端口状态</h3>
           <div class="port-list">
             <div v-for="ps in portStatuses" :key="ps.port" class="port-item" :class="{ up: ps.up, down: !ps.up }">
               <span class="port-dot"></span>
@@ -97,7 +115,7 @@
         </div>
 
         <!-- 实时趋势 + IO -->
-        <div class="section-title">实时趋势</div>
+        <h3 class="section-title">实时趋势</h3>
         <div class="panel-hint">说明：以下为通过 WebSocket 实时上报的采样（每秒 1 条，横轴为采样时刻，仅保留最近 60 个点）。</div>
         <el-alert
           v-if="currentStatus === 'offline'"
@@ -106,6 +124,14 @@
           show-icon
           class="rt-waiting"
           title="主机离线，实时数据不可用。主机恢复上报后此处会自动更新。"
+        />
+        <el-alert
+          v-else-if="!autoRefresh"
+          type="info"
+          :closable="false"
+          show-icon
+          class="rt-waiting"
+          title="实时刷新已暂停。开启页头右上角的「自动」开关即可恢复 WebSocket 实时指标与定时轮询。"
         />
         <el-alert
           v-else-if="!rtReady && wsState === 'retrying'"
@@ -132,48 +158,64 @@
           class="rt-waiting"
           title="正在等待实时数据…（WebSocket 连接中，通常 1-2 秒内开始上报）"
         />
-        <div class="metric-grid">
-          <div class="metric-card">
-            <div class="mc-head"><span class="mc-label">CPU 使用率</span><span class="mc-value" :class="rateClass(rt.cpu)">{{ rt.cpu }}<small>%</small></span></div>
-            <div :ref="(el) => setRef(el, 'cpu')" class="mc-chart"></div>
-            <div class="mc-desc">{{ rtInfo.cpu }}</div>
-          </div>
-          <div class="metric-card">
-            <div class="mc-head"><span class="mc-label">内存使用率</span><span class="mc-value" :class="rateClass(rt.mem)">{{ rt.mem }}<small>%</small></span></div>
-            <div :ref="(el) => setRef(el, 'mem')" class="mc-chart"></div>
-            <div class="mc-desc">{{ rtInfo.mem }}</div>
-          </div>
-          <div class="metric-card">
-            <div class="mc-head">
-              <span class="mc-label">磁盘 IO</span>
-              <div class="mc-stats">
-                <span class="mc-stat"><i class="dot" style="background:var(--chart-blue)"></i>读取 <b style="color:var(--chart-blue)">{{ rt.diskRead }}</b></span>
-                <span class="mc-stat"><i class="dot" style="background:var(--warn)"></i>写入 <b style="color:var(--warn)">{{ rt.diskWrite }}</b></span>
-              </div>
+        <div class="rt-block">
+          <div class="metric-grid" :class="{ 'is-pending': !rtReady }">
+            <div class="metric-card">
+              <div class="mc-head"><span class="mc-label">CPU 使用率</span><span class="mc-value" :class="rateClass(rt.cpu)">{{ rt.cpu }}<small>%</small></span></div>
+              <div :ref="(el) => setRef(el, 'cpu')" class="mc-chart"></div>
+              <div class="mc-desc">{{ rtInfo.cpu }}</div>
             </div>
-            <div :ref="(el) => setRef(el, 'diskio')" class="mc-chart"></div>
-            <div class="mc-desc">{{ rtInfo.diskio }}</div>
-          </div>
-          <div class="metric-card">
-            <div class="mc-head">
-              <span class="mc-label">网络 IO</span>
-              <div class="mc-stats">
-                <span class="mc-stat"><i class="dot" style="background:var(--accent)"></i>接收 <b style="color:var(--accent)">{{ rt.net }}</b></span>
-                <span class="mc-stat"><i class="dot" style="background:var(--violet)"></i>发送 <b style="color:var(--violet)">{{ rt.netSent }}</b></span>
-              </div>
+            <div class="metric-card">
+              <div class="mc-head"><span class="mc-label">内存使用率</span><span class="mc-value" :class="rateClass(rt.mem)">{{ rt.mem }}<small>%</small></span></div>
+              <div :ref="(el) => setRef(el, 'mem')" class="mc-chart"></div>
+              <div class="mc-desc">{{ rtInfo.mem }}</div>
             </div>
-            <div :ref="(el) => setRef(el, 'netio')" class="mc-chart"></div>
-            <div class="mc-desc">{{ rtInfo.netio }}</div>
+            <div class="metric-card">
+              <div class="mc-head">
+                <span class="mc-label">磁盘 IO</span>
+                <div class="mc-stats">
+                  <span class="mc-stat"><i class="dot" style="background:var(--chart-blue)"></i>读取 <b style="color:var(--chart-blue)">{{ rt.diskRead }}</b></span>
+                  <span class="mc-stat"><i class="dot" style="background:var(--warn)"></i>写入 <b style="color:var(--warn)">{{ rt.diskWrite }}</b></span>
+                </div>
+              </div>
+              <div :ref="(el) => setRef(el, 'diskio')" class="mc-chart"></div>
+              <div class="mc-desc">{{ rtInfo.diskio }}</div>
+            </div>
+            <div class="metric-card">
+              <div class="mc-head">
+                <span class="mc-label">网络 IO</span>
+                <div class="mc-stats">
+                  <span class="mc-stat"><i class="dot" style="background:var(--accent)"></i>接收 <b style="color:var(--accent)">{{ rt.net }}</b></span>
+                  <span class="mc-stat"><i class="dot" style="background:var(--violet)"></i>发送 <b style="color:var(--violet)">{{ rt.netSent }}</b></span>
+                </div>
+              </div>
+              <div :ref="(el) => setRef(el, 'netio')" class="mc-chart"></div>
+              <div class="mc-desc">{{ rtInfo.netio }}</div>
+            </div>
+          </div>
+          <div v-if="!rtReady" class="rt-skel metric-skel" aria-hidden="true">
+            <div v-for="n in 4" :key="n" class="rt-skel-cell">
+              <div class="sk rt-skel-line" style="width: 45%"></div>
+              <div class="sk rt-skel-chart"></div>
+            </div>
           </div>
         </div>
 
         <!-- 进程 TOP10 + 在线用户 + 告警 -->
         <div class="bottom-row">
           <div class="bottom-col">
-            <div class="section-title section-head">
+            <h3 class="section-title section-head">
               进程占用 Top 10
               <el-input v-model="procSearch" placeholder="搜索进程名 / PID" clearable size="small" :prefix-icon="Search" class="proc-search" />
-            </div>
+            </h3>
+            <el-alert
+              v-if="loadErrors.topProc"
+              type="error"
+              :closable="false"
+              show-icon
+              class="inline-err"
+              :title="'进程数据加载失败：' + loadErrors.topProc"
+            />
             <el-table :data="filteredProcs" stripe size="small" max-height="320" :default-sort="{ prop: 'cpu', order: 'descending' }">
               <!-- 空态放进 el-table 自己的 #empty：此前表格常驻渲染、下方又另挂一个 EmptyState，
                    无数据时同一区域同时出现两个空提示（EP 的「暂无数据」+ 自绘空态）。 -->
@@ -205,10 +247,10 @@
             </el-table>
           </div>
           <div class="bottom-col">
-            <div class="section-title">
+            <h3 class="section-title">
               在线 SSH 用户
               <el-tag size="small" type="info" effect="plain" style="margin-left: 8px">{{ hostInfo?.onlineUsers?.length || 0 }} 人</el-tag>
-            </div>
+            </h3>
             <el-table v-if="hostInfo?.onlineUsers?.length" :data="hostInfo.onlineUsers" stripe size="small" class="user-table">
               <el-table-column prop="user" label="用户" width="120" />
               <el-table-column prop="terminal" label="终端" width="110" />
@@ -222,7 +264,15 @@
               :hints="['当前没有登录会话，或 Agent 未采集到 utmp 记录', '确实无人登录时这里为空是正常的']"
             />
 
-            <div class="section-title" style="margin-top: 16px">告警事件</div>
+            <h3 class="section-title" style="margin-top: 16px">告警事件</h3>
+            <el-alert
+              v-if="loadErrors.alerts"
+              type="error"
+              :closable="false"
+              show-icon
+              class="inline-err"
+              :title="'告警事件加载失败：' + loadErrors.alerts"
+            />
             <el-table :data="alertEvents" stripe size="small" max-height="220">
               <template #empty>
                 <EmptyState
@@ -533,8 +583,8 @@ const rtReady = ref(false)
 const wsState = ref('connecting')
 // WebSocket 连续失败次数（收到首帧后归零），仅用于提示文案
 const wsRetryCount = ref(0)
-// 快照接口加载失败信息（进程/端口/防火墙），用于区分「加载失败」与「确实无数据」
-const loadErrors = reactive({ process: '', listeners: '', firewall: '', firewallStatus: '' })
+// 快照接口加载失败信息（进程/端口/防火墙/概览），用于区分「加载失败」与「确实无数据」
+const loadErrors = reactive({ process: '', listeners: '', firewall: '', firewallStatus: '', topProc: '', alerts: '' })
 
 const rt = reactive({
   cpu: 0, mem: 0, disk: 0, net: '0 B/s', netSent: '0 B/s',
@@ -589,14 +639,16 @@ function scheduleRender() {
   })
 }
 
+// 面板说明只写「这张图看什么」；时间范围语义（今日/昨天=真实曲线，近7/30天=每日均值）
+// 统一放在面板组上方的 .panel-hint 里，避免 7 段描述各重复一遍。
 const monitorPanels = [
-  { key: 'cpu', title: 'CPU 使用率', type: 'percent', metrics: [{ name: 'cpu_usage', label: 'CPU' }], desc: 'CPU 占用百分比；今日/昨天为当天真实曲线，近7/30天为每日平均值。' },
-  { key: 'mem', title: '内存使用率', type: 'percent', metrics: [{ name: 'mem_used_percent', label: '内存' }], desc: '物理内存占用百分比；横轴与时间维度同 CPU。' },
-  { key: 'load', title: '系统负载', type: 'load', metrics: [{ name: 'load1', label: '1分钟' }, { name: 'load5', label: '5分钟' }, { name: 'load15', label: '15分钟' }], desc: '系统平均负载三条折线（1/5/15 分钟），数值约等或超过 CPU 核心数表示偏忙。' },
+  { key: 'cpu', title: 'CPU 使用率', type: 'percent', metrics: [{ name: 'cpu_usage', label: 'CPU' }], desc: 'CPU 占用百分比。' },
+  { key: 'mem', title: '内存使用率', type: 'percent', metrics: [{ name: 'mem_used_percent', label: '内存' }], desc: '物理内存占用百分比。' },
+  { key: 'load', title: '系统负载', type: 'load', metrics: [{ name: 'load1', label: '1分钟' }, { name: 'load5', label: '5分钟' }, { name: 'load15', label: '15分钟' }], desc: '1/5/15 分钟平均负载；接近或超过 CPU 核心数表示偏忙。' },
   { key: 'swap', title: 'SWAP 使用率', type: 'percent', metrics: [{ name: 'swap_used_percent', label: 'SWAP' }], desc: '交换分区占用百分比。' },
   { key: 'disk', title: '磁盘占用率', type: 'percent', desc: '所有磁盘空间汇总占用百分比。' },
-  { key: 'diskio', title: '磁盘 IO', type: 'rate', sumDevices: true, metrics: [{ name: 'disk_read_rate', label: '读取' }, { name: 'disk_write_rate', label: '写入' }], desc: '磁盘读取/写入速率（所有磁盘汇总），纵轴自适应 KB/s·MB/s。' },
-  { key: 'net', title: '网络流量', type: 'rate', nic: true, metrics: [{ name: 'network_recv_rate', label: '接收' }, { name: 'network_sent_rate', label: '发送' }], desc: '网络接收/发送速率，右上角可切换网卡查看。' },
+  { key: 'diskio', title: '磁盘 IO', type: 'rate', sumDevices: true, metrics: [{ name: 'disk_read_rate', label: '读取' }, { name: 'disk_write_rate', label: '写入' }], desc: '磁盘读取 / 写入速率（所有磁盘汇总）。' },
+  { key: 'net', title: '网络流量', type: 'rate', nic: true, metrics: [{ name: 'network_recv_rate', label: '接收' }, { name: 'network_sent_rate', label: '发送' }], desc: '网络接收 / 发送速率，右上角可切换网卡。' },
 ]
 const panelColors = {
   cpu: COLORS.cyan,
@@ -632,9 +684,12 @@ const setMonitorRef = (el, key) => {
     monitorEls[key] = el
     if (activeTab.value === 'monitor') {
       nextTick(() => {
-        ensureMonitorChart(key)
-        if (monitorCharts[key]) monitorCharts[key].resize()
-        loadMonitor(selected.value)
+        // 只有「本次才建出来的图」需要补拉数据：切 tab 时 loadActiveTab 已发过一次全量，
+        // 每个面板挂载再各刷一次全量 → 7×全量 = 96 次 range 请求（B10 实测）。
+        const existed = !!monitorCharts[key]
+        const chart = ensureMonitorChart(key)
+        if (chart) chart.resize()
+        if (!existed) loadMonitor(selected.value, key)
       })
     }
   } else {
@@ -689,10 +744,11 @@ const filteredProcs = computed(() => {
   return procs.value.filter((p) => (p.name || '').toLowerCase().includes(q) || String(p.pid).includes(q))
 })
 
-// 环形图阈值配色：0-60 绿 / 60-80 橙 / 80-100 红
+// 环形图阈值配色：与全站 rateClass 对齐（>=90 红 / >=70 琥珀 / 其余绿），
+// 这样 KPI 数字、环身颜色、环上标出的 70/90 阈值刻度三者方向一致
 function gaugeColor(v) {
   const n = num(v)
-  return n >= 80 ? COLORS.red : n >= 60 ? COLORS.amber : COLORS.green
+  return n >= 90 ? COLORS.red : n >= 70 ? COLORS.amber : COLORS.green
 }
 
 // 一键复制
@@ -758,15 +814,18 @@ function rateClass(v) { const n = num(v); return n >= 90 ? 'red' : n >= 70 ? 'am
 function memClass(v) { return num(v) >= 50 ? 'amber' : 'green' }
 
 // ---------- WebSocket 实时指标 ----------
+// 摘回调再关闭：被主动替换 / 被「暂停」关掉的旧连接，不应再触发 onclose 重连与状态变化
+function detachWS() {
+  if (!socket) return
+  const old = socket
+  socket = null
+  old.onopen = old.onmessage = old.onerror = old.onclose = null
+  try { old.close() } catch (e) {}
+}
+
 function connectWS(name) {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
-  // 关闭旧连接前先摘掉回调，避免旧 socket 的 onclose 误触发重连/状态变化
-  if (socket) {
-    const old = socket
-    socket = null
-    old.onopen = old.onmessage = old.onerror = old.onclose = null
-    try { old.close() } catch (e) {}
-  }
+  detachWS()
   // 切换主机后重置等待态，直到收到新主机首帧数据
   rtReady.value = false
   wsState.value = 'connecting'
@@ -1002,14 +1061,23 @@ async function loadProcesses(name) {
   try {
     const data = await http.get('/api/v1/processes?hostname=' + encodeURIComponent(name))
     procs.value = (data.processes || []).slice(0, 10)
-  } catch (e) { /* ignore */ }
+    loadErrors.topProc = ''
+  } catch (e) {
+    // 原来这里静默 catch：接口挂了会显示成"没有进程"，被读成"机器空闲"
+    procs.value = []
+    loadErrors.topProc = e.message || '加载失败'
+  }
 }
 
 async function loadAlerts(name) {
   try {
     const data = await http.get('/api/v1/alerts?node=' + encodeURIComponent(name) + '&limit=50')
     alertEvents.value = data.alerts || []
-  } catch (e) { /* ignore */ }
+    loadErrors.alerts = ''
+  } catch (e) {
+    alertEvents.value = []
+    loadErrors.alerts = e.message || '加载失败'
+  }
 }
 
 async function loadPortStatuses(name) {
@@ -1149,51 +1217,63 @@ function xFormatterFor(daily) {
 
 async function loadMonitor(name, onlyKey) {
   if (!name) return
+  // 面板之间、以及单个面板内的多个指标都并行发出：此前是双层串行 await
+  // （7 个面板 × 各自 N 个指标），切到「基础监控」要等一长串来回（B10 实测过 96 次）。
+  // 各面板写各自的 chart，互不依赖，可以一起跑。
+  const tasks = []
   for (const p of monitorPanels) {
     if (onlyKey && p.key !== onlyKey) continue
     const chart = monitorCharts[p.key]
     if (!chart) continue
-    const mode = panelRange[p.key] || 'today'
-    const [start, end] = rangeBounds(mode)
-    const daily = mode === 'week' || mode === 'month'
-    const step = daily ? 3600000 : 1800000 // 毫秒
-    try {
-      let series = []
-      if (p.key === 'disk') {
-        series = [{ name: '磁盘', data: await loadDiskOccupancy(name, start, end, step) }]
-      } else if (p.key === 'net') {
-        series = await loadNetSeries(name, start, end, step)
-      } else {
-        const rawByMetric = {}
-        for (const m of p.metrics) rawByMetric[m.name] = await fetchRaw(name, m.name, start, end, step)
-        series = p.metrics.map((m) => {
-          const list = rawByMetric[m.name] || []
-          const data = p.sumDevices ? sumSeriesByTs(list) : (list.length ? list[0].points : [])
-          return { name: m.label, data }
-        })
-      }
-      // daily 模式直接用原始小时级数据（step=1h），不再按日聚合——
-      // 部署初期只有 1-2 天数据时，dailyAvg 会坍缩成单点导致折线无法渲染。
-      // 近7天≈168点、近30天≈720点，ECharts time 轴可平滑处理。
-      const colors = panelColors[p.key]
-      const yFormatter = p.type === 'percent' ? (v) => v + '%'
-        : p.type === 'rate' ? rateShort
-        : (v) => round1(v)
-      const tipFmt = p.type === 'percent' ? (v) => (v == null ? '-' : round1(v) + '%')
-        : p.type === 'rate' ? (v) => (v == null ? '-' : rateFull(v))
-        : (v) => (v == null ? '-' : round1(v))
-      chart.setOption(monitorOption({
-        yMin: 0,
-        yMax: p.type === 'percent' ? 100 : undefined,
-        xMin: daily ? start : undefined,
-        xMax: daily ? end : undefined,
-        yFormatter,
-        tipFormatter: tipFmt,
-        xFormatter: xFormatterFor(daily),
-        series: series.map((s, i) => ({ name: s.name, color: Array.isArray(colors) ? colors[i] : colors, data: s.data })),
-      }), true)
-    } catch (e) { console.warn('[monitor] 加载失败', p.key, mode, e) }
+    tasks.push(loadPanel(name, p, chart))
   }
+  await Promise.allSettled(tasks)
+}
+
+// loadPanel 负责单个面板的取数与渲染（从原 loadMonitor 拆出，便于并行调度）。
+async function loadPanel(name, p, chart) {
+  const mode = panelRange[p.key] || 'today'
+  const [start, end] = rangeBounds(mode)
+  const daily = mode === 'week' || mode === 'month'
+  const step = daily ? 3600000 : 1800000 // 毫秒
+  try {
+    let series = []
+    if (p.key === 'disk') {
+      series = [{ name: '磁盘', data: await loadDiskOccupancy(name, start, end, step) }]
+    } else if (p.key === 'net') {
+      series = await loadNetSeries(name, start, end, step)
+    } else {
+      // 一个面板的 N 个指标并行拉取（原来是 for + await 串行）
+      const results = await Promise.all(
+        p.metrics.map((m) => fetchRaw(name, m.name, start, end, step)),
+      )
+      series = p.metrics.map((m, i) => {
+        const list = results[i] || []
+        const data = p.sumDevices ? sumSeriesByTs(list) : (list.length ? list[0].points : [])
+        return { name: m.label, data }
+      })
+    }
+    // daily 模式直接用原始小时级数据（step=1h），不再按日聚合——
+    // 部署初期只有 1-2 天数据时，dailyAvg 会坍缩成单点导致折线无法渲染。
+    // 近7天≈168点、近30天≈720点，ECharts time 轴可平滑处理。
+    const colors = panelColors[p.key]
+    const yFormatter = p.type === 'percent' ? (v) => v + '%'
+      : p.type === 'rate' ? rateShort
+      : (v) => round1(v)
+    const tipFmt = p.type === 'percent' ? (v) => (v == null ? '-' : round1(v) + '%')
+      : p.type === 'rate' ? (v) => (v == null ? '-' : rateFull(v))
+      : (v) => (v == null ? '-' : round1(v))
+    chart.setOption(monitorOption({
+      yMin: 0,
+      yMax: p.type === 'percent' ? 100 : undefined,
+      xMin: daily ? start : undefined,
+      xMax: daily ? end : undefined,
+      yFormatter,
+      tipFormatter: tipFmt,
+      xFormatter: xFormatterFor(daily),
+      series: series.map((s, i) => ({ name: s.name, color: Array.isArray(colors) ? colors[i] : colors, data: s.data })),
+    }), true)
+  } catch (e) { console.warn('[monitor] 加载失败', p.key, mode, e) }
 }
 
 function onNetIfaceChange() {
@@ -1280,7 +1360,8 @@ function initRealtimeCharts() {
     if (charts[g]) { charts[g].dispose(); delete charts[g] }
     if (refs[g]) {
       charts[g] = initChart(refs[g])
-      charts[g].setOption(gaugeOption(gaugeColors[g], ''))
+      // 纯净底环：不加阈值色带 / 刻度（刻度过花，已回退为原样）
+      charts[g].setOption(gaugeOption(gaugeColors[g]))
     }
   }
   updateGauges()
@@ -1295,6 +1376,33 @@ watch(
   }
 )
 
+// 页面不可见（切到别的标签页 / 最小化）时暂停轮询与 WS 重连：回来立即补拉一次，
+// 避免后台标签页持续打接口、也在浏览器节流定时器时留下空跑的 interval。
+let pageVisible = document.visibilityState !== 'hidden'
+function onVisibility() {
+  const nowVisible = document.visibilityState !== 'hidden'
+  if (nowVisible === pageVisible) return
+  pageVisible = nowVisible
+  if (nowVisible && autoRefresh.value) resumeLive()
+}
+
+// 「实时刷新」开关：关闭时断开 WS；重新开启时立刻补拉一轮并重连
+watch(autoRefresh, (on) => {
+  if (on) {
+    resumeLive()
+  } else if (socket) {
+    detachWS()
+    wsState.value = 'paused'
+  }
+})
+
+function resumeLive() {
+  if (!selected.value) return
+  if (!socket) connectWS(selected.value)
+  loadNodes()
+  loadAlerts(selected.value)
+}
+
 onMounted(async () => {
   if (route.params.name) selected.value = route.params.name
   await loadNodes()
@@ -1307,18 +1415,15 @@ onMounted(async () => {
   }
   await nextTick()
   initRealtimeCharts()
-  nodeTimer = setInterval(loadNodes, 15000)
-  alertTimer = setInterval(() => { if (selected.value) loadAlerts(selected.value) }, 30000)
+  nodeTimer = setInterval(() => { if (pageVisible && autoRefresh.value) loadNodes() }, 15000)
+  alertTimer = setInterval(() => { if (pageVisible && autoRefresh.value && selected.value) loadAlerts(selected.value) }, 30000)
+  document.addEventListener('visibilitychange', onVisibility)
 })
 
 onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibility)
   // 先摘掉回调再关闭：否则 onclose 会在卸载后调度重连，泄漏连接
-  if (socket) {
-    const old = socket
-    socket = null
-    old.onopen = old.onmessage = old.onerror = old.onclose = null
-    try { old.close() } catch (e) {}
-  }
+  detachWS()
   if (reconnectTimer) clearTimeout(reconnectTimer)
   if (nodeTimer) clearInterval(nodeTimer)
   if (alertTimer) clearInterval(alertTimer)
@@ -1334,22 +1439,17 @@ onUnmounted(() => {
 
 /* 设备信息：两列定义列表（原为四列平铺网格，标签与值混排不好扫读） */
 .def-2col { grid-template-columns: 76px minmax(0, 1fr) 76px minmax(0, 1fr); }
-@media (max-width: 1100px) {
+@media (max-width: 1024px) {
   .def-2col { grid-template-columns: 76px minmax(0, 1fr); }
 }
 
 /* 对象头关键指标：颜色只标异常（>=90 红 / >=70 琥珀），正常值保持中性 */
 .obj-kpis { margin-left: 0; gap: 18px; }
 .obj-kpi-value { font-size: 17px; }
-.obj-kpi-value small { font-size: 11px; color: var(--t3); margin-left: 1px; }
+.obj-kpi-value small { font-size: 12px; color: var(--t3); margin-left: 1px; }
 .obj-kpi-value.red { color: var(--danger); }
 .obj-kpi-value.amber { color: var(--warn); }
 .obj-kpi-value.green { color: var(--t1); }
-
-/* 端口：改为紧凑药丸，比原来的大列表项更省空间 */
-.port-item { padding: 3px 10px; background: var(--fill-2); border: 1px solid var(--bd); }
-.port-item.up { border-left: none; }
-.port-item.down { border-left: none; }
 
 /* Tabs */
 .node-tabs { border-radius: 8px; overflow: hidden; }
@@ -1358,23 +1458,26 @@ onUnmounted(() => {
 .tab-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .port-section { margin-top: 16px; }
 .port-list { display: flex; flex-wrap: wrap; gap: 8px; }
-.port-item { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--r-sm); font-size: 13px; background: var(--fill-1); }
+/* 端口：紧凑药丸，比原来的大列表项更省空间 */
+.port-item { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--r-sm); font-size: 13px; background: var(--fill-1); border: 1px solid var(--bd); }
 .port-item.up { border-left: 3px solid var(--accent); }
 .port-item.down { border-left: 3px solid var(--danger); opacity: 0.7; }
 .port-dot { width: 6px; height: 6px; border-radius: 50%; }
 .port-item.up .port-dot { background: var(--accent); box-shadow: 0 0 4px var(--accent-glow); }
 .port-item.down .port-dot { background: var(--danger); }
 .port-num { font-family: var(--mono); font-weight: 600; }
-.port-state { color: var(--text-dim); font-size: 13px; }
-.port-latency { color: var(--text-muted); font-size: 13px; }
+.port-state { color: var(--t2); font-size: 13px; }
+.port-latency { color: var(--t3); font-size: 13px; }
 
+/* 段标题：语义上是 h3（利于读屏与大纲），视觉仍是紧凑的左侧色条小标题 */
 .section-title {
   margin: 18px 0 10px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-main);
+  line-height: 1.4;
+  color: var(--t1);
   padding-left: 10px;
-  border-left: 3px solid var(--el-color-primary);
+  border-left: 3px solid var(--accent);
 }
 .section-head { display: flex; align-items: center; justify-content: space-between; }
 .proc-search { width: 220px; }
@@ -1387,7 +1490,7 @@ onUnmounted(() => {
   background: var(--fill-1);
   border: 1px solid var(--bd);
 }
-.dev-item span { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 400; color: var(--label); }
+.dev-item span { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 400; color: var(--t2); }
 .dev-item strong {
   display: block;
   overflow: hidden;
@@ -1395,7 +1498,7 @@ onUnmounted(() => {
   white-space: nowrap;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-main);
+  color: var(--t1);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1404,15 +1507,10 @@ onUnmounted(() => {
 /* 主机切换下拉：现在挂在 PageHeader 的操作区里 */
 .bc-host-select { width: 240px; }
 
-.status-pill { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
-.status-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; }
-.status-pill.online { color: var(--chart-green); background: rgba(34, 197, 94, 0.12); }
-.status-pill.offline { color: var(--danger); background: var(--danger-dim); }
-
 /* 复制按钮 */
 .copyable { display: inline-flex; align-items: center; gap: 4px; }
 .copy-btn { cursor: pointer; opacity: 0.45; transition: opacity 0.15s, color 0.15s; }
-.copy-btn:hover { opacity: 1; color: var(--el-color-primary); }
+.copy-btn:hover { opacity: 1; color: var(--accent); }
 .with-copy { display: flex; align-items: center; gap: 6px; }
 
 .gauge-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
@@ -1426,14 +1524,14 @@ onUnmounted(() => {
   border: 1px solid var(--bd);
 }
 .gauge { width: 100%; height: 130px; }
-.gauge-label { text-align: center; margin-top: 4px; font-size: 13px; color: var(--text-dim); }
-.gauge-sub { text-align: center; margin-top: 2px; font-size: 13px; color: var(--text-main); opacity: 0.85; font-variant-numeric: tabular-nums; }
+.gauge-label { text-align: center; margin-top: 4px; font-size: 13px; color: var(--t2); }
+.gauge-sub { text-align: center; margin-top: 2px; font-size: 13px; color: var(--t1); opacity: 0.85; font-variant-numeric: tabular-nums; }
 
 /* 实时趋势 */
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .metric-card { padding: 14px 16px; border-radius: var(--r-md); background: var(--fill-1); border: 1px solid var(--bd); }
 .mc-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-.mc-label { font-size: 14px; font-weight: 400; color: var(--label); letter-spacing: 0.2px; }
+.mc-label { font-size: 14px; font-weight: 400; color: var(--t2); letter-spacing: 0.2px; }
 .mc-value { font-size: 26px; font-weight: 700; font-family: var(--mono); line-height: 1.1; }
 .mc-value small { font-size: 13px; font-weight: 400; margin-left: 2px; }
 .mc-value.green { color: var(--accent); }
@@ -1441,19 +1539,39 @@ onUnmounted(() => {
 .mc-value.red { color: var(--danger); }
 .mc-value.cyan { color: var(--info); }
 .mc-stats { display: flex; gap: 16px; align-items: baseline; }
-.mc-stat { display: inline-flex; align-items: baseline; gap: 5px; font-size: 13px; color: var(--text-dim); }
+.mc-stat { display: inline-flex; align-items: baseline; gap: 5px; font-size: 13px; color: var(--t2); }
 .mc-stat b { font-family: var(--mono); font-weight: 700; font-size: 15px; }
 .mc-stat .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .mc-chart { height: 100px; }
-.mc-desc { margin-top: 8px; font-size: 13px; line-height: 1.4; color: var(--text-dim); opacity: 0.8; }
+.mc-desc { margin-top: 8px; font-size: 13px; line-height: 1.4; color: var(--t2); opacity: 0.8; }
 
 /* 说明文字 */
-.panel-hint { margin: 8px 0 12px; font-size: 13px; line-height: 1.5; color: var(--text-dim); opacity: 0.85; }
+.panel-hint { margin: 8px 0 12px; font-size: 13px; line-height: 1.5; color: var(--t2); opacity: 0.85; }
 
 /* 实时等待 / 加载失败提示 */
 .rt-waiting { margin-bottom: 12px; }
 .load-error-bar { margin-bottom: 12px; }
 .load-error-bar :deep(.el-button--primary) { font-size: 13px; }
+/* 概览页里内联的加载失败条（进程 Top10 / 告警事件） */
+.inline-err { margin-bottom: 10px; }
+
+/* 实时数据首帧前的骨架占位：图表容器保留在 DOM（echarts 需要量尺寸），
+   用 visibility 隐藏真身、同尺寸叠一层骨架，避免先渲染成 0% 被误读为「使用率为 0」 */
+.rt-block { position: relative; }
+.is-pending { visibility: hidden; }
+.rt-skel { position: absolute; inset: 0; display: grid; gap: 16px; }
+.gauge-skel, .metric-skel { grid-template-columns: repeat(4, 1fr); }
+.rt-skel-cell {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; border-radius: var(--r-md); background: var(--fill-1); border: 1px solid var(--bd);
+}
+.rt-skel-ring { width: 84px; height: 84px; border-radius: 50%; }
+.rt-skel-line { width: 64px; height: 10px; }
+.metric-skel .rt-skel-cell { align-items: stretch; justify-content: flex-start; padding: 14px 16px; }
+.metric-skel .rt-skel-chart { flex: 1; min-height: 90px; margin-top: 10px; border-radius: var(--r-sm); }
+
+/* 页头「实时刷新」开关 */
+.auto-refresh-switch { flex: 0 0 auto; }
 
 /* IO */
 
@@ -1470,32 +1588,32 @@ onUnmounted(() => {
 .bar-fill.green { background: var(--accent); }
 .bar-fill.amber { background: var(--warn); }
 .bar-fill.cyan { background: var(--info); }
-.proc-bar span { width: 40px; text-align: right; font-size: 13px; color: var(--text-dim); }
+.proc-bar span { width: 40px; text-align: right; font-size: 13px; color: var(--t2); }
 
 /* 基础监控 */
 .monitor-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .monitor-panel { padding: 12px 14px; border-radius: var(--r-md); background: var(--fill-1); border: 1px solid var(--bd); }
 .monitor-panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
 .monitor-panel-tools { margin-bottom: 6px; }
-.monitor-panel-title { font-size: 13px; color: var(--text-main); font-weight: 600; }
-.monitor-panel-desc { margin-bottom: 6px; font-size: 13px; line-height: 1.4; color: var(--text-dim); opacity: 0.8; }
+.monitor-panel-title { font-size: 13px; color: var(--t1); font-weight: 600; }
+.monitor-panel-desc { margin-bottom: 6px; font-size: 13px; line-height: 1.4; color: var(--t2); opacity: 0.8; }
 .monitor-chart { height: 240px; }
 
-@media (max-width: 1100px) {
-  .device-grid, .gauge-row, .metric-grid { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 1024px) {
+  .gauge-row, .metric-grid, .gauge-skel, .metric-skel { grid-template-columns: repeat(2, 1fr); }
   .bottom-row, .monitor-grid { grid-template-columns: 1fr; }
 }
-@media (max-width: 640px) {
-  .device-grid, .gauge-row, .metric-grid { grid-template-columns: 1fr; }
+@media (max-width: 768px) {
+  .gauge-row, .metric-grid, .gauge-skel, .metric-skel { grid-template-columns: 1fr; }
 }
 
 /* 进程监控 Tab */
 .process-tools { display: flex; align-items: center; gap: 8px; }
 .proc-full-search { width: 280px; }
-.process-footer { margin-top: 10px; font-size: 13px; color: var(--text-dim); }
+.process-footer { margin-top: 10px; font-size: 13px; color: var(--t2); }
 .process-count { font-family: var(--mono); }
-.io-cell { color: var(--text-muted); }
-.fw-options { color: var(--text-dim); font-size: 13px; }
+.io-cell { color: var(--t3); }
+.fw-options { color: var(--t2); font-size: 13px; }
 
 /* 防火墙状态卡片 */
 .fw-status-card {
@@ -1508,10 +1626,10 @@ onUnmounted(() => {
 }
 .fw-status-row { display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: center; }
 .fw-status-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.fw-status-label { color: var(--text-muted, #8a93a6); }
-.fw-status-val { color: var(--text, #e6e9f0); font-weight: 500; }
+.fw-status-label { color: var(--t3); }
+.fw-status-val { color: var(--t1); font-weight: 500; }
 .fw-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .fw-dot.on { background: #2ec27e; box-shadow: 0 0 6px rgba(46,194,126,.7); }
 .fw-dot.off { background: #8a93a6; }
-.fw-status-msg { margin-top: 8px; font-size: 13px; color: var(--text-dim, #8a93a6); }
+.fw-status-msg { margin-top: 8px; font-size: 13px; color: var(--t3); }
 </style>

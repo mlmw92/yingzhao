@@ -1,18 +1,23 @@
 <template>
   <div class="mw-tab">
     <RefreshBar :loading="loading" @refresh="load" />
-    <div v-if="!loading && instances.length === 0" class="empty-guide glass">
-      <div class="empty-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64">
-          <ellipse cx="12" cy="5" rx="9" ry="3" />
-          <path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-          <path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6" />
-        </svg>
-      </div>
-      <h2 class="empty-title">尚未配置 FastDFS 监控</h2>
-      <p class="empty-desc">当前没有已采集的 FastDFS 实例。请运行 Agent 的节点配置 tracker / storage 连接信息，或指向 fastdfs_exporter。</p>
-      <p class="empty-hint">配置完成后约 15-30 秒数据将出现在此页面。</p>
-    </div>
+
+    <el-alert v-if="error" type="error" :closable="false" show-icon class="mw-err">
+      <template #title>
+        <span class="mw-err-text">{{ error }}</span>
+        <el-button size="small" link type="primary" @click="load">重试</el-button>
+      </template>
+    </el-alert>
+
+    <EmptyState
+      v-if="!loading && !error && instances.length === 0"
+      :icon="EmptyIcon"
+      title="尚未配置 FastDFS 监控"
+      :hints="[
+        '当前没有已采集的 FastDFS 实例，请在运行 Agent 的节点上配置 tracker / storage 连接信息，或指向 fastdfs_exporter',
+        '配置完成后约 15-30 秒数据将出现在此页面',
+      ]"
+    />
 
     <template v-if="instances.length > 0">
       <div class="kpi-row">
@@ -36,8 +41,7 @@
         </KpiCard>
       </div>
 
-      <div class="mw-list glass">
-        <div class="mw-list-title">实例列表</div>
+      <SectionCard title="实例列表" dense class="mw-block">
         <el-table class="fastdfs-table" :data="pagedInstances" style="width: 100%" @row-click="openDetail" :row-class-name="rowClass" size="small" stripe @sort-change="onSortChange">
           <el-table-column prop="instance" label="实例地址" min-width="150" show-overflow-tooltip />
           <el-table-column prop="name" label="名称" min-width="110" show-overflow-tooltip />
@@ -62,17 +66,19 @@
         <div class="pager">
           <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="sortedInstances.length" :page-size="pageSize" :current-page="currentPage" :page-sizes="[10,20,50,100]" @current-change="v => currentPage = v" @size-change="v => { pageSize = v; currentPage = 1 }" />
         </div>
-      </div>
+      </SectionCard>
     </template>
 
-    <el-drawer v-model="drawerVisible" :title="detailTitle" size="50%" :destroy-on-close="true">
+    <el-drawer v-model="drawerVisible" title="FastDFS 实例详情" size="50%" :destroy-on-close="true">
       <div v-if="selected" class="detail-content">
-        <div class="detail-meta">
-          <div class="meta-item"><span class="meta-label">实例</span><span class="mono">{{ selected.instance }}</span></div>
-          <div class="meta-item"><span class="meta-label">节点</span>{{ selected.node }}</div>
-          <div class="meta-item"><span class="meta-label">角色</span>{{ selected.role }}</div>
-          <div class="meta-item"><span class="meta-label">分组</span>{{ selected.group || '-' }}</div>
-        </div>
+        <MwDetailHeader
+          :title="selected.name || selected.instance"
+          :subtitle="selected.instance"
+          :status="selected.up ? 'normal' : 'abnormal'"
+          :status-label="selected.up ? '在线' : '离线'"
+          :fields="detailFields"
+          v-model:range="range"
+        />
         <div class="metric-grid">
           <div class="metric-cell"><div class="mc-label">Group 总数</div><div class="mc-value">{{ formatNum(selected.groupTotal) }}</div></div>
           <div class="metric-cell"><div class="mc-label">Storage 总数</div><div class="mc-value">{{ formatNum(selected.storageTotal) }}</div></div>
@@ -83,29 +89,56 @@
           <div class="metric-cell"><div class="mc-label">空闲空间</div><div class="mc-value">{{ selected.freeSpaceMB ? formatMB(selected.freeSpaceMB) : '-' }}</div></div>
           <div class="metric-cell"><div class="mc-label">Trunk 空闲</div><div class="mc-value">{{ selected.trunkFreeMB ? formatMB(selected.trunkFreeMB) : '-' }}</div></div>
         </div>
-        <div class="chart-box" ref="chartRef"></div>
+        <div v-for="t in trendData" :key="t.title" class="trend-block">
+          <div class="trend-title">{{ t.title }}（{{ rangeLabel }}）</div>
+          <TrendChart :option="t.option" :loading="t.loading" :error="t.error" :height="240" @retry="loadTrends" />
+        </div>
       </div>
     </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick, watch } from 'vue'
+import { ref, onMounted, computed, watch, h } from 'vue'
 import http from '../../api/http'
 import RefreshBar from '../RefreshBar.vue'
 import KpiCard from '../KpiCard.vue'
+import SectionCard from '../common/SectionCard.vue'
+import EmptyState from '../common/EmptyState.vue'
 import MwStatusDot from '../mw/MwStatusDot.vue'
 import MwRoleTag from '../mw/MwRoleTag.vue'
+import MwDetailHeader from '../mw/MwDetailHeader.vue'
+import TrendChart from '../mw/TrendChart.vue'
 import { Grid, CircleCheck, CircleClose, Monitor, Coin, DataLine } from '@element-plus/icons-vue'
-import { initChart, tokenColor } from '../../charts/echarts'
-const AXIS_COLOR = tokenColor('t2', '#9fb3c8')
+import { mwTrendOption } from '../../charts/echarts'
+import { rangeToWindow, rangeToStep, MW_RANGE_OPTIONS } from '../mw/mwRange'
+
+// 空状态图标：保留原有"数据库圆柱"造型
+const EmptyIcon = () =>
+  h('svg', {
+    viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5,
+    innerHTML:
+      '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/>',
+  })
+
+const GB = 1 / 1073741824
+// 详情抽屉趋势图：总空间与已用空间同量纲(GB)，合到一张图对比。
+const TRENDS = [
+  {
+    title: '空间使用',
+    unit: 'GB',
+    metrics: [
+      { name: '总空间', metric: 'fastdfs_total_space', scale: GB },
+      { name: '已用空间', metric: 'fastdfs_used_space', scale: GB },
+    ],
+  },
+]
 
 const loading = ref(true)
 const instances = ref([])
+const error = ref('')
 const drawerVisible = ref(false)
 const selected = ref(null)
-const chartRef = ref(null)
-let chartInstance = null
 
 const stats = computed(() => {
   const s = { total: 0, up: 0, down: 0, onlineStorage: 0, totalSpace: 0, usedSpace: 0 }
@@ -119,48 +152,80 @@ const stats = computed(() => {
   return s
 })
 
-const detailTitle = computed(() => selected.value ? `FastDFS 详情 - ${selected.value.name || selected.value.instance}` : '详情')
+const detailFields = computed(() => {
+  const s = selected.value
+  if (!s) return []
+  const f = [
+    { label: '实例', value: s.instance, mono: true },
+    { label: '节点', value: s.node, mono: true },
+  ]
+  if (s.role) f.push({ label: '角色', value: s.role })
+  if (s.group) f.push({ label: '分组', value: s.group })
+  return f
+})
 
 async function load() {
   loading.value = true
+  error.value = ''
   try {
     const data = await http.get('/api/v1/middleware/fastdfs/instances')
     instances.value = data.instances || []
-  } catch (e) { console.error(e) } finally { loading.value = false }
+  } catch (e) {
+    console.error('加载 FastDFS 实例失败', e)
+    error.value = 'FastDFS 实例数据加载失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 function openDetail(row) {
   selected.value = row
   drawerVisible.value = true
-  nextTick(() => loadTrendChart(row))
+  loadTrends()
 }
 
-async function loadTrendChart(row) {
-  if (!chartRef.value) return
-  if (chartInstance) { chartInstance.dispose(); chartInstance = null }
-  chartInstance = initChart(chartRef.value)
-  const end = Date.now()
-  const start = end - 3600 * 1000
-  try {
-    const totalData = await http.get(`/api/v1/query/range?node=${row.node}&metric=fastdfs_total_space&start=${start}&end=${end}&step=60`)
-    const usedData = await http.get(`/api/v1/query/range?node=${row.node}&metric=fastdfs_used_space&start=${start}&end=${end}&step=60`)
-    const series = []
-    if (totalData.series) for (const s of totalData.series) {
-      if (s.labels?.instance === row.instance) series.push({ name: '总空间(GB)', type: 'line', data: s.points.map(p => [p.timestamp, (p.value / 1024 / 1024 / 1024).toFixed(2)]), smooth: true, areaStyle: { opacity: 0.2 } })
-    }
-    if (usedData.series) for (const s of usedData.series) {
-      if (s.labels?.instance === row.instance) series.push({ name: '已用空间(GB)', type: 'line', data: s.points.map(p => [p.timestamp, (p.value / 1024 / 1024 / 1024).toFixed(2)]), smooth: true })
-    }
-    chartInstance.setOption({
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['总空间(GB)', '已用空间(GB)'], textStyle: { color: AXIS_COLOR } },
-      grid: { left: 55, right: 30, top: 40, bottom: 30 },
-      xAxis: { type: 'time' },
-      yAxis: { type: 'value', name: 'GB' },
-      series,
+// ---- 详情抽屉趋势图 ----
+const range = ref('1h')
+const rangeLabel = computed(() => (MW_RANGE_OPTIONS.find((r) => r.value === range.value) || {}).label || '')
+const trendData = ref([])
+
+async function loadTrends() {
+  const row = selected.value
+  if (!row) return
+  trendData.value = TRENDS.map((t) => ({ title: t.title, option: null, loading: true, error: '' }))
+  const { start, end } = rangeToWindow(range.value)
+  const step = rangeToStep(range.value)
+  await Promise.all(
+    TRENDS.map(async (t, i) => {
+      try {
+        const parts = await Promise.all(
+          t.metrics.map(async (m) => {
+            const data = await http.get(
+              `/api/v1/query/range?node=${encodeURIComponent(row.node)}&metric=${encodeURIComponent(m.metric)}&start=${start}&end=${end}&step=${step}`
+            )
+            const acc = []
+            for (const s of data.series || []) {
+              if (s.labels?.instance !== row.instance) continue
+              acc.push({
+                name: m.name,
+                data: (s.points || []).map((p) => [p.timestamp, m.scale ? p.value * m.scale : p.value]),
+              })
+            }
+            return acc
+          })
+        )
+        trendData.value[i].option = mwTrendOption(parts.flat(), { unit: t.unit })
+      } catch (e) {
+        console.error('趋势查询失败', e)
+        trendData.value[i].error = '趋势数据加载失败'
+      } finally {
+        trendData.value[i].loading = false
+      }
     })
-  } catch (e) { console.error(e) }
+  )
 }
+
+watch(range, () => { if (drawerVisible.value) loadTrends() })
 
 function formatNum(n) { return n != null ? Number(n).toLocaleString() : '-' }
 function formatMB(n) { if (!n && n !== 0) return '-'; if (n < 1024) return n.toFixed(1) + ' MB'; if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' GB'; return (n / 1024 / 1024).toFixed(2) + ' TB' }
@@ -191,24 +256,22 @@ onMounted(load)
 
 <style scoped>
 .mw-tab { padding: 4px 0; }
-.empty-guide { text-align: center; padding: 48px 24px; }
-.empty-icon { color: var(--text-muted); margin-bottom: 16px; }
-.empty-title { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
-.empty-desc { color: var(--text-dim); margin: 0 0 8px; font-size: 13px; }
-.empty-hint { color: var(--text-muted); font-size: 13px; }
+.mw-err { margin-bottom: 16px; }
+.mw-err-text { margin-right: 8px; }
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.mw-block { margin-bottom: 16px; }
+.mono { font-family: var(--mono); }
 .pager { display: flex; justify-content: flex-end; margin-top: 12px; }
 .fastdfs-table :deep(th) { white-space: nowrap; }
 .fastdfs-table :deep(td) { white-space: nowrap; }
 :deep(.row-down) { opacity: 0.6; }
-.detail-content { padding: 0 20px; }
-.detail-meta { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; padding: 16px; background: var(--fill-1); border-radius: 8px; }
-.meta-item { font-size: 13px; }
-.meta-label { color: var(--text-muted); margin-right: 6px; }
-.mono { font-family: var(--mono); }
-.metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
-.metric-cell { padding: 12px; background: var(--fill-1); border-radius: 8px; text-align: center; }
-.mc-label { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
-.mc-value { font-size: 18px; font-weight: 600; }
-.chart-box { width: 100%; height: 300px; }
+
+/* 详情抽屉 */
+.detail-content { padding: 0 4px; }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.metric-cell { padding: 12px; background: var(--fill-1); border-radius: var(--r-md); text-align: center; }
+.mc-label { font-size: var(--fs-xs); color: var(--t3); margin-bottom: 4px; }
+.mc-value { font-size: var(--fs-lg); font-weight: 600; }
+.trend-block { margin-bottom: 18px; }
+.trend-title { font-size: var(--fs-sm); color: var(--t3); margin-bottom: 6px; }
 </style>

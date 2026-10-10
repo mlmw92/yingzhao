@@ -124,9 +124,12 @@ describe('LogsView 结构化字段检索', () => {
     await input.trigger('keyup.enter')
     await flushPromises()
 
-    const tags = w.findAll('.field-tag')
-    expect(tags.length).toBe(1)
-    expect(tags[0].text()).toBe('status:500')
+    // 生效条件现在统一走 FilterChips 回显（label：value）：
+    // 「时间」chip 默认恒在，因此这里断言的是"字段条件只有一条"
+    const chips = w.findAll('.fc-chip')
+    const fieldChips = chips.filter((c) => c.text().startsWith('字段：'))
+    expect(fieldChips.length).toBe(1)
+    expect(fieldChips[0].text()).toBe('字段：status:500')
   })
 
   it('候选字段只列服务端见过的名字，点击后填入输入框', async () => {
@@ -148,7 +151,8 @@ describe('LogsView 结构化字段检索', () => {
     const w = mountView()
     await flushPromises()
 
-    expect(w.findAll('.field-tag').length).toBe(2)
+    // 3 条 chip = 时间（默认范围总是存在）+ 两条字段过滤
+    expect(w.findAll('.fc-chip').length).toBe(3)
     const last = logsQueries().at(-1)
     expect(last).toContain('field=level%3Aerror')
     expect(last).toContain('field=status%3A500')
@@ -267,5 +271,126 @@ describe('LogsView 后端能力提示', () => {
 
     expect(w.text()).toContain('日志后端探测失败')
     expect(w.text()).toContain('这不代表没有日志')
+  })
+})
+
+// 命中高亮 / 筛选回显 / 导出。
+//
+// 这一批的共同点是"错了也不报错"：高亮不生效只是看起来没命中、chip 撤了不重查
+// 会让人以为条件还在生效、导出的 CSV 少了 BOM 只在 Excel 里才乱码。
+describe('LogsView 命中高亮 / 筛选回显 / 导出', () => {
+  const LINE = {
+    ts: Date.now(), node: 'web-01', source: 'applog', pattern: 'err',
+    text: 'error: disk error on sda', fields: {},
+  }
+
+  function mockLines(lines) {
+    http.get.mockImplementation(async (path) => {
+      const p = String(path)
+      if (p.includes('/api/v1/logs/fields')) return { fields: {} }
+      if (p.includes('/api/v1/logs/backend')) return {}
+      if (p.includes('/api/v1/logs?')) return { lines, truncated: false, cursor: '', assets: {}, podAssets: {} }
+      if (p.includes('/api/v1/nodes')) return { nodes: [{ hostname: 'web-01', logSources: ['applog'] }] }
+      return {}
+    })
+  }
+
+  async function searchWith(w, placeholder, value) {
+    const input = w.findAll('input').find((i) => i.element.placeholder.includes(placeholder))
+    await input.setValue(value)
+    await w.findAll('button').find((b) => b.text().includes('查询')).trigger('click')
+    await flushPromises()
+  }
+
+  it('关键词命中就地高亮，并给出行内命中数', async () => {
+    mockLines([LINE])
+    const w = mountView()
+    await flushPromises()
+    await searchWith(w, '子串', 'error')
+
+    expect(w.find('.logline').findAll('mark').length).toBe(2)
+    // 高亮不能吃掉原文：非命中片段必须还在
+    expect(w.find('.logline').text()).toContain('disk')
+    expect(w.find('.hit-badge').text()).toBe('2')
+  })
+
+  it('关键词模式按字面量匹配：正则元字符不当语法', async () => {
+    mockLines([{ ...LINE, text: 'aXb a.b' }])
+    const w = mountView()
+    await flushPromises()
+    await searchWith(w, '子串', 'a.b')
+
+    // 若把 'a.b' 当正则，'aXb' 也会被标；字面量匹配则只有 'a.b' 一处
+    expect(w.find('.logline').findAll('mark').length).toBe(1)
+  })
+
+  it('未查询时不标错位置：高亮只认"本次生效"的关键词', async () => {
+    mockLines([LINE])
+    const w = mountView()
+    await flushPromises()
+    // 只改输入框、不点查询
+    const input = w.findAll('input').find((i) => i.element.placeholder.includes('子串'))
+    await input.setValue('disk')
+    await flushPromises()
+    expect(w.find('.logline').findAll('mark').length).toBe(0)
+  })
+
+  it('撤销筛选 chip 立即重查，且该条件从请求里消失', async () => {
+    mockLines([LINE])
+    const w = mountView()
+    await flushPromises()
+
+    const fieldInput = w.findAll('input').find((i) => i.element.placeholder.includes('字段过滤'))
+    await fieldInput.setValue('status:500')
+    await fieldInput.trigger('keyup.enter')
+    await w.findAll('button').find((b) => b.text().includes('查询')).trigger('click')
+    await flushPromises()
+    expect(logsQueries().at(-1)).toContain('field=status%3A500')
+
+    const chip = w.findAll('.fc-chip').find((c) => c.text().includes('status:500'))
+    expect(chip).toBeTruthy()
+    await chip.find('.fc-x').trigger('click')
+    await flushPromises()
+
+    expect(logsQueries().at(-1)).not.toContain('field=')
+  })
+
+  it('导出 CSV：带 BOM、列头与当前结果', async () => {
+    mockLines([LINE])
+    // jsdom 的 Blob 没有 .text()，这里从构造入参直接取回原始 CSV 文本
+    const parts = []
+    const OrigBlob = globalThis.Blob
+    globalThis.Blob = class extends OrigBlob {
+      constructor(bs, opts) {
+        super(bs, opts)
+        parts.push(bs.join(''))
+      }
+    }
+    const origCreate = URL.createObjectURL
+    const origRevoke = URL.revokeObjectURL
+    URL.createObjectURL = vi.fn(() => 'blob:logs')
+    URL.revokeObjectURL = vi.fn()
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    try {
+      const w = mountView()
+      await flushPromises()
+      const btn = w.findAll('button').find((b) => b.text().includes('导出 CSV'))
+      expect(btn).toBeTruthy()
+      await btn.trigger('click')
+      await flushPromises()
+
+      expect(parts.length).toBe(1)
+      expect(clickSpy).toHaveBeenCalled()
+      // 不带 BOM 时 Excel 打开中文列会乱码
+      expect(parts[0].charCodeAt(0)).toBe(0xfeff)
+      expect(parts[0]).toContain('时间,节点,来源')
+      expect(parts[0]).toContain('error: disk error on sda')
+    } finally {
+      globalThis.Blob = OrigBlob
+      URL.createObjectURL = origCreate
+      URL.revokeObjectURL = origRevoke
+      clickSpy.mockRestore()
+    }
   })
 })

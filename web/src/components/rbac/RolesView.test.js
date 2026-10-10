@@ -14,6 +14,7 @@ vi.mock('../../api/http', () => ({
     listRoles: vi.fn(),
     permissionCatalog: vi.fn(),
     listGroups: vi.fn(),
+    listUsers: vi.fn(),
     get: vi.fn(),
     createRole: vi.fn(),
     updateRole: vi.fn(),
@@ -61,6 +62,7 @@ beforeEach(() => {
   http.listRoles.mockResolvedValue({ roles: [limitedRole] })
   http.permissionCatalog.mockResolvedValue({ domains: [], assetScopeLabelKey: 'biz' })
   http.listGroups.mockResolvedValue({ groups: ['g1'] })
+  http.listUsers.mockResolvedValue({ users: [] })
   http.get.mockResolvedValue({ key: 'biz', values: ['pay', 'risk'] })
   http.updateRole.mockResolvedValue({ ok: 'true' })
   http.createRole.mockResolvedValue({ ok: 'true' })
@@ -146,5 +148,85 @@ describe('RolesView 业务范围（资产标签维度）', () => {
     const payload = http.updateRole.mock.calls[0][1]
     expect(payload.assetMode).toBe('all')
     expect(payload.assetLabels).toEqual([])
+  })
+})
+
+// 权限目录字段契约回归（B1）。
+//
+// 后端 `permDomain` 曾缺 json tag，被序列化成 `Domain` / `Items`（首字母大写），
+// 而前端按 `d.domain` / `d.items` 读 → 矩阵整块空白，`d.items.length` 直接抛 TypeError。
+// 旧测试 mock 的是 `{ domains: [] }`，空数组把这个问题完全掩盖了——这里必须给非空目录。
+describe('RolesView 权限矩阵（目录字段契约 + 高风险标记 + 影响用户数）', () => {
+  const domains = [
+    {
+      domain: '告警',
+      items: [
+        { key: 'alerts:read', description: '查看规则' },
+        { key: 'alerts:write', description: '管理规则' },
+      ],
+    },
+    {
+      domain: '系统',
+      items: [
+        { key: 'system:upgrade', description: '系统升级' },
+        { key: 'roles:manage', description: '角色管理' },
+      ],
+    },
+  ]
+
+  beforeEach(() => {
+    http.permissionCatalog.mockResolvedValue({ domains, assetScopeLabelKey: 'biz' })
+    http.listUsers.mockResolvedValue({
+      users: [
+        { name: 'alice', roles: ['biz_pay', 'read_only'] },
+        { name: 'bob', roles: ['biz_pay'] },
+      ],
+    })
+  })
+
+  it('非空权限目录能渲染出各域与权限点（不是空白，也不抛 TypeError）', async () => {
+    const w = mountView()
+    await flushPromises()
+
+    await w.findAll('button').find((b) => b.text() === '编辑').trigger('click')
+    await flushPromises()
+
+    // 中文域键（后端 Domain 就是中文）必须能显示出来
+    expect(document.body.textContent).toContain('告警')
+    expect(document.body.textContent).toContain('系统')
+    // 权限点 key 与说明都要渲染
+    expect(document.body.textContent).toContain('alerts:read')
+    expect(document.body.textContent).toContain('系统升级')
+  })
+
+  it('高风险权限点逐个带「高风险」标记，且「仅看高风险」能过滤', async () => {
+    const w = mountView()
+    await flushPromises()
+    await w.findAll('button').find((b) => b.text() === '编辑').trigger('click')
+    await flushPromises()
+
+    // system:upgrade 是高风险，alerts:read 不是
+    expect(document.body.textContent).toContain('高风险')
+
+    // 打开「仅看高风险」后，普通权限点应从矩阵中消失
+    const riskBox = w
+      .findAllComponents({ name: 'ElCheckbox' })
+      .find((c) => c.text().includes('仅看高风险'))
+    expect(riskBox).toBeTruthy()
+    riskBox.vm.$emit('update:modelValue', true)
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('system:upgrade')
+    expect(document.body.textContent).not.toContain('alerts:read')
+  })
+
+  it('表格显示「影响用户数」列', async () => {
+    const w = mountView()
+    await flushPromises()
+
+    expect(w.text()).toContain('影响用户数')
+    // biz_pay 被 alice、bob 两个用户引用
+    const row = w.findAll('.el-table__row').find((r) => r.text().includes('biz_pay'))
+    expect(row.text()).toContain('2')
   })
 })

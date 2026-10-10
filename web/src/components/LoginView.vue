@@ -165,7 +165,7 @@ async function doLogin() {
   padding: 36px 32px 28px;
   border-radius: 16px;
   z-index: 1;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--bd);
 }
 .brand {
   display: flex;
@@ -178,18 +178,18 @@ async function doLogin() {
   height: 44px;
   border-radius: 12px;
   object-fit: contain;
-  background: var(--bg-card);
+  background: var(--s1);
   box-shadow: 0 0 24px var(--accent-glow);
 }
 .brand-text h1 {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--text);
+  color: var(--t1);
 }
 .brand-text p {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 2px;
 }
 .default-sub {
@@ -207,7 +207,7 @@ async function doLogin() {
 .hint {
   text-align: center;
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   margin-top: 20px;
 }
 .login-footer {
@@ -215,7 +215,7 @@ async function doLogin() {
   margin-top: 20px;
   text-align: center;
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--t3);
   z-index: 1;
 }
 </style>

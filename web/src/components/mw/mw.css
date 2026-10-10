@@ -7,7 +7,7 @@
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 12px;
-  color: var(--text);
+  color: var(--t1);
 }
 .mw-toolbar {
   display: flex;

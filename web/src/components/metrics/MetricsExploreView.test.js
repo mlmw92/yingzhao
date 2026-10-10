@@ -6,11 +6,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 // vi.mock 工厂会被提升到 import 之前，故用 vi.hoisted 共享这些 mock 句柄。
-const { httpGet, exportMetricCSV, metricCatalog, metricActive } = vi.hoisted(() => ({
+const { httpGet, exportMetricCSV, metricCatalog, metricActive, setOption, monitorOption, dashLoad, dashCreate, dashUpdate } = vi.hoisted(() => ({
   httpGet: vi.fn(),
   exportMetricCSV: vi.fn(),
   metricCatalog: vi.fn(),
   metricActive: vi.fn(),
+  setOption: vi.fn(),
+  monitorOption: vi.fn(() => ({ legend: { data: [] } })),
+  dashLoad: vi.fn(async () => []),
+  dashCreate: vi.fn(async () => ({})),
+  dashUpdate: vi.fn(async () => ({})),
 }))
 
 // 组件同时使用默认导出 http（http.exportMetricCSV）与具名导出 get / metricCatalog / metricActive。
@@ -21,22 +26,22 @@ vi.mock('../../api/http', () => ({
   metricActive,
 }))
 
-// 图表库与仪表盘 composable 在本用例范围内无关，静默 stub 掉，避免真实 ECharts 初始化。
+// 图表库在本用例范围内无关，stub 掉避免真实 ECharts 初始化；setOption/monitorOption 共享句柄以便断言。
 vi.mock('../../charts/echarts', () => ({
   initChart: vi.fn(() => ({
     clear: vi.fn(),
-    setOption: vi.fn(),
+    setOption,
     resize: vi.fn(),
     dispose: vi.fn(),
     isDisposed: () => false,
   })),
-  monitorOption: vi.fn(() => ({})),
+  monitorOption,
   COLORS: { cyan: '#22d3ee' },
 }))
 
 vi.mock('../../composables/useDashboards', () => {
-  const dash = () => ({ state: {}, load: vi.fn(async () => []), create: vi.fn(), update: vi.fn(), remove: vi.fn() })
-  return { useDashboards: dash, default: dash }
+  const factory = () => ({ state: {}, load: dashLoad, create: dashCreate, update: dashUpdate, remove: vi.fn() })
+  return { useDashboards: factory, default: factory }
 })
 
 vi.mock('element-plus', () => ({
@@ -52,8 +57,11 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 const TreeStub = { name: 'ElTree', props: ['data'], template: '<div class="tree-stub" />' }
 const ButtonStub = { name: 'ElButton', template: '<button class="el-button"><slot /></button>' }
 const InputStub = { name: 'ElInput', template: '<div class="kw-input" />' }
+const CheckboxStub = { name: 'ElCheckbox', props: ['modelValue'], emits: ['update:modelValue', 'change'], template: '<label class="cb"><slot /></label>' }
+// 未 stub 的 el-dialog 会被当作原生元素，具名插槽 #footer 会被丢弃 → 「确定」取不到
+const DialogStub = { name: 'ElDialog', template: '<div class="dlg"><slot /><slot name="footer" /></div>' }
 
-const stubs = { 'el-tree': TreeStub, 'el-button': ButtonStub, 'el-input': InputStub }
+const stubs = { 'el-tree': TreeStub, 'el-button': ButtonStub, 'el-input': InputStub, 'el-checkbox': CheckboxStub, 'el-dialog': DialogStub }
 
 const CATALOG = {
   catalog: { system: [{ name: 'cpu_usage', title: 'CPU 使用率', category: 'system', unit: '%', chart: 'line' }] },
@@ -84,6 +92,11 @@ describe('MetricsExploreView 跨节点指标浏览与导出（契约）', () => 
     exportMetricCSV.mockReset()
     metricCatalog.mockReset()
     metricActive.mockReset()
+    setOption.mockReset()
+    monitorOption.mockReset()
+    dashLoad.mockReset()
+    dashCreate.mockReset()
+    dashUpdate.mockReset()
     ElMessage.error.mockReset()
     ElMessage.warning.mockReset()
     ElMessage.success.mockReset()
@@ -91,6 +104,10 @@ describe('MetricsExploreView 跨节点指标浏览与导出（契约）', () => 
     metricActive.mockResolvedValue({ items: [] })
     httpGet.mockResolvedValue({ series: [] })
     exportMetricCSV.mockResolvedValue({})
+    monitorOption.mockImplementation(() => ({ legend: { data: [] } }))
+    dashLoad.mockResolvedValue([])
+    dashCreate.mockResolvedValue({})
+    dashUpdate.mockResolvedValue({})
   })
 
   afterEach(() => {
@@ -133,5 +150,42 @@ describe('MetricsExploreView 跨节点指标浏览与导出（契约）', () => 
     await clickCpuNode(wrapper)
 
     expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining('查询失败'))
+  })
+
+  it('「加入仪表盘」选择已有看板时调用 update，面板携带当前指标与过滤条件', async () => {
+    dashLoad.mockResolvedValue([{ id: 'd1', name: '运维总览', panels: [] }])
+
+    wrapper = mountView()
+    await flush()
+    await clickCpuNode(wrapper)
+
+    const addBtn = wrapper.findAll('button').find((b) => b.text().includes('加入仪表盘'))
+    expect(addBtn).toBeTruthy()
+    await addBtn.trigger('click')
+    await flush()
+
+    const okBtn = wrapper.findAll('button').find((b) => b.text().trim() === '确定')
+    expect(okBtn).toBeTruthy()
+    await okBtn.trigger('click')
+    await flush()
+
+    expect(dashUpdate).toHaveBeenCalledTimes(1)
+    const [, , panels] = dashUpdate.mock.calls[0]
+    expect(panels.length).toBe(1)
+    expect(panels[0]).toEqual(expect.objectContaining({ metric: 'cpu_usage' }))
+  })
+
+  it('关闭图例开关后渲染的 option 不再带 legend', async () => {
+    wrapper = mountView()
+    await flush()
+    await clickCpuNode(wrapper)
+
+    const cb = wrapper.findComponent({ name: 'ElCheckbox' })
+    cb.vm.$emit('update:modelValue', false)
+    cb.vm.$emit('change', false)
+    await flush()
+
+    const lastArg = setOption.mock.calls[setOption.mock.calls.length - 1][0]
+    expect(lastArg.legend).toBeUndefined()
   })
 })

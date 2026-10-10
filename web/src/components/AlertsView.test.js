@@ -29,14 +29,19 @@ vi.mock('../api/http', () => ({
 }))
 
 vi.mock('echarts', () => ({
-  init: vi.fn(() => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn(), on: vi.fn() })),
+  init: vi.fn(() => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn(), on: vi.fn(), isDisposed: vi.fn(() => false) })),
   graphic: { LinearGradient: vi.fn() },
 }))
 
+const routerPush = vi.fn()
+const routerReplace = vi.fn()
+// route.query 可变：用例之间按需切换深链参数（首页研判条带 node/rule 过来）
+let routeQuery = {}
+
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  // 组件读 route.query 处理「从日志页建规则」的深链，缺这个导出会在挂载期直接抛
-  useRoute: () => ({ query: {} }),
+  useRouter: () => ({ push: routerPush, replace: routerReplace }),
+  // 组件读 route.query 处理「从日志页建规则」的深链与研判条深链，缺这个导出会在挂载期直接抛
+  useRoute: () => ({ query: routeQuery, path: '/alerts' }),
 }))
 
 // 组件按需 import 的图标必须在这里都有同名导出，否则会在加载期直接抛
@@ -45,6 +50,8 @@ vi.mock('vue-router', () => ({
 vi.mock('@element-plus/icons-vue', () => ({
   Plus: { name: 'Plus', template: '<i />' },
   Printer: { name: 'Printer', template: '<i />' },
+  // FilterChips 用到的关闭图标
+  Close: { name: 'Close', template: '<i />' },
 }))
 
 vi.mock('element-plus', () => ({
@@ -71,6 +78,9 @@ const stubs = {
   'el-dropdown': NoopStub,
   'el-dropdown-item': NoopStub,
   'el-dropdown-menu': NoopStub,
+  // 规范件（SectionCard / EmptyState / StatusPill / PartialBar）内部都用 el-icon，
+  // 不 stub 会为每个卡片报一次 "Failed to resolve component: el-icon"。
+  'el-icon': NoopStub,
   'el-input': NoopStub,
   'el-input-number': NoopStub,
   'el-link': NoopStub,
@@ -139,5 +149,57 @@ describe('AlertsView 测试事件按钮的权限可见性', () => {
     await flush()
 
     expect(wrapper.text()).toContain('测试事件')
+  })
+})
+
+// 首页研判条「查看详情」会带 ?node=&rule= 跳到告警中心。
+// 关键不是"跳过来了"，而是"筛选被接住并显式回显"——否则用户面对空表只会以为数据没加载。
+describe('AlertsView 深链筛选回显', () => {
+  let wrapper
+
+  beforeEach(() => {
+    clear()
+    principal.loaded = true
+    principal.permissions = ['alerts:read']
+    routeQuery = {}
+    routerPush.mockClear()
+    routerReplace.mockClear()
+  })
+
+  afterEach(() => {
+    if (wrapper) wrapper.unmount()
+    wrapper = undefined
+    routeQuery = {}
+    clear()
+  })
+
+  it('带 node/rule 进来时回显为可撤销的筛选条', async () => {
+    routeQuery = { node: 'web-01', rule: '磁盘使用率过高' }
+    wrapper = mountView()
+    await flush()
+
+    const chips = wrapper.findAll('.fc-chip')
+    expect(chips).toHaveLength(2)
+    expect(wrapper.text()).toContain('节点：web-01')
+    expect(wrapper.text()).toContain('规则：磁盘使用率过高')
+  })
+
+  it('无深链参数时不渲染筛选条（避免出现空壳）', async () => {
+    wrapper = mountView()
+    await flush()
+    expect(wrapper.findAll('.fc-chip')).toHaveLength(0)
+  })
+
+  it('清空筛选时同步清 URL（否则刷新又被参数带回筛选态）', async () => {
+    routeQuery = { node: 'web-01' }
+    wrapper = mountView()
+    await flush()
+
+    // 点筛选条右侧的「清空筛选」
+    const clearBtn = wrapper.findAll('button').find((b) => b.text().includes('清空筛选'))
+    expect(clearBtn).toBeTruthy()
+    await clearBtn.trigger('click')
+
+    expect(routerReplace).toHaveBeenCalledWith({ path: '/alerts', query: {} })
   })
 })

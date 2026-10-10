@@ -1,7 +1,13 @@
 <template>
   <Teleport to="body">
     <div v-if="visible" class="cmdk-mask" @click.self="close">
-      <div class="cmdk" role="dialog" aria-modal="true">
+      <div
+        class="cmdk"
+        role="dialog"
+        aria-modal="true"
+        aria-label="命令面板"
+        @keydown.tab.prevent
+      >
         <div class="cmdk-in">
           <el-icon :size="15" class="cmdk-ic"><Search /></el-icon>
           <input
@@ -9,22 +15,40 @@
             v-model="query"
             class="cmdk-input"
             type="text"
-            placeholder="搜索页面、主机…"
+            role="combobox"
+            aria-label="搜索页面、主机或输入命令"
+            aria-expanded="true"
+            aria-controls="cmdk-listbox"
+            aria-autocomplete="list"
+            :aria-activedescendant="activeId"
+            placeholder="搜索页面、主机，或输入命令…"
             autocomplete="off"
             spellcheck="false"
           />
           <kbd class="cmdk-kbd">ESC 关闭</kbd>
         </div>
 
-        <div ref="listEl" class="cmdk-list">
+        <div
+          id="cmdk-listbox"
+          ref="listEl"
+          class="cmdk-list"
+          :role="total > 0 ? 'listbox' : undefined"
+          :aria-label="total > 0 ? '命令、页面与主机' : undefined"
+        >
           <template v-if="total > 0">
             <template v-for="sec in sections" :key="sec.name">
-              <div class="cmdk-sec">{{ sec.name }}</div>
+              <div class="cmdk-sec">
+                {{ sec.name }}
+                <span v-if="sec.note" class="cmdk-sec-note">{{ sec.note }}</span>
+              </div>
               <div
                 v-for="it in sec.items"
+                :id="'cmdk-opt-' + it.idx"
                 :key="it.id"
                 class="cmdk-row"
                 :class="{ on: it.idx === activeIdx }"
+                role="option"
+                :aria-selected="it.idx === activeIdx"
                 @mouseenter="activeIdx = it.idx"
                 @click="choose(it.idx)"
               >
@@ -37,12 +61,21 @@
           <EmptyState
             v-else
             :icon="Search"
-            title="没有匹配的页面或主机"
+            title="没有匹配的页面、主机或命令"
             :hints="[
               '换个关键词试试，或直接点左侧菜单进入',
-              query ? `当前关键词：${query}` : '支持搜索页面名称与主机名',
+              query ? `当前关键词：${query}` : '支持搜索页面名称、主机名与命令',
             ]"
           />
+        </div>
+
+        <!-- 主机组状态：加载中 / 失败可重试（原实现失败后本次会话不再重试且无提示） -->
+        <div v-if="!query && (hostsLoading || hostsError)" class="cmdk-status" :class="{ err: hostsError }">
+          <template v-if="hostsError">
+            <span role="alert">主机列表加载失败：{{ hostsError }}</span>
+            <button type="button" class="cmdk-retry" @click="loadHosts(true)">重试</button>
+          </template>
+          <span v-else>正在加载主机…</span>
         </div>
       </div>
     </div>
@@ -50,20 +83,24 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Odometer, Monitor, Bell, Message, Connection, Document, Files, Setting,
   DataLine, Histogram, Grid, Lock, List, Aim, Tools, Search, Share,
+  Brush, Refresh, DataAnalysis,
 } from '@element-plus/icons-vue'
 import http from '../api/http'
 import { useAuth } from '../composables/useAuth'
 import EmptyState from './common/EmptyState.vue'
 
 /* =========================================================
- * 数据源：**只从 router 派生**（不手写第二份路由清单，否则必然漂移）。
- * 这里只提供「路由 name → 中文标题 / 图标 / 所属分组」的展示映射。
- * 新增页面时补一条即可；漏补时回退到路由 name，不会凭空消失。
+ * 数据源分三类：
+ *  ① 页面导航 —— **只从 router 派生**（不手写第二份路由清单，否则必然漂移）。
+ *     这里只提供「路由 name → 中文标题 / 图标 / 所属分组」的展示映射。
+ *     新增页面时补一条即可；漏补时回退到路由 name，不会凭空消失。
+ *  ② 命令 —— 面板内可执行的动作（切主题 / 刷新 / 直达大屏）。
+ *  ③ 主机直达 —— 打开面板时拉一次并缓存。
  * ========================================================= */
 const TITLES = {
   overview: '首页概览',
@@ -144,6 +181,36 @@ function groupOf(path) {
   return hit ? hit[1] : '系统设置'
 }
 
+/* ---- 命令定义（面板内自足，不依赖页面上下文） ---- */
+const THEME_NAMES = { b: '极光蓝', a: '星云青绿', c: '星河紫' }
+function setTheme(t) {
+  document.body.dataset.theme = t
+  try { localStorage.setItem('nebula_theme', t) } catch (e) { /* ignore */ }
+  // 图表组件监听此事件重新取色（与 AppTopBar 同一约定）
+  window.dispatchEvent(new CustomEvent('nebula:theme-changed', { detail: t }))
+}
+const COMMANDS = [
+  { id: 'cmd:theme:b', label: '切换主题：极光蓝', hint: '命令', icon: Brush, keywords: 'theme 主题 换肤 颜色 皮肤 极光蓝', run: () => setTheme('b') },
+  { id: 'cmd:theme:a', label: '切换主题：星云青绿', hint: '命令', icon: Brush, keywords: 'theme 主题 换肤 颜色 皮肤 青绿 绿色', run: () => setTheme('a') },
+  { id: 'cmd:theme:c', label: '切换主题：星河紫', hint: '命令', icon: Brush, keywords: 'theme 主题 换肤 颜色 皮肤 紫', run: () => setTheme('c') },
+  { id: 'cmd:refresh', label: '刷新当前页数据', hint: '命令', icon: Refresh, keywords: 'refresh reload 刷新 重新加载 同步', run: () => window.dispatchEvent(new CustomEvent('nebula:refresh')) },
+  { id: 'cmd:screen', label: '打开数据大屏', hint: '命令', icon: DataAnalysis, keywords: 'screen 大屏 监控墙 电视墙 dashboard', to: '/screen' },
+  { id: 'cmd:home', label: '返回首页概览', hint: '命令', icon: Odometer, keywords: 'home 首页 概览 overview', to: '/' },
+]
+
+const HOST_LIMIT = 8
+const RECENT_KEY = 'nebula-cmdk-recent'
+const RECENT_MAX = 5
+
+function loadRecent() {
+  try {
+    const a = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
+    return Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []
+  } catch (e) {
+    return []
+  }
+}
+
 const props = defineProps({
   // 主机直达的开关：需要 nodes:read，避免无权限账号看到一个必然 403 的分组
   enableHosts: { type: Boolean, default: true },
@@ -157,6 +224,9 @@ const query = ref('')
 const activeIdx = ref(0)
 const inputEl = ref(null)
 const listEl = ref(null)
+let lastFocused = null
+
+const recentIds = ref(loadRecent())
 
 const routeItems = computed(() => {
   const root = (router.options.routes || []).find((r) => r.path === '/')
@@ -179,12 +249,16 @@ const routeItems = computed(() => {
   return out
 })
 
-// 主机直达：只在打开面板时拉一次并缓存（不新增接口）
+// 主机直达：只在打开面板时拉一次并缓存（不新增接口）；失败可重试
 const hostItems = ref([])
+const hostsLoading = ref(false)
+const hostsError = ref('')
 let hostsLoaded = false
-async function loadHosts() {
-  if (hostsLoaded || !props.enableHosts || !auth.can('nodes:read')) return
-  hostsLoaded = true
+async function loadHosts(force = false) {
+  if (!props.enableHosts || !auth.can('nodes:read')) return
+  if (hostsLoaded && !force) return
+  hostsLoading.value = true
+  hostsError.value = ''
   try {
     const d = await http.get('/api/v1/nodes')
     hostItems.value = (d.nodes || [])
@@ -193,43 +267,96 @@ async function loadHosts() {
         id: 'host:' + n.hostname,
         label: n.displayName || n.hostname,
         hint: n.group || '未分组',
-        icon: Monitor,
+        // markRaw：图标是组件对象，放进响应式数组会被 Vue 代理并告警
+        icon: markRaw(Monitor),
         to: '/node/' + n.hostname,
       }))
+    hostsLoaded = true
   } catch (e) {
-    hostItems.value = []
+    // 关键：失败时不置 hostsLoaded，下次打开/点重试仍会重新拉取
+    hostsError.value = (e && e.message) || '服务不可用'
+    hostsLoaded = false
+  } finally {
+    hostsLoading.value = false
   }
 }
 
-const allGroups = computed(() => {
+const routeGroups = computed(() => {
   const map = new Map()
   for (const it of routeItems.value) {
     if (!map.has(it.hint)) map.set(it.hint, [])
     map.get(it.hint).push(it)
   }
-  const groups = [...map.entries()]
+  return [...map.entries()]
     .map(([name, items]) => ({ name, items }))
     .sort((a, b) => GROUP_ORDER.indexOf(a.name) - GROUP_ORDER.indexOf(b.name))
-  if (hostItems.value.length) groups.push({ name: '主机', items: hostItems.value })
-  return groups
 })
+
+const itemIndex = computed(() => {
+  const m = new Map()
+  for (const c of COMMANDS) m.set(c.id, c)
+  for (const r of routeItems.value) m.set(r.id, r)
+  for (const h of hostItems.value) m.set(h.id, h)
+  return m
+})
+
+/* 相关度打分：子串命中优先（越靠前越高），否则退化为子序列匹配 */
+function score(text, q) {
+  if (!q) return 1
+  const t = String(text).toLowerCase()
+  const i = t.indexOf(q)
+  if (i >= 0) return 1000 - i
+  let ti = 0
+  for (const ch of q) {
+    const found = t.indexOf(ch, ti)
+    if (found < 0) return -1
+    ti = found + 1
+  }
+  return 1
+}
+
+function rank(items, q, toText) {
+  const scored = []
+  for (const it of items) {
+    const s = q ? score(toText(it), q) : 1
+    if (s < 0) continue
+    scored.push({ it, s })
+  }
+  scored.sort((a, b) => b.s - a.s)
+  return scored.map((x) => x.it)
+}
 
 const sections = computed(() => {
   const q = query.value.trim().toLowerCase()
   const out = []
   let idx = 0
-  for (const g of allGroups.value) {
-    const items = g.items.filter(
-      (it) => !q || it.label.toLowerCase().includes(q) || it.hint.toLowerCase().includes(q)
-    )
-    if (!items.length) continue
-    out.push({ name: g.name, items: items.map((it) => ({ ...it, idx: idx++ })) })
+  const emit = (name, items, note) => {
+    if (!items.length) return
+    out.push({ name, note, items: items.map((it) => ({ ...it, idx: idx++ })) })
+  }
+
+  if (!q) {
+    const byId = itemIndex.value
+    emit('最近访问', recentIds.value.map((id) => byId.get(id)).filter(Boolean))
+  }
+
+  emit('命令', rank(COMMANDS, q, (c) => `${c.label} ${c.keywords || ''}`))
+
+  for (const g of routeGroups.value) {
+    emit(g.name, rank(g.items, q, (it) => `${it.label} ${it.hint}`))
+  }
+
+  const hosts = rank(hostItems.value, q, (it) => `${it.label} ${it.hint}`)
+  if (hosts.length) {
+    const shown = hosts.slice(0, HOST_LIMIT)
+    emit('主机', shown, hosts.length > shown.length ? `共 ${hosts.length} 台，继续输入以筛选` : '')
   }
   return out
 })
 
 // idx 是按渲染顺序连续分配的，所以条目总数就是各分组条目数之和
 const total = computed(() => sections.value.reduce((n, s) => n + s.items.length, 0))
+const activeId = computed(() => (total.value ? 'cmdk-opt-' + activeIdx.value : undefined))
 
 watch(query, () => {
   activeIdx.value = 0
@@ -242,6 +369,7 @@ watch(activeIdx, async () => {
 })
 
 function open() {
+  lastFocused = document.activeElement
   visible.value = true
   query.value = ''
   activeIdx.value = 0
@@ -253,19 +381,37 @@ function open() {
 
 function close() {
   visible.value = false
+  const el = lastFocused
+  lastFocused = null
+  // 关闭后把焦点还给触发它的元素（顶栏搜索框/快捷键）
+  if (el && typeof el.focus === 'function') nextTick(() => el.focus())
+}
+
+function setActive(i) {
+  if (!total.value) return
+  const n = total.value
+  activeIdx.value = ((i % n) + n) % n
 }
 
 function move(delta) {
-  if (!total.value) return
-  activeIdx.value = (activeIdx.value + delta + total.value) % total.value
+  setActive(activeIdx.value + delta)
+}
+
+function pushRecent(id) {
+  const a = recentIds.value.filter((x) => x !== id)
+  a.unshift(id)
+  recentIds.value = a.slice(0, RECENT_MAX)
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentIds.value)) } catch (e) { /* ignore */ }
 }
 
 function choose(i) {
   for (const sec of sections.value) {
     for (const it of sec.items) {
       if (it.idx === i) {
+        pushRecent(it.id)
         close()
-        router.push(it.to)
+        if (it.run) it.run()
+        else if (it.to) router.push(it.to)
         return
       }
     }
@@ -289,6 +435,18 @@ function onKeydown(e) {
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
     move(-1)
+  } else if (e.key === 'Home') {
+    e.preventDefault()
+    setActive(0)
+  } else if (e.key === 'End') {
+    e.preventDefault()
+    setActive(total.value - 1)
+  } else if (e.key === 'PageDown') {
+    e.preventDefault()
+    move(5)
+  } else if (e.key === 'PageUp') {
+    e.preventDefault()
+    move(-5)
   } else if (e.key === 'Enter') {
     e.preventDefault()
     choose(activeIdx.value)
@@ -343,13 +501,13 @@ defineExpose({ open, close, toggle: () => (visible.value ? close() : open()) })
   border: none;
   outline: none;
   padding: 0;
-  color: var(--text);
+  color: var(--t1);
   font-family: var(--font);
   font-size: var(--fs-md);
 }
 .cmdk-kbd {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   padding: 1px 5px;
   border-radius: var(--r-xs);
   background: var(--fill-3);
@@ -363,11 +521,20 @@ defineExpose({ open, close, toggle: () => (visible.value ? close() : open()) })
   padding: 6px;
 }
 .cmdk-sec {
-  font-size: 11px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--t3);
   padding: 8px 10px 4px;
+}
+.cmdk-sec-note {
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--t3);
+  opacity: 0.8;
 }
 .cmdk-row {
   display: flex;
@@ -398,5 +565,29 @@ defineExpose({ open, close, toggle: () => (visible.value ? close() : open()) })
   font-size: var(--fs-xs);
   color: var(--t3);
   flex-shrink: 0;
+}
+.cmdk-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px 12px;
+  font-size: var(--fs-xs);
+  color: var(--t3);
+}
+.cmdk-status.err {
+  color: var(--danger);
+}
+.cmdk-retry {
+  border: 1px solid var(--bd-strong);
+  background: transparent;
+  color: inherit;
+  border-radius: var(--r-xs);
+  padding: 2px 8px;
+  font-family: var(--font);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.cmdk-retry:hover {
+  background: var(--fill-hover);
 }
 </style>

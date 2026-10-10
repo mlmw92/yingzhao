@@ -1,17 +1,23 @@
 <template>
   <div class="mw-tab">
     <RefreshBar :loading="loading" @refresh="load" />
-    <div v-if="!loading && instances.length === 0" class="empty-guide glass">
-      <div class="empty-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64">
-          <path d="M12 2v20M2 12h20"/>
-          <circle cx="12" cy="12" r="9"/>
-        </svg>
-      </div>
-      <h2 class="empty-title">尚未配置 Nginx 监控</h2>
-      <p class="empty-desc">当前没有已采集的 Nginx 实例。请在运行 Agent 的节点上启用 Nginx stub_status 模块。</p>
-      <p class="empty-hint">配置完成后约 15-30 秒数据将出现在此页面。</p>
-    </div>
+
+    <el-alert v-if="error" type="error" :closable="false" show-icon class="mw-err">
+      <template #title>
+        <span class="mw-err-text">{{ error }}</span>
+        <el-button size="small" link type="primary" @click="load">重试</el-button>
+      </template>
+    </el-alert>
+
+    <EmptyState
+      v-if="!loading && !error && instances.length === 0"
+      :icon="EmptyIcon"
+      title="尚未配置 Nginx 监控"
+      :hints="[
+        '当前没有已采集的 Nginx 实例，请在运行 Agent 的节点上启用 Nginx stub_status 模块',
+        '配置完成后约 15-30 秒数据将出现在此页面',
+      ]"
+    />
 
     <template v-if="instances.length > 0">
       <div class="kpi-row">
@@ -35,29 +41,32 @@
         </KpiCard>
       </div>
 
-      <div class="chart-section glass">
-        <div class="section-title">实例拓扑</div>
-        <div class="topo-group">
+      <SectionCard title="实例拓扑" class="mw-block">
+        <div v-for="g in topoGroups" :key="g.name" class="topo-group">
           <div class="topo-group-header">
-            <span class="topo-group-title"><ServerIcon /><strong>独立实例</strong></span>
-            <span class="dim">共 {{ instances.length }} 个</span>
+            <span class="topo-group-title"><ServerIcon /><strong>{{ g.name }}</strong></span>
+            <span class="dim">共 {{ g.list.length }} 个</span>
           </div>
           <div class="topo-grid">
-            <div v-for="i in instances" :key="i.instance" class="rel-node rel-standalone" :class="{'is-down': !i.up}" @click="openDetail(i)">
+            <div
+              v-for="i in g.list"
+              :key="i.instance"
+              class="rel-node rel-standalone"
+              :class="{ 'is-down': !i.up }"
+              @click="openDetail(i)"
+            >
               <div class="rel-node-name" :title="i.name || i.instance">{{ i.name || i.instance }}</div>
               <div class="rel-node-meta">
-                <span :class="['dot', i.up ? 'up' : 'down']"></span>
-                <span>{{ i.up ? '在线' : '离线' }}</span>
+                <MwStatusDot :status="i.up ? 'normal' : 'abnormal'" :label="i.up ? '在线' : '离线'" />
                 <span class="dim">·</span>
                 <span class="mono">{{ i.nodeIp || nginxDisplayAddr(i) }}</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </SectionCard>
 
-      <div class="mw-list glass">
-        <div class="mw-list-title">实例列表</div>
+      <SectionCard title="实例列表" dense class="mw-block">
         <el-table :data="pagedInstances" style="width: 100%" @row-click="openDetail" :row-class-name="rowClass" size="small" stripe @sort-change="onSortChange">
           <el-table-column label="实例地址" min-width="140" show-overflow-tooltip>
             <template #default="{ row }"><span class="mono">{{ row.nodeIp || nginxDisplayAddr(row) }}</span></template>
@@ -89,15 +98,19 @@
         <div class="pager">
           <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="sortedInstances.length" :page-size="pageSize" :current-page="currentPage" :page-sizes="[10,20,50,100]" @current-change="v => currentPage = v" @size-change="v => { pageSize = v; currentPage = 1 }" />
         </div>
-      </div>
+      </SectionCard>
     </template>
 
-    <el-drawer v-model="drawerVisible" :title="detailTitle" size="50%" :destroy-on-close="true">
+    <el-drawer v-model="drawerVisible" title="Nginx 实例详情" size="50%" :destroy-on-close="true">
       <div v-if="selected" class="detail-content">
-        <div class="detail-meta">
-          <div class="meta-item"><span class="meta-label">实例地址</span><span class="mono">{{ selected.nodeIp || nginxDisplayAddr(selected) }}</span></div>
-          <div class="meta-item" v-if="selected.version"><span class="meta-label">版本</span>{{ selected.version }}</div>
-        </div>
+        <MwDetailHeader
+          :title="selected.name || selected.instance"
+          :subtitle="selected.nodeIp || nginxDisplayAddr(selected)"
+          :status="selected.up ? 'normal' : 'abnormal'"
+          :status-label="selected.up ? '在线' : '离线'"
+          :fields="detailFields"
+          v-model:range="range"
+        />
         <div class="metric-grid">
           <div class="metric-cell"><div class="mc-label">活动连接</div><div class="mc-value">{{ selected.activeConnections }}</div></div>
           <div class="metric-cell"><div class="mc-label">已接收</div><div class="mc-value">{{ selected.accepts }}</div></div>
@@ -108,21 +121,27 @@
           <div class="metric-cell"><div class="mc-label">总请求</div><div class="mc-value">{{ selected.requests }}</div></div>
           <div class="metric-cell"><div class="mc-label">运行时长</div><div class="mc-value">{{ formatUptime(selected.uptime) }}</div></div>
         </div>
-        <div class="chart-box" ref="chartRef"></div>
+        <div v-for="t in trendData" :key="t.metric" class="trend-block">
+          <div class="trend-title">{{ t.name }}（{{ rangeLabel }}）</div>
+          <TrendChart :option="t.option" :loading="t.loading" :error="t.error" :height="220" @retry="loadTrends" />
+        </div>
       </div>
     </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick, watch, h } from 'vue'
+import { ref, onMounted, computed, watch, h } from 'vue'
 import http from '../../api/http'
 import RefreshBar from '../RefreshBar.vue'
 import KpiCard from '../KpiCard.vue'
+import SectionCard from '../common/SectionCard.vue'
+import EmptyState from '../common/EmptyState.vue'
 import MwStatusDot from '../mw/MwStatusDot.vue'
-import MwRoleTag from '../mw/MwRoleTag.vue'
-import { initChart, tokenColor } from '../../charts/echarts'
-const AXIS_COLOR = tokenColor('t2', '#9fb3c8')
+import MwDetailHeader from '../mw/MwDetailHeader.vue'
+import TrendChart from '../mw/TrendChart.vue'
+import { mwTrendOption } from '../../charts/echarts'
+import { rangeToWindow, rangeToStep, MW_RANGE_OPTIONS } from '../mw/mwRange'
 
 // ---- 图标组件（内联 SVG 渲染函数） ----
 function svgIcon(s) {
@@ -136,12 +155,24 @@ const ConnectionIcon = svgIcon('<svg viewBox="0 0 24 24" fill="none" stroke="cur
 const ActivityIcon = svgIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>')
 const ClockIcon = svgIcon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>')
 
+// 空状态图标：保留原有"靶心/十字"造型
+const EmptyIcon = () =>
+  h('svg', {
+    viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.5,
+    innerHTML: '<circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20"/>',
+  })
+
+// 详情抽屉趋势图：活动连接 + 等待连接（均为瞬时量，适合做时间序列）
+const TRENDS = [
+  { name: '活动连接', metric: 'nginx_active_connections', unit: '个' },
+  { name: '等待连接', metric: 'nginx_waiting', unit: '个' },
+]
+
 const loading = ref(true)
 const instances = ref([])
+const error = ref('')
 const drawerVisible = ref(false)
 const selected = ref(null)
-const chartRef = ref(null)
-let chartInstance = null
 
 const stats = computed(() => {
   const s = { total: 0, up: 0, down: 0, totalActive: 0, totalRequests: 0, totalWaiting: 0 }
@@ -155,44 +186,83 @@ const stats = computed(() => {
   return s
 })
 
-const detailTitle = computed(() => selected.value ? `Nginx 详情 - ${selected.value.name || selected.value.instance}` : '详情')
+// 拓扑分组：按后端 group 字段真实聚合，未分组归入「独立实例」。
+const topoGroups = computed(() => {
+  const map = new Map()
+  for (const i of instances.value) {
+    const g = String(i.group || '').trim() || '独立实例'
+    if (!map.has(g)) map.set(g, [])
+    map.get(g).push(i)
+  }
+  return [...map.entries()].map(([name, list]) => ({ name, list }))
+})
+
+const detailFields = computed(() => {
+  const s = selected.value
+  if (!s) return []
+  const f = [
+    { label: '节点', value: s.node, mono: true },
+    { label: '实例地址', value: s.nodeIp || nginxDisplayAddr(s), mono: true },
+  ]
+  if (s.version) f.push({ label: '版本', value: s.version })
+  if (s.group) f.push({ label: '分组', value: s.group })
+  return f
+})
 
 async function load() {
   loading.value = true
+  error.value = ''
   try {
     const data = await http.get('/api/v1/middleware/nginx/instances')
     instances.value = data.instances || []
-  } catch (e) { console.error(e) } finally { loading.value = false }
+  } catch (e) {
+    console.error('加载 Nginx 实例失败', e)
+    error.value = 'Nginx 实例数据加载失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 function openDetail(row) {
   selected.value = row
   drawerVisible.value = true
-  nextTick(() => loadTrendChart(row))
+  loadTrends()
 }
 
-async function loadTrendChart(row) {
-  if (!chartRef.value) return
-  if (chartInstance) { chartInstance.dispose(); chartInstance = null }
-  chartInstance = initChart(chartRef.value)
-  const end = Date.now()
-  const start = end - 3600 * 1000
-  try {
-    const connData = await http.get(`/api/v1/query/range?node=${row.node}&metric=nginx_active_connections&start=${start}&end=${end}&step=60`)
-    const series = []
-    if (connData.series) for (const s of connData.series) {
-      if (s.labels?.instance === row.instance) series.push({ name: '活动连接', type: 'line', data: s.points.map(p => [p.timestamp, p.value]), smooth: true, areaStyle: { opacity: 0.2 } })
-    }
-    chartInstance.setOption({
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['活动连接'], textStyle: { color: AXIS_COLOR } },
-      grid: { left: 60, right: 30, top: 40, bottom: 30 },
-      xAxis: { type: 'time' },
-      yAxis: { type: 'value', name: '连接数' },
-      series,
+// ---- 详情抽屉趋势图 ----
+const range = ref('1h')
+const rangeLabel = computed(() => (MW_RANGE_OPTIONS.find((r) => r.value === range.value) || {}).label || '')
+const trendData = ref([])
+
+async function loadTrends() {
+  const row = selected.value
+  if (!row) return
+  trendData.value = TRENDS.map((t) => ({ metric: t.metric, name: t.name, option: null, loading: true, error: '' }))
+  const { start, end } = rangeToWindow(range.value)
+  const step = rangeToStep(range.value)
+  await Promise.all(
+    TRENDS.map(async (t, i) => {
+      try {
+        const data = await http.get(
+          `/api/v1/query/range?node=${encodeURIComponent(row.node)}&metric=${encodeURIComponent(t.metric)}&start=${start}&end=${end}&step=${step}`
+        )
+        const series = []
+        for (const s of data.series || []) {
+          if (s.labels?.instance !== row.instance) continue
+          series.push({ name: t.name, data: (s.points || []).map((p) => [p.timestamp, p.value]) })
+        }
+        trendData.value[i].option = mwTrendOption(series, { unit: t.unit })
+      } catch (e) {
+        console.error('趋势查询失败', e)
+        trendData.value[i].error = '趋势数据加载失败'
+      } finally {
+        trendData.value[i].loading = false
+      }
     })
-  } catch (e) { console.error(e) }
+  )
 }
+
+watch(range, () => { if (drawerVisible.value) loadTrends() })
 
 function formatUptime(s) { if (!s) return '-'; const d = Math.floor(s / 86400); const h = Math.floor((s % 86400) / 3600); return d > 0 ? `${d}天${h}小时` : `${h}小时` }
 function formatNum(n) { if (!n) return '0'; if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n.toFixed(0) }
@@ -224,62 +294,36 @@ onMounted(load)
 
 <style scoped>
 .mw-tab { padding: 4px 0; }
-.empty-guide { text-align: center; padding: 48px 24px; }
-.empty-icon { color: var(--text-muted); margin-bottom: 16px; }
-.empty-title { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
-.empty-desc { color: var(--text-dim); margin: 0 0 8px; font-size: 13px; }
-.empty-hint { color: var(--text-muted); font-size: 13px; }
+.mw-err { margin-bottom: 16px; }
+.mw-err-text { margin-right: 8px; }
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
-.chart-section { padding: 16px; margin-bottom: 16px; }
-.section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.section-title::before {
-  content: '';
-  width: 3px;
-  height: 14px;
-  background: var(--accent);
-  border-radius: 2px;
-}
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-.dot.up { background: var(--accent); }
-.dot.down { background: var(--danger); }
+.mw-block { margin-bottom: 16px; }
+.dim { color: var(--t3); font-size: var(--fs-sm); }
+.mono { font-family: var(--mono); }
 .pager { display: flex; justify-content: flex-end; margin-top: 12px; }
 :deep(.row-down) { opacity: 0.6; }
-.detail-content { padding: 0 20px; }
-.detail-meta { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; padding: 16px; background: var(--fill-1); border-radius: 8px; }
-.meta-item { font-size: 13px; }
-.meta-label { color: var(--text-muted); margin-right: 6px; }
-.mono { font-family: var(--mono); }
-.metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
-.metric-cell { padding: 12px; background: var(--fill-1); border-radius: 8px; text-align: center; }
-.mc-label { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
-.mc-value { font-size: 18px; font-weight: 600; }
-.chart-box { width: 100%; height: 300px; }
 
 /* 实例拓扑 */
-.topo-group { margin-bottom: 0; }
-.topo-group-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.topo-group-title { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
-.topo-group-title svg { width: 18px; height: 18px; color: #93c5fd; }
+.topo-group { margin-bottom: 16px; }
+.topo-group:last-child { margin-bottom: 0; }
+.topo-group + .topo-group { padding-top: 16px; border-top: 1px dashed var(--bd); }
+.topo-group-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.topo-group-title { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-base); color: var(--t1); }
+.topo-group-title svg { width: 18px; height: 18px; color: var(--accent); flex-shrink: 0; }
 .topo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.rel-node { padding: 12px 14px; border-radius: 10px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-elev); transition: transform 0.15s, box-shadow 0.15s; }
+.rel-node { padding: 12px 14px; border-radius: var(--r-lg); cursor: pointer; border: 1px solid var(--bd); background: var(--s1); transition: transform 0.15s, box-shadow 0.15s; }
 .rel-node:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
 .rel-node.is-down { opacity: 0.6; }
-.rel-node-name { font-size: 14px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rel-node-meta { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); margin-top: 6px; }
+.rel-node-name { font-size: var(--fs-base); font-weight: 600; color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rel-node-meta { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--t2); margin-top: 6px; }
 .rel-standalone { border-left: 4px solid var(--chart-blue); }
 
-/* 列表状态点 */
-.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-.status-dot.up { background: var(--ok); }
-.status-dot.down { background: var(--danger); }
-.status-text { display: inline-flex; align-items: center; font-size: 13px; }
-.status-text.status-issue { color: var(--danger); }
+/* 详情抽屉 */
+.detail-content { padding: 0 4px; }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.metric-cell { padding: 12px; background: var(--fill-1); border-radius: var(--r-md); text-align: center; }
+.mc-label { font-size: var(--fs-xs); color: var(--t3); margin-bottom: 4px; }
+.mc-value { font-size: var(--fs-lg); font-weight: 600; }
+.trend-block { margin-bottom: 18px; }
+.trend-title { font-size: var(--fs-sm); color: var(--t3); margin-bottom: 6px; }
 </style>

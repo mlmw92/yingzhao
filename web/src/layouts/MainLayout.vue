@@ -46,6 +46,7 @@ import SiteFooter from '../components/SiteFooter.vue'
 import http, { setToken } from '../api/http'
 import { connectWS } from '../api/ws'
 import { useAuth } from '../composables/useAuth'
+import { roleLabel } from '../composables/useRoleLabels'
 
 const router = useRouter()
 const auth = useAuth()
@@ -59,18 +60,8 @@ function openSearch() {
   palette.value && palette.value.open()
 }
 
-// 角色名 → 中文展示标签
-const ROLE_LABELS = {
-  super_admin: '超级管理员',
-  ops_admin: '运维管理员',
-  alert_admin: '告警管理员',
-  security_admin: '安全管理员',
-  read_only: '只读用户',
-  audit: '审计用户',
-}
-const roleLabels = computed(() =>
-  auth.principal.roles.map((r) => ROLE_LABELS[r] || r)
-)
+// 角色名 → 中文展示标签（单一来源见 composables/useRoleLabels.js）
+const roleLabels = computed(() => auth.principal.roles.map((r) => roleLabel(r)))
 
 let ws = null
 let timer = null
@@ -122,17 +113,25 @@ function onVisibility() {
   }
 }
 
+// 命令面板的「刷新当前页数据」命令通过该事件回到壳层统一刷新入口，
+// 避免面板反向依赖某个页面实例。
+function onPaletteRefresh() {
+  refresh()
+}
+
 onMounted(() => {
   refreshAlertCount()
   ws = connectWS('alerts', null, { onMessage: onAlertPushed })
   timer = setInterval(refreshAlertCount, 30000)
   document.addEventListener('visibilitychange', onVisibility)
+  window.addEventListener('nebula:refresh', onPaletteRefresh)
 })
 onUnmounted(() => {
   ws && ws.close()
   timer && clearInterval(timer)
   if (alertDebounceTimer) clearTimeout(alertDebounceTimer)
   document.removeEventListener('visibilitychange', onVisibility)
+  window.removeEventListener('nebula:refresh', onPaletteRefresh)
 })
 </script>
 

@@ -70,7 +70,7 @@ async function run() {
   display: inline-flex;
 }
 .state {
-  color: var(--text-muted);
+  color: var(--t3);
   font-size: 13px;
   padding: 8px 0;
 }
@@ -80,12 +80,12 @@ async function run() {
   gap: 12px;
   flex-wrap: wrap;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--t3);
   margin-bottom: 10px;
 }
 .not-sent {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--t3);
   padding: 6px 10px;
   border-radius: 6px;
   background: var(--fill-1, rgba(148, 163, 184, 0.08));
@@ -97,7 +97,7 @@ async function run() {
   font-family: inherit;
   font-size: 13px;
   line-height: 1.75;
-  color: var(--text);
+  color: var(--t1);
   margin: 0;
   max-height: 52vh;
   overflow: auto;
@@ -105,6 +105,6 @@ async function run() {
 .foot-note {
   margin-top: 12px;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--t3);
 }
 </style>

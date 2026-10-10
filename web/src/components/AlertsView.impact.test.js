@@ -21,17 +21,20 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
 }))
 
-// 关系图（影响面里的波及范围）用它自己的接口，这里只要求它不报错。
+// 关系图（影响面里的波及范围）与抽屉趋势图都用它自己的接口，这里只要求它不报错。
+// TrendChart 会调 chart.isDisposed()，桩必须带上——否则 jsdom 下抛
+// "chart.isDisposed is not a function"，把抽屉里的断言全部带崩。
 vi.mock('echarts', () => ({
-  init: vi.fn(() => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn(), on: vi.fn(), off: vi.fn() })),
+  init: vi.fn(() => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn(), on: vi.fn(), off: vi.fn(), isDisposed: vi.fn(() => false) })),
   graphic: { LinearGradient: vi.fn() },
 }))
 
-vi.mock('@element-plus/icons-vue', () => ({
-  Plus: { name: 'Plus', template: '<i />' },
-  Bell: { name: 'Bell', template: '<i />' },
-  Printer: { name: 'Printer', template: '<i />' },
-}))
+// 这里刻意**不**部分 mock @element-plus/icons-vue：
+// 本用例挂了 ElementPlus 插件（抽屉要真渲染），EP 组件自身也会 import 图标
+// （alert.mjs → TypeComponentsMap 需要 Close/SuccessFilled 等）。只导出两三个图标的
+// 局部 mock 会让 EP 的模块初始化直接抛 "No \"Close\" export is defined on the mock"。
+// 之前 EP 走 Node 原生 ESM 外置加载时绕过了 mock 才没暴露；现在 vite.config 里 inline
+// 了 element-plus（修表单校验静默失效），这条路径就被打通了。
 
 vi.mock('../composables/useAuth', () => ({
   default: () => ({ can: () => true, principal: { loaded: true, permissions: [] } }),

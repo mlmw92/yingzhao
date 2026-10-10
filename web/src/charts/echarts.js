@@ -134,6 +134,33 @@ export function areaOption(color, unit) {
   }
 }
 
+// 表格内嵌的迷你趋势图（sparkline）：无坐标轴、无网格、无图例，纯折线 + 渐变面积。
+//
+// 不要复用 areaOption：它带 y 轴刻度标签与左侧 42px 网格边距，
+// 放进 28px 高的表格单元格里会把曲线压成一条细缝（拨测「延迟趋势」曾因此显示异常）。
+// x 轴用 category（按点序），避免时间轴在窄容器里做无意义的时间刻度计算。
+export function sparkOption(color, unit) {
+  return {
+    animation: false,
+    grid: { left: 1, right: 1, top: 3, bottom: 3 },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(11,17,32,0.9)',
+      borderColor: color,
+      textStyle: { color: '#e5edf7', fontSize: 11 },
+      valueFormatter: (v) => tipValue(v, unit),
+    },
+    xAxis: { type: 'category', show: false, boundaryGap: false },
+    // y 轴留 1px 余量：min/max 取 dataMin/dataMax 时，等于极值的点会贴边被裁掉半个线宽
+    yAxis: {
+      type: 'value', show: false, scale: true,
+      min: (v) => v.min - (v.max - v.min) * 0.15,
+      max: (v) => v.max + (v.max - v.min) * 0.15,
+    },
+    series: [gradientSeries('', color, [])],
+  }
+}
+
 // 实时多序列折线图（如 磁盘 IO=读取/写入、网络 IO=接收/发送）
 // opts.showXAxis: true 时显示横坐标时间轴（用于较大的网络流量组件）
 // opts.unit: 数值单位（如 'B/s'），决定提示框的格式化方式；opts.tipFormatter 可完全自定义
@@ -188,6 +215,49 @@ export function historyOption() {
       gradientSeries('磁盘', COLORS.amber, []),
       gradientSeries('网络', COLORS.blue, []),
     ],
+  }
+}
+
+// 中间件抽屉/区块的趋势图统一 option 工厂。
+//
+// 此前 10 个手写 Tab 各自 setOption：只设 legend 文字色，
+// axisLabel.color / tooltip / splitLine 全落 ECharts 默认（浅色主题下是黑字黑线），
+// 深色主题里几乎看不清，且 4 种写死的 tooltip 底色并存。
+// 这里统一从令牌取色，单/多序列自动决定是否显示图例。
+// series: [{ name, color?, data:[[ts,val]] }]；opts: { unit, yMin, yMax, area, yFormatter, tipFormatter }
+export function mwTrendOption(series, opts) {
+  const o = opts || {}
+  const list = series || []
+  const multi = list.length > 1
+  return {
+    grid: baseGrid({ top: multi ? 34 : 16, left: 52, right: 18, bottom: 28 }),
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(11,17,32,0.92)',
+      borderColor: 'rgba(34,211,238,0.3)',
+      textStyle: { color: '#e5edf7', fontSize: 12 },
+      valueFormatter: o.tipFormatter || ((v) => (v == null ? '-' : axisValueFormatter(v, o.unit))),
+    },
+    // 单序列不显示图例（一个名字的图例是纯噪音）
+    legend: multi
+      ? { top: 2, icon: 'roundRect', itemWidth: 12, itemHeight: 8, itemGap: 12, textStyle: { color: axisColor(), fontSize: 11 }, data: list.map((s) => s.name) }
+      : undefined,
+    xAxis: {
+      type: 'time',
+      axisLine: { lineStyle: { color: axisColor() } },
+      axisLabel: { color: axisColor(), fontSize: 11, hideOverlap: true },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      min: o.yMin != null ? o.yMin : 0,
+      max: o.yMax,
+      axisLabel: { color: axisColor(), fontSize: 11, formatter: o.yFormatter || ((v) => axisValueFormatter(v, o.unit)) },
+      splitLine: { show: true, lineStyle: { color: splitColor() } },
+    },
+    series: list.map((s, i) =>
+      gradientSeries(s.name, s.color || (o.colors && o.colors[i]) || COLORS.cyan, s.data || [], o.area !== false)
+    ),
   }
 }
 
@@ -431,6 +501,8 @@ export function initChart(el) {
 }
 
 // 环形仪表盘（用于 CPU/内存/SWAP 使用率展示）
+// 底环与文字走令牌（cssVar），切主题后重新 init 即取到对应色，不再写死白系颜色。
+// 注：曾试过在底环铺「绿/琥珀/红」三档色带 + 阈值刻度，实测刻度过花（用户反馈），已回退为纯净底环。
 export function gaugeOption(color, name) {
   return {
     series: [
@@ -439,9 +511,11 @@ export function gaugeOption(color, name) {
         startAngle: 90,
         endAngle: -270,
         radius: '92%',
+        min: 0,
+        max: 100,
         pointer: { show: false },
         progress: { show: true, width: 12, roundCap: true, itemStyle: { color } },
-        axisLine: { lineStyle: { width: 12, color: [[1, 'rgba(255,255,255,0.08)']] } },
+        axisLine: { lineStyle: { width: 12, color: [[1, cssVar('--fill-3', 'rgba(255,255,255,0.08)')]] } },
         axisTick: { show: false },
         splitLine: { show: false },
         axisLabel: { show: false },
@@ -451,7 +525,7 @@ export function gaugeOption(color, name) {
           valueAnimation: true,
           fontSize: 20,
           fontWeight: 700,
-          color: '#e5edf7',
+          color: cssVar('--t1', '#e5edf7'),
           offsetCenter: [0, 0],
           formatter: '{value}%',
         },

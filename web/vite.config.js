@@ -25,5 +25,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.js'],
+    // element-plus 必须 inline（交给 Vite 转换），不能走 Node 原生 ESM 外置加载：
+    // EP 的 ESM 里 `import AsyncValidator from 'async-validator'` 在 Node 原生 CJS 互操作下
+    // 拿到的是 `{ default: Schema }` 而不是构造函数，`new AsyncValidator(...)` 同步抛错，
+    // 而该错误被 EP 的 .catch 吞掉 → 表单 validate() 恒 resolve(true)。
+    // 症状：所有 `:rules` 校验在测试里静默失效（界面上看着能拦，测试里拦不住）。
+    server: { deps: { inline: ['element-plus'] } },
   },
 })

@@ -211,7 +211,7 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--t1);
 }
 .sr-ico {
   width: 10px;
@@ -222,14 +222,14 @@ onUnmounted(() => {
 }
 .sr-sub {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 .sr-empty {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
+  color: var(--t2);
   font-size: 13px;
 }
 
@@ -257,10 +257,10 @@ onUnmounted(() => {
 .srk-v.cyan { color: var(--info); }
 .srk-v.purple { color: var(--violet); }
 .srk-v.amber { color: var(--warn); }
-.srk-v.dim { color: var(--text-dim); }
+.srk-v.dim { color: var(--t2); }
 .srk-l {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   margin-top: 2px;
 }
 
@@ -273,13 +273,13 @@ onUnmounted(() => {
 }
 .topo-chip {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   padding: 3px 8px;
   background: rgba(255, 255, 255, 0.03);
   border-radius: 6px;
 }
 .topo-chip b {
-  color: var(--text);
+  color: var(--t1);
   font-family: var(--mono);
   margin-right: 2px;
 }
@@ -295,7 +295,7 @@ onUnmounted(() => {
 }
 .rank-title {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -309,7 +309,7 @@ onUnmounted(() => {
   width: 88px;
   flex-shrink: 0;
   font-size: 13px;
-  color: var(--text);
+  color: var(--t1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -343,6 +343,6 @@ onUnmounted(() => {
   width: 44px;
   text-align: right;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--t2);
 }
 </style>

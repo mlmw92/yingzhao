@@ -183,6 +183,54 @@ describe('AuditView 时间范围与分页', () => {
     expect(lastURL()).toContain(`from=${from.getTime()}`)
     expect(lastURL()).toContain(`to=${to.getTime()}`)
   })
+
+  // 结果 / method / 来源 IP 是审计排障最常用的三个维度：表格里一直有这三列却都不可筛，
+  // 于是"只看失败的操作""只看某个来源 IP"只能靠肉眼扫。三条都要真的进查询串。
+  it('「只看失败」一次选择即把 result=fail 带进查询串', async () => {
+    wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.filters.result = 'fail'
+    wrapper.vm.applyFilters()
+    await flushPromises()
+
+    expect(lastURL()).toContain('result=fail')
+  })
+
+  it('来源 IP 与 method 进查询串，来源 IP 前后空白被剪掉', async () => {
+    wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.filters.remoteIP = '  10.0.0.9  '
+    wrapper.vm.filters.method = 'POST'
+    wrapper.vm.applyFilters()
+    await flushPromises()
+
+    expect(lastURL()).toContain('remoteIP=10.0.0.9')
+    expect(lastURL()).toContain('method=POST')
+  })
+
+  it('生效中的筛选回显成可撤销 chips，清空后条件全复位', async () => {
+    wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.filters.result = 'fail'
+    wrapper.vm.filters.method = 'POST'
+    wrapper.vm.applyFilters()
+    await flushPromises()
+
+    const chips = wrapper.findAll('.fc-chip')
+    expect(chips.some((c) => c.text().includes('只看失败'))).toBe(true)
+    expect(chips.some((c) => c.text().includes('POST'))).toBe(true)
+
+    const clear = wrapper.find('.fc-clear')
+    expect(clear.exists()).toBe(true)
+    await clear.trigger('click')
+    await flushPromises()
+
+    expect(lastURL()).not.toContain('result=')
+    expect(lastURL()).not.toContain('method=')
+  })
 })
 
 // 「变更 ↔ 审计」关联的前端一半。
@@ -233,7 +281,10 @@ describe('AuditView 与资产变更的关联', () => {
     await flushPromises()
 
     expect(lastURL()).toContain('requestId=abc123')
-    expect(wrapper.text()).toContain('本次操作 abc123')
+    // 生效中的条件必须看得见：关联 id 是隐形条件，回显成可撤销的 chip
+    const chip = wrapper.findAll('.fc-chip').find((c) => c.text().includes('本次操作'))
+    expect(chip).toBeTruthy()
+    expect(chip.text()).toContain('abc123')
   })
 
   it('关掉条件时连同地址栏一起清掉', async () => {
@@ -241,9 +292,9 @@ describe('AuditView 与资产变更的关联', () => {
     wrapper = mountView()
     await flushPromises()
 
-    const tag = wrapper.findAll('.el-tag').find((t) => t.text().includes('本次操作'))
-    expect(tag).toBeTruthy()
-    await tag.find('.el-tag__close').trigger('click')
+    const chip = wrapper.findAll('.fc-chip').find((c) => c.text().includes('本次操作'))
+    expect(chip).toBeTruthy()
+    await chip.find('.fc-x').trigger('click')
     await flushPromises()
 
     expect(routerReplace).toHaveBeenCalled()
@@ -393,5 +444,36 @@ describe('AuditView 完整性校验', () => {
     const tag = wrapper.findAll('.el-tag').find((t) => t.text().includes('发现异常'))
     expect(tag).toBeTruthy()
     expect(tag.classes().join(' ')).toContain('danger')
+  })
+
+  // 凭证要能说明"这是什么时候验的"，否则无从判断结果是否已过期；也要能就地重验。
+  it('校验后显示时间戳，并提供重新校验入口', async () => {
+    stubVerify({
+      enabled: true, mode: 'sqlite', ok: true, keyFingerprint: 'a1b2c3d4',
+      verifiedFrom: 1, verifiedTo: 10, rowsChecked: 10, breaks: [], prunedSegments: [],
+    })
+    wrapper = mountView()
+    await flushPromises()
+    await clickVerify()
+
+    const text = wrapper.text()
+    expect(text).toContain('校验于')
+    expect(text).toContain('重新校验')
+  })
+
+  // 失败不再只弹一个关掉就没的 toast：落进结果卡，与通过/异常同处可见、可复查。
+  it('校验失败时把错误落进结果卡', async () => {
+    http.get.mockImplementation(async (path) => {
+      if (path.startsWith('/api/v1/audit/verify')) throw new Error('密钥不可用')
+      if (path.startsWith('/api/v1/audit/events')) return { events: [oneEvent], total: 1 }
+      return {}
+    })
+    wrapper = mountView()
+    await flushPromises()
+    await clickVerify()
+
+    const text = wrapper.text()
+    expect(text).toContain('校验失败')
+    expect(text).toContain('密钥不可用')
   })
 })
