@@ -149,6 +149,25 @@ func (c *MongoDBCollector) collectDirect(parent context.Context, cfg model.Mongo
 			inst.MemResident = v
 			metrics = append(metrics, mongodbMetric(c.node, "mongodb_mem_resident_bytes", v*1024*1024, base, now))
 		}
+		// WiredTiger 缓存与 tickets：tickets 归零意味着整库所有请求排队（Mongo「突然全慢」
+		// 的最典型原因），缓存占用逼近上限则表现为读写延迟抖动。
+		if v, ok := bsonFloat(ss, "wiredTiger", "concurrentTransactions", "read", "available"); ok {
+			metrics = append(metrics, mongodbMetric(c.node, "mongodb_tickets_available_reads", v, base, now))
+		}
+		if v, ok := bsonFloat(ss, "wiredTiger", "concurrentTransactions", "write", "available"); ok {
+			metrics = append(metrics, mongodbMetric(c.node, "mongodb_tickets_available_writes", v, base, now))
+		}
+		used, hasUsed := bsonFloat(ss, "wiredTiger", "cache", "bytes currently in the cache")
+		maxB, hasMax := bsonFloat(ss, "wiredTiger", "cache", "maximum bytes configured")
+		if hasUsed {
+			metrics = append(metrics, mongodbMetric(c.node, "mongodb_wt_cache_used_bytes", used, base, now))
+		}
+		if hasMax {
+			metrics = append(metrics, mongodbMetric(c.node, "mongodb_wt_cache_max_bytes", maxB, base, now))
+		}
+		if hasUsed && hasMax && maxB > 0 {
+			metrics = append(metrics, mongodbMetric(c.node, "mongodb_wt_cache_used_percent", round2(used/maxB*100), base, now))
+		}
 		if v, ok := bsonFloat(ss, "mem", "virtual"); ok {
 			inst.MemVirtual = v
 			metrics = append(metrics, mongodbMetric(c.node, "mongodb_mem_virtual_bytes", v*1024*1024, base, now))
@@ -168,6 +187,19 @@ func (c *MongoDBCollector) collectDirect(parent context.Context, cfg model.Mongo
 				case "command":
 					inst.OpCommand = v
 				}
+			}
+		}
+	}
+
+	// oplog 窗口（仅副本集）：窗口过小意味着从库追不上时会触发全量重同步，
+	// 这是 Mongo 副本集最常见的容量事故。单机模式没有 oplog 集合，查询报错即跳过。
+	var firstOplog bson.M
+	if err := client.Database("local").Collection("oplog.rs").FindOne(
+		ctx, bson.M{}, options.FindOne().SetSort(bson.D{{Key: "$natural", Value: 1}}),
+	).Decode(&firstOplog); err == nil {
+		if ts, ok := firstOplog["ts"].(primitive.Timestamp); ok {
+			if window := float64(now/1000 - int64(ts.T)); window > 0 {
+				metrics = append(metrics, mongodbMetric(c.node, "mongodb_oplog_window_hours", round2(window/3600), base, now))
 			}
 		}
 	}

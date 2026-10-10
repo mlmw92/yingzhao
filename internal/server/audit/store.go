@@ -222,11 +222,19 @@ func (s *Store) Record(event Event) error {
 }
 
 // QueryFilter 是审计查询条件。From/To 为毫秒时间戳（0 = 不限）。
+//
+// Result / RemoteIP / Method 是审计排障最常用的三个维度（"只看失败的操作""只看某个来源 IP"
+// "只看写操作"），此前只能靠肉眼看表格。Result 取值 "ok"/"fail"（空 = 不限），
+// RemoteIP 与 Method 均为**精确匹配**：IP 粘贴的是完整地址、method 是有限枚举，
+// 用子串匹配反而会把 10.0.0.1 和 10.0.0.10 混在一起。
 type QueryFilter struct {
 	User      string
 	Path      string
 	Category  string
 	RequestID string
+	Result    string
+	RemoteIP  string
+	Method    string
 	From      int64
 	To        int64
 	Limit     int
@@ -258,6 +266,22 @@ func auditWhere(f QueryFilter) (string, []any) {
 		// 不是模糊找——子串匹配在这里只会把相邻操作混进来。
 		where += " AND request_id=?"
 		args = append(args, f.RequestID)
+	}
+	// 只看失败 / 只看成功：succeeded 在库里是 0/1，这里只认 "ok"/"fail"，
+	// 其余取值一律当"不限"（宁可不过滤，也不要因为拼错参数给出一个空列表）。
+	switch f.Result {
+	case "ok":
+		where += " AND succeeded=1"
+	case "fail":
+		where += " AND succeeded=0"
+	}
+	if f.RemoteIP != "" {
+		where += " AND remote_ip=?"
+		args = append(args, f.RemoteIP)
+	}
+	if f.Method != "" {
+		where += " AND method=?"
+		args = append(args, strings.ToUpper(f.Method))
 	}
 	if f.From > 0 {
 		where += " AND time_ms >= ?"
@@ -332,6 +356,19 @@ func (s *Store) queryMemory(f QueryFilter) ([]Event, int, error) {
 			continue
 		}
 		if f.RequestID != "" && e.RequestID != f.RequestID {
+			continue
+		}
+		// 与 auditWhere 保持同一语义：result 只认 ok/fail，remoteIP/method 精确匹配
+		if f.Result == "ok" && !e.Succeeded {
+			continue
+		}
+		if f.Result == "fail" && e.Succeeded {
+			continue
+		}
+		if f.RemoteIP != "" && e.RemoteIP != f.RemoteIP {
+			continue
+		}
+		if f.Method != "" && !strings.EqualFold(e.Method, f.Method) {
 			continue
 		}
 		if f.From > 0 && e.Time.UnixMilli() < f.From {

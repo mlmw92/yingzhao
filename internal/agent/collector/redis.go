@@ -400,6 +400,13 @@ func mapInfoToMetrics(info map[string]string, labels map[string]string, now int6
 	out = append(out, mk("redis_evicted_keys", parseFloat(info["evicted_keys"])))
 	out = append(out, mk("redis_expired_keys", parseFloat(info["expired_keys"])))
 	out = append(out, mk("redis_keys", parseFloat(extractDBKeys(info["db0"]))))
+	// 持久化健康：bgsave/aof 失败通常意味着磁盘满或 fork 失败，而 rdb_changes_since_last_save
+	// 直接决定「实例崩溃后会丢多少数据」——这是 Redis 一线故障信号（业界监控清单标配）。
+	out = append(out, mk("redis_rdb_last_bgsave_status", statusToNum(info["rdb_last_bgsave_status"])))
+	out = append(out, mk("redis_rdb_changes_since_last_save", parseFloat(info["rdb_changes_since_last_save"])))
+	out = append(out, mk("redis_rdb_last_save_time", parseFloat(info["rdb_last_save_time"])))
+	out = append(out, mk("redis_aof_enabled", parseFloat(info["aof_enabled"])))
+	out = append(out, mk("redis_aof_last_write_status", statusToNum(info["aof_last_write_status"])))
 	// 命中率
 	hits := parseFloat(info["keyspace_hits"])
 	misses := parseFloat(info["keyspace_misses"])
@@ -756,6 +763,14 @@ func readResponse(reader *bufio.Reader) (string, error) {
 	default:
 		return line, nil
 	}
+}
+
+// statusToNum 把 Redis 的 ok/err 状态串转成 1/0；空值按 ok 处理，避免字段缺失时误报。
+func statusToNum(s string) float64 {
+	if strings.EqualFold(strings.TrimSpace(s), "err") {
+		return 0
+	}
+	return 1
 }
 
 // parseInfoText 解析 INFO 命令返回的文本为键值对。

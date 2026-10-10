@@ -67,6 +67,15 @@ func init() {
 	Register(MetricMeta{Name: "redis_cluster_size", Title: "集群主节点数", Category: CatRedis, Unit: "个", Chart: ChartGauge, NoAlert: true})
 	Register(MetricMeta{Name: "redis_cluster_slot_range", Title: "槽位区间", Category: CatRedis, Unit: "", Chart: ChartGauge, NoAlert: true, Dynamic: true,
 		Desc: "名字带区间维度（由采集器拼出），用于核对槽位覆盖"})
+	Register(MetricMeta{Name: "redis_rdb_last_bgsave_status", Title: "RDB 落盘状态(1=ok)", Category: CatRedis, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow,
+		Desc: "0 说明最近一次 bgsave 失败（磁盘满/fork 失败），宕机后数据丢失窗口取决于它"})
+	Register(MetricMeta{Name: "redis_rdb_changes_since_last_save", Title: "未落盘变更数", Category: CatRedis, Unit: "个", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "自上次 RDB 落盘以来累积的写操作数，越大宕机丢得越多"})
+	Register(MetricMeta{Name: "redis_rdb_last_save_time", Title: "上次 RDB 落盘时间", Category: CatRedis, Unit: "s", Chart: ChartLine, NoAlert: true,
+		Desc: "epoch 秒，与当前时间差即未落盘时长"})
+	Register(MetricMeta{Name: "redis_aof_enabled", Title: "AOF 开关(1=启用)", Category: CatRedis, Unit: "", Chart: ChartGauge, NoAlert: true})
+	Register(MetricMeta{Name: "redis_aof_last_write_status", Title: "AOF 写入状态(1=ok)", Category: CatRedis, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow,
+		Desc: "0 说明 AOF 落盘失败，未启用 AOF 时恒为 1"})
 
 	// —— MySQL ——
 	Register(MetricMeta{Name: "mysql_instance_up", Title: "MySQL 存活", Category: CatMySQL, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})
@@ -106,6 +115,10 @@ func init() {
 	Register(MetricMeta{Name: "mysql_gr_view_size", Title: "GR 组视图成员数", Category: CatMySQL, Unit: "个", Chart: ChartGauge,
 		WorseWhen: WorseLow, Desc: "成员数减少说明节点掉出集群"})
 	Register(MetricMeta{Name: "mysql_gr_view_member", Title: "GR 成员状态(1=ONLINE)", Category: CatMySQL, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})
+	Register(MetricMeta{Name: "mysql_opened_tables", Title: "累计打开表", Category: CatMySQL, Unit: "次", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "持续增长说明 table_open_cache 太小，每次查询都要重新打开表文件"})
+	Register(MetricMeta{Name: "mysql_innodb_log_waits", Title: "InnoDB 日志等待", Category: CatMySQL, Unit: "次", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "非零增长说明 redo log 过小或刷盘跟不上写入"})
 
 	// —— PostgreSQL ——
 	Register(MetricMeta{Name: "postgres_instance_up", Title: "PostgreSQL 存活", Category: CatPostgres, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})
@@ -127,6 +140,14 @@ func init() {
 	Register(MetricMeta{Name: "postgres_xact_commit", Title: "累计提交事务", Category: CatPostgres, Unit: "次", Chart: ChartLine, NoAlert: true})
 	Register(MetricMeta{Name: "postgres_xact_rollback", Title: "累计回滚事务", Category: CatPostgres, Unit: "次", Chart: ChartLine, WorseWhen: WorseHigh})
 	Register(MetricMeta{Name: "postgres_uptime_seconds", Title: "运行时长", Category: CatPostgres, Unit: "s", Chart: ChartLine, NoAlert: true})
+	Register(MetricMeta{Name: "postgres_longest_transaction_seconds", Title: "最长事务时长", Category: CatPostgres, Unit: "s", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "长事务会顶住 vacuum、行锁与连接池，是 PG 生产环境最高频的问题来源"})
+	Register(MetricMeta{Name: "postgres_idle_in_transaction", Title: "idle in transaction 连接", Category: CatPostgres, Unit: "个", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "事务开着的空闲连接，同样阻塞 vacuum 并占住连接"})
+	Register(MetricMeta{Name: "postgres_dead_tuples", Title: "死元组数(当前库)", Category: CatPostgres, Unit: "行", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "表膨胀的直接来源，持续上涨说明 vacuum 跟不上"})
+	Register(MetricMeta{Name: "postgres_replication_slot_lag_bytes", Title: "复制槽 WAL 滞后", Category: CatPostgres, Unit: "B", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "失效的复制槽永不推进会导致 WAL 无限堆积直至磁盘打满"})
 
 	// —— Nginx ——
 	Register(MetricMeta{Name: "nginx_instance_up", Title: "Nginx 存活", Category: CatNginx, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})
@@ -175,6 +196,14 @@ func init() {
 	Register(MetricMeta{Name: "es_data_nodes", Title: "数据节点数", Category: CatElasticsearch, Unit: "个", Chart: ChartGauge, WorseWhen: WorseLow})
 	Register(MetricMeta{Name: "es_active_shards", Title: "活跃分片", Category: CatElasticsearch, Unit: "个", Chart: ChartGauge, NoAlert: true})
 	Register(MetricMeta{Name: "es_primary_shards", Title: "主分片数", Category: CatElasticsearch, Unit: "个", Chart: ChartGauge, NoAlert: true})
+	Register(MetricMeta{Name: "es_jvm_heap_used_percent", Title: "JVM 堆使用率(最大节点)", Category: CatElasticsearch, Unit: "%", Chart: ChartArea, WorseWhen: WorseHigh,
+		Desc: "超过 85% 通常伴随 GC 抖动与熔断风险，是 ES 最常见的生产故障前兆"})
+	Register(MetricMeta{Name: "es_thread_pool_rejected_total", Title: "线程池拒绝(累计)", Category: CatElasticsearch, Unit: "次", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "累计计数器（节点重启归零）；增长说明写入/搜索请求被拒，客户端会收到 429/503"})
+	Register(MetricMeta{Name: "es_breakers_tripped_total", Title: "熔断器触发(累计)", Category: CatElasticsearch, Unit: "次", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "熔断触发时对应请求直接失败（circuit_breaking_exception）"})
+	Register(MetricMeta{Name: "es_pending_tasks", Title: "待处理管理任务", Category: CatElasticsearch, Unit: "个", Chart: ChartGauge, WorseWhen: WorseHigh,
+		Desc: "长期堆积说明元数据操作（建索引/映射变更）卡住"})
 
 	// —— ClickHouse ——
 	Register(MetricMeta{Name: "clickhouse_instance_up", Title: "ClickHouse 存活", Category: CatClickHouse, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})
@@ -184,9 +213,22 @@ func init() {
 	Register(MetricMeta{Name: "clickhouse_http_connections", Title: "HTTP 连接数", Category: CatClickHouse, Unit: "个", Chart: ChartLine, WorseWhen: WorseHigh})
 	Register(MetricMeta{Name: "clickhouse_tcp_connections", Title: "TCP 连接数", Category: CatClickHouse, Unit: "个", Chart: ChartLine, WorseWhen: WorseHigh})
 	Register(MetricMeta{Name: "clickhouse_uptime_seconds", Title: "运行时长", Category: CatClickHouse, Unit: "s", Chart: ChartLine, NoAlert: true})
+	Register(MetricMeta{Name: "clickhouse_active_parts", Title: "活跃 parts 数", Category: CatClickHouse, Unit: "个", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "超过 max_parts_in_total（默认 10 万）该表直接拒绝写入，写入过频或分区粒度过细所致"})
+	Register(MetricMeta{Name: "clickhouse_replica_delay_seconds", Title: "副本延迟", Category: CatClickHouse, Unit: "s", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "仅 Replicated 系列表有数据；单机部署恒为 0"})
 
 	// —— Nacos ——
 	Register(MetricMeta{Name: "nacos_instance_up", Title: "Nacos 存活", Category: CatNacos, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})
+	Register(MetricMeta{Name: "nacos_long_connection", Title: "客户端长连接", Category: CatNacos, Unit: "个", Chart: ChartLine, WorseWhen: WorseHigh})
+	Register(MetricMeta{Name: "nacos_config_count", Title: "配置数", Category: CatNacos, Unit: "个", Chart: ChartGauge, NoAlert: true})
+	Register(MetricMeta{Name: "nacos_naming_service_count", Title: "服务数", Category: CatNacos, Unit: "个", Chart: ChartGauge, NoAlert: true})
+	Register(MetricMeta{Name: "nacos_subscriber_count", Title: "订阅者数", Category: CatNacos, Unit: "个", Chart: ChartGauge, NoAlert: true})
+	Register(MetricMeta{Name: "nacos_jvm_heap_used_bytes", Title: "JVM 堆占用", Category: CatNacos, Unit: "B", Chart: ChartLine, WorseWhen: WorseHigh})
+	Register(MetricMeta{Name: "nacos_jvm_heap_max_bytes", Title: "JVM 堆上限", Category: CatNacos, Unit: "B", Chart: ChartGauge, NoAlert: true})
+	Register(MetricMeta{Name: "nacos_jvm_heap_used_percent", Title: "JVM 堆使用率", Category: CatNacos, Unit: "%", Chart: ChartArea, WorseWhen: WorseHigh,
+		Desc: "持续超过 85% 会引发频繁 Full GC，注册中心整体变慢"})
+	Register(MetricMeta{Name: "nacos_jvm_threads_live", Title: "JVM 线程数", Category: CatNacos, Unit: "个", Chart: ChartLine, NoAlert: true})
 
 	// —— ZooKeeper ——
 	Register(MetricMeta{Name: "zookeeper_instance_up", Title: "ZooKeeper 存活", Category: CatZooKeeper, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})
@@ -210,6 +252,16 @@ func init() {
 	Register(MetricMeta{Name: "rabbitmq_fd_used", Title: "已用文件描述符", Category: CatRabbitMQ, Unit: "个", Chart: ChartLine,
 		WorseWhen: WorseHigh, Desc: "接近 ulimit 时会出现连接被拒"})
 	Register(MetricMeta{Name: "rabbitmq_process_memory_bytes", Title: "进程内存", Category: CatRabbitMQ, Unit: "B", Chart: ChartLine, WorseWhen: WorseHigh})
+	Register(MetricMeta{Name: "rabbitmq_queue_messages_ready", Title: "待消费消息(ready)", Category: CatRabbitMQ, Unit: "条", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "消费者处理能力不足的直接表现"})
+	Register(MetricMeta{Name: "rabbitmq_queue_messages_unacked", Title: "未确认消息(unacked)", Category: CatRabbitMQ, Unit: "条", Chart: ChartLine, WorseWhen: WorseHigh,
+		Desc: "消费者处理缓慢或挂住时上涨——ready 与 unacked 的分化才是「消费者卡死」的信号，合计值看不出来"})
+	Register(MetricMeta{Name: "rabbitmq_alarms_memory_used_watermark", Title: "内存告警(1=触发)", Category: CatRabbitMQ, Unit: "", Chart: ChartGauge, WorseWhen: WorseHigh,
+		Desc: "触发后 broker 会阻塞生产者"})
+	Register(MetricMeta{Name: "rabbitmq_alarms_free_disk_space_watermark", Title: "磁盘告警(1=触发)", Category: CatRabbitMQ, Unit: "", Chart: ChartGauge, WorseWhen: WorseHigh,
+		Desc: "触发后 broker 会阻塞生产者"})
+	Register(MetricMeta{Name: "rabbitmq_alarms_file_descriptor_limit", Title: "文件描述符告警(1=触发)", Category: CatRabbitMQ, Unit: "", Chart: ChartGauge, WorseWhen: WorseHigh,
+		Desc: "触发后拒绝新连接"})
 
 	// —— Docker ——
 	Register(MetricMeta{Name: "docker_container_up", Title: "容器存活", Category: CatDocker, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})
@@ -275,6 +327,16 @@ func init() {
 	Register(MetricMeta{Name: "mongodb_uptime_seconds", Title: "运行时长", Category: CatMongo, Unit: "s", Chart: ChartLine, NoAlert: true})
 	Register(MetricMeta{Name: "mongodb_version", Title: "版本", Category: CatMongo, Unit: "", Chart: ChartGauge, NoAlert: true, Desc: "信息类指标"})
 	Register(MetricMeta{Name: "mongodb_instance_version", Title: "实例版本", Category: CatMongo, Unit: "", Chart: ChartGauge, NoAlert: true})
+	Register(MetricMeta{Name: "mongodb_tickets_available_reads", Title: "可用读 tickets", Category: CatMongo, Unit: "个", Chart: ChartLine, WorseWhen: WorseLow,
+		Desc: "归零意味着整库所有读请求排队，是 Mongo「突然全慢」的最典型原因"})
+	Register(MetricMeta{Name: "mongodb_tickets_available_writes", Title: "可用写 tickets", Category: CatMongo, Unit: "个", Chart: ChartLine, WorseWhen: WorseLow,
+		Desc: "归零意味着整库所有写请求排队"})
+	Register(MetricMeta{Name: "mongodb_wt_cache_used_bytes", Title: "WiredTiger 缓存占用", Category: CatMongo, Unit: "B", Chart: ChartLine, WorseWhen: WorseHigh})
+	Register(MetricMeta{Name: "mongodb_wt_cache_max_bytes", Title: "WiredTiger 缓存上限", Category: CatMongo, Unit: "B", Chart: ChartGauge, NoAlert: true})
+	Register(MetricMeta{Name: "mongodb_wt_cache_used_percent", Title: "WiredTiger 缓存使用率", Category: CatMongo, Unit: "%", Chart: ChartArea, WorseWhen: WorseHigh,
+		Desc: "逼近上限后读写延迟明显抖动，通常需要加大 wiredTigerCacheSizeGB"})
+	Register(MetricMeta{Name: "mongodb_oplog_window_hours", Title: "oplog 窗口(小时)", Category: CatMongo, Unit: "h", Chart: ChartLine, WorseWhen: WorseLow,
+		Desc: "窗口过小意味着从库追不上时会触发全量重同步"})
 
 	// —— RocketMQ ——
 	Register(MetricMeta{Name: "rocketmq_instance_up", Title: "RocketMQ 存活", Category: CatRocketMQ, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})
@@ -287,6 +349,7 @@ func init() {
 	Register(MetricMeta{Name: "rocketmq_broker_tps", Title: "Broker TPS", Category: CatRocketMQ, Unit: "次/s", Chart: ChartLine, NoAlert: true})
 	Register(MetricMeta{Name: "rocketmq_topic_count", Title: "Topic 数", Category: CatRocketMQ, Unit: "个", Chart: ChartGauge, NoAlert: true})
 	Register(MetricMeta{Name: "rocketmq_consumer_group_count", Title: "消费组数", Category: CatRocketMQ, Unit: "个", Chart: ChartGauge, NoAlert: true})
+	Register(MetricMeta{Name: "rocketmq_uptime_seconds", Title: "运行时长", Category: CatRocketMQ, Unit: "s", Chart: ChartLine, NoAlert: true})
 
 	// —— FastDFS ——
 	Register(MetricMeta{Name: "fastdfs_up", Title: "FastDFS 存活", Category: CatFastDFS, Unit: "", Chart: ChartGauge, WorseWhen: WorseLow})

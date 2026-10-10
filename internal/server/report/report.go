@@ -739,6 +739,36 @@ func (g *Generator) historyPath() string {
 	return filepath.Join(g.dir, "history.json")
 }
 
+// Delete 删除单份报告（HTML 文件 + 历史条目）。
+//
+// 文件与历史必须一起删：只删文件会让历史列表出现点开即 404 的条目，
+// 只删历史则文件永久留在磁盘上（与 PruneBefore 同一套取舍）。
+func (g *Generator) Delete(id string) error {
+	if id == "" || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return fmt.Errorf("非法报告 ID: %q", id)
+	}
+	path := filepath.Join(g.dir, id+".html")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	kept := make([]ReportMeta, 0, len(g.history))
+	found := false
+	for _, item := range g.history {
+		if item.ID == id {
+			found = true
+			continue
+		}
+		kept = append(kept, item)
+	}
+	if found {
+		g.history = kept
+		g.persistHistoryLocked()
+	}
+	return nil
+}
+
 func (g *Generator) loadHistory() []ReportMeta {
 	b, err := os.ReadFile(g.historyPath())
 	if err != nil {

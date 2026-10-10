@@ -329,9 +329,11 @@ func ValidatePassword(pw string) error {
 }
 
 // permissionCatalog 为全部权限点（按域分组），供前端目录与校验使用。
+// 必须带 json tag：前端（RolesView）按 domain / items 读取，缺 tag 会被序列化成
+// Domain / Items（首字母大写），矩阵整块读不到、d.items.length 直接抛 TypeError。
 type permDomain struct {
-	Domain string
-	Items  []Permission
+	Domain string       `json:"domain"`
+	Items  []Permission `json:"items"`
 }
 
 // Permission 为一个权限点及其人类可读说明。

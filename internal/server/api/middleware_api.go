@@ -1271,6 +1271,7 @@ func (a *API) handleRocketMQInstances(w http.ResponseWriter, r *http.Request) {
 		Name                string  `json:"name"`
 		Role                string  `json:"role"`
 		Version             string  `json:"version"`
+		Uptime              float64 `json:"uptime"`
 		Up                  bool    `json:"up"`
 		Group               string  `json:"group"`
 		BrokerCount         float64 `json:"brokerCount"`
@@ -1285,34 +1286,9 @@ func (a *API) handleRocketMQInstances(w http.ResponseWriter, r *http.Request) {
 
 	instances := map[string]*rocketmqInstanceInfo{}
 	var keys []string
-	for _, s := range upSeries {
-		node := s.Labels["node"]
-		instance := s.Labels["instance"]
-		if node == "" || instance == "" || len(s.Points) == 0 {
-			continue
-		}
-		key := node + "|" + instance
-		if ri, exists := instances[key]; exists {
-			ri.Role = s.Labels["role"]
-			ri.Version = s.Labels["version"]
-			ri.Group = s.Labels["group"]
-			ri.Up = s.Points[len(s.Points)-1].Value > 0
-		} else {
-			instances[key] = &rocketmqInstanceInfo{
-				Node:     node,
-				Instance: instance,
-				Name:     s.Labels["name"],
-				Role:     s.Labels["role"],
-				Version:  s.Labels["version"],
-				Group:    s.Labels["group"],
-				Up:       s.Points[len(s.Points)-1].Value > 0,
-			}
-			keys = append(keys, key)
-		}
-	}
 
-	// 配置清单补充：对已在注册表中但当前 up 指标因 agent 离线而缺失的实例，
-	// 补列出来并标记为离线，避免误判为"尚未配置 RocketMQ 监控"。
+	// 先铺配置清单作为基底：Agent 上报的实例结构里带 version/role/name/group，
+	// 而采集指标的 labels 里没有 version。此前只从指标建实例，于是「版本」列恒为空。
 	for _, rmi := range instancereg.Default.RocketMQInstances() {
 		key := rmi.Node + "|" + rmi.Instance
 		if _, ok := instances[key]; ok {
@@ -1324,10 +1300,40 @@ func (a *API) handleRocketMQInstances(w http.ResponseWriter, r *http.Request) {
 			Name:     rmi.Name,
 			Role:     rmi.Role,
 			Version:  rmi.Version,
+			Uptime:   rmi.Uptime,
 			Group:    rmi.Group,
 			Up:       false,
 		}
 		keys = append(keys, key)
+	}
+
+	// 再用 up 指标补在线状态与数值。labels 里缺省的字段不要覆盖注册表已有的值（version 尤其）。
+	for _, s := range upSeries {
+		node := s.Labels["node"]
+		instance := s.Labels["instance"]
+		if node == "" || instance == "" || len(s.Points) == 0 {
+			continue
+		}
+		key := node + "|" + instance
+		ri, exists := instances[key]
+		if !exists {
+			ri = &rocketmqInstanceInfo{Node: node, Instance: instance}
+			instances[key] = ri
+			keys = append(keys, key)
+		}
+		if v := s.Labels["name"]; v != "" {
+			ri.Name = v
+		}
+		if v := s.Labels["role"]; v != "" {
+			ri.Role = v
+		}
+		if v := s.Labels["version"]; v != "" {
+			ri.Version = v
+		}
+		if v := s.Labels["group"]; v != "" {
+			ri.Group = v
+		}
+		ri.Up = s.Points[len(s.Points)-1].Value > 0
 	}
 
 	metricMap := map[string]func(ri *rocketmqInstanceInfo, v float64){
@@ -1339,6 +1345,7 @@ func (a *API) handleRocketMQInstances(w http.ResponseWriter, r *http.Request) {
 		"rocketmq_consumer_tps":         func(ri *rocketmqInstanceInfo, v float64) { ri.ConsumerTPS = round2(v) },
 		"rocketmq_message_accumulation": func(ri *rocketmqInstanceInfo, v float64) { ri.MessageAccumulation = round2(v) },
 		"rocketmq_consumer_lag":         func(ri *rocketmqInstanceInfo, v float64) { ri.ConsumerLag = round2(v) },
+		"rocketmq_uptime_seconds":       func(ri *rocketmqInstanceInfo, v float64) { ri.Uptime = round2(v) },
 	}
 	for metricName, setter := range metricMap {
 		series, err := a.store.QueryAllLatest(metricName, nil)
@@ -1448,6 +1455,39 @@ func (a *API) handleDialtestLatest(w http.ResponseWriter, r *http.Request) {
 		Latency    float64 `json:"latency"`
 		CertExpiry float64 `json:"certExpiry,omitempty"`
 		Error      string  `json:"error,omitempty"`
+		// CheckedAt 最近一次拨测时间（毫秒），来自 up 序列最新点的时间戳。
+		CheckedAt int64 `json:"checkedAt,omitempty"`
+		// Uptime 最近 24h 可用率（百分比，0-100）；-1 表示暂无历史（新任务）。
+		Uptime float64 `json:"uptime"`
+		// LatencyHistory 最近 24h 延迟曲线（[[ts,ms]]），用于列表内 sparkline。
+		LatencyHistory []model.Point `json:"latencyHistory,omitempty"`
+	}
+
+	// 最近 24h 的延迟曲线与可用率：对两个指标各做一次 range 查询即可拿到所有任务
+	// （按 labels.name 分组），避免每个任务各发一次查询。step 5min → 最多 288 点/任务。
+	histEnd := time.Now().UnixMilli()
+	histStart := histEnd - 24*3600*1000
+	latHist, _ := a.store.QueryRange("", "dial_test_latency", nil, histStart, histEnd, 300000)
+	upHist, _ := a.store.QueryRange("", "dial_test_up", nil, histStart, histEnd, 300000)
+	histByName := map[string][]model.Point{}
+	for _, s := range latHist {
+		if n := s.Labels["name"]; n != "" && len(s.Points) > 0 {
+			histByName[n] = s.Points
+		}
+	}
+	uptimeByName := map[string]float64{}
+	for _, s := range upHist {
+		n := s.Labels["name"]
+		if n == "" || len(s.Points) == 0 {
+			continue
+		}
+		up := 0
+		for _, p := range s.Points {
+			if p.Value > 0 {
+				up++
+			}
+		}
+		uptimeByName[n] = round2(float64(up) / float64(len(s.Points)) * 100)
 	}
 
 	// 任务名 -> 最近异常原因（由 Scheduler 记录到 Store 的内存结果）
@@ -1473,11 +1513,13 @@ func (a *API) handleDialtestLatest(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		results[name] = &dialtestResult{
-			Name:   name,
-			Type:   s.Labels["type"],
-			Target: s.Labels["target"],
-			Up:     s.Points[len(s.Points)-1].Value > 0,
-			Error:  errByTask[name],
+			Name:      name,
+			Type:      s.Labels["type"],
+			Target:    s.Labels["target"],
+			Up:        s.Points[len(s.Points)-1].Value > 0,
+			Error:     errByTask[name],
+			CheckedAt: s.Points[len(s.Points)-1].Timestamp,
+			Uptime:    -1,
 		}
 	}
 	for _, s := range latencySeries {
@@ -1501,6 +1543,12 @@ func (a *API) handleDialtestLatest(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]dialtestResult, 0, len(results))
 	for _, r := range results {
+		if u, ok := uptimeByName[r.Name]; ok {
+			r.Uptime = u
+		}
+		if h, ok := histByName[r.Name]; ok {
+			r.LatencyHistory = h
+		}
 		out = append(out, *r)
 	}
 	writeJSON(w, 200, map[string]interface{}{"results": out})
@@ -1556,6 +1604,21 @@ func (a *API) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleReportHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{"reports": a.report.History()})
+}
+
+// handleReportDelete 删除单份历史报告（文件 + 历史条目）。
+// 删除是破坏性动作，沿用 report:export 权限（能导出报告的人才允许清理报告）。
+func (a *API) handleReportDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if err := a.report.Delete(id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
 // ---- Kubernetes ----

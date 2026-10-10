@@ -27,6 +27,7 @@ import (
 	"github.com/nebula/monitor/internal/server/dashboard"
 	"github.com/nebula/monitor/internal/server/dialtest"
 	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/nebula/monitor/internal/server/k8sproxy"
 	"github.com/nebula/monitor/internal/server/logstore"
 	"github.com/nebula/monitor/internal/server/mwreg"
 	"github.com/nebula/monitor/internal/server/nginxaccess"
@@ -84,11 +85,14 @@ type ReportProvider interface {
 	GenerateWith(opts report.GenerateOptions) (string, error)
 	GetHTML(id string) (string, error)
 	History() []report.ReportMeta
+	// Delete 删除单份报告（HTML 文件 + 历史条目）。
+	Delete(id string) error
 }
 
 // API 聚合所有 REST 接口依赖。
 type API struct {
 	store          storage.Storage
+	k8sLive        *k8sproxy.Manager
 	nodeMgr        *node.Manager
 	rules          RulesProvider
 	alerts         AlertStore
@@ -387,6 +391,9 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	// 不该要求运维为了看工作负载额外拿到 middleware:read。集群标识用上报里的 name
 	// （agent.yaml 的 k8sInstances[].name），凭据始终只在 Agent 本地。
 	mux.HandleFunc("GET /api/v1/container/k8s/clusters", a.permit(a.handleContainerClusters, "container:read"))
+	// K8s 实时清单（ADR-0004）：Server 侧凭据的只读代理，与上面的异步下发并存。
+	mux.HandleFunc("GET /api/v1/container/k8s/live-configs", a.permit(a.handleK8sLiveConfigs, "container:read"))
+	mux.HandleFunc("GET /api/v1/container/k8s/live/{cluster}/{resource}", a.permit(a.handleK8sLiveQuery, "container:read"))
 
 	// 安装信息含 Agent 长期密钥 → agent:secret:read（高危）；version 登录即可；agent/check 走 X-Agent-Secret（公开）
 	mux.HandleFunc("GET /api/v1/install-info", a.permit(a.handleInstallInfo, "agent:secret:read"))
@@ -502,6 +509,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/report/generate", a.permit(a.handleReportGenerate, "report:export"))
 	mux.HandleFunc("GET /api/v1/report/download", a.permit(a.handleReportDownload, "report:export"))
 	mux.HandleFunc("GET /api/v1/report/history", a.permit(a.handleReportHistory, "report:read"))
+	mux.HandleFunc("DELETE /api/v1/report/history/{id}", a.permit(a.handleReportDelete, "report:export"))
 	// 报告周期化调度：读现状用 report:read；改配置与立即生成用 report:export
 	// （它们都会产出报告文件、占用磁盘，与手动生成是同一类动作）
 	mux.HandleFunc("GET /api/v1/report/schedule", a.permit(a.handleReportScheduleGet, "report:read"))

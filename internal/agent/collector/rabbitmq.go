@@ -157,6 +157,14 @@ func (c *RabbitMQCollector) collectOne(ctx context.Context, cfg model.RabbitMQIn
 		mk("rabbitmq_publishers", ri.Publishers),
 		mk("rabbitmq_process_memory_bytes", ri.MemoryBytes),
 		mk("rabbitmq_fd_used", ri.FdUsed),
+		// ready/unacked 拆开单列：合计值看不出「消费者卡死」——消费者处理缓慢或
+		// 挂住时 ready 下降而 unacked 上涨，只有分化才暴露问题。
+		mk("rabbitmq_queue_messages_ready", get("rabbitmq_queue_messages_ready")),
+		mk("rabbitmq_queue_messages_unacked", get("rabbitmq_queue_messages_unacked")),
+		// 三类告警（内存/磁盘水位/文件描述符）任一触发，broker 都会阻塞生产者或拒绝新连接
+		mk("rabbitmq_alarms_memory_used_watermark", get("rabbitmq_alarms_memory_used_watermark")),
+		mk("rabbitmq_alarms_free_disk_space_watermark", get("rabbitmq_alarms_free_disk_space_watermark")),
+		mk("rabbitmq_alarms_file_descriptor_limit", get("rabbitmq_alarms_file_descriptor_limit")),
 	}
 	return out, ri
 }

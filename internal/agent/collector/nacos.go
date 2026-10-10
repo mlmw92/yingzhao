@@ -1,7 +1,10 @@
 package collector
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -97,5 +100,94 @@ func (c *NacosCollector) collectOne(ctx context.Context, cfg model.NacosInstance
 			"role":     "server",
 		},
 	}
-	return []model.Metric{metric}, ni
+	metrics := []model.Metric{metric}
+	// 存活之外再抓 Nacos 2.x 的指标端点（连接数/配置数/服务数/JVM 堆）。
+	// 端点需在 Nacos 配置里开启（nacos.prometheus.metrics.enabled=true 与
+	// management.endpoints.web.exposure.include=prometheus），未开启则静默跳过，
+	// 不影响存活监控。
+	if up == 1 {
+		metrics = append(metrics, c.fetchNacosMetrics(ctx, cfg, cp, now, metric.Labels)...)
+	}
+	return metrics, ni
+}
+
+// fetchNacosMetrics 抓取 Nacos 2.x 的 /actuator/prometheus 端点，并把关键指标映射成
+// 平台指标：客户端长连接、配置数、服务数、订阅者数与 JVM 堆/线程。
+// heap 类指标按内存池多条样本求和得出；端点未开启或返回非 200 时静默跳过。
+func (c *NacosCollector) fetchNacosMetrics(ctx context.Context, cfg model.NacosInstanceConfig, cp string, now int64, labels map[string]string) []model.Metric {
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+cfg.Addr+cp+"/actuator/prometheus", nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		slog.Warn("Nacos 指标抓取失败（如需连接数/配置数等详情指标，请在 Nacos 配置开启 prometheus 端点）", "addr", cfg.Addr, "err", err)
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil
+	}
+
+	mk := func(name string, val float64) model.Metric {
+		return model.Metric{Node: c.node, Name: name, Labels: labels, Value: val, Timestamp: now}
+	}
+	monitor := map[string]float64{} // nacos_monitor{name="..."} → 值
+	var heapUsed, heapMax float64
+	var out []model.Metric
+	sc := bufio.NewScanner(bytes.NewReader(body))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		idx := strings.Index(line, " ")
+		if idx <= 0 {
+			continue
+		}
+		raw := line[:idx]
+		val, _ := parseFloatOK(line[idx+1:])
+		switch {
+		case strings.HasPrefix(raw, "nacos_monitor{"):
+			inner := raw[len("nacos_monitor{") : len(raw)-1]
+			for _, kv := range strings.Split(inner, ",") {
+				if strings.HasPrefix(kv, `name="`) {
+					monitor[strings.Trim(strings.TrimPrefix(kv, `name="`), `"`)] = val
+				}
+			}
+		case raw == "jvm_threads_live_threads":
+			out = append(out, mk("nacos_jvm_threads_live", val))
+		case strings.HasPrefix(raw, "jvm_memory_used_bytes{") && strings.Contains(raw, `area="heap"`):
+			heapUsed += val
+		case strings.HasPrefix(raw, "jvm_memory_max_bytes{") && strings.Contains(raw, `area="heap"`):
+			heapMax += val
+		}
+	}
+	if v, ok := monitor["longConnection"]; ok {
+		out = append(out, mk("nacos_long_connection", v))
+	}
+	if v, ok := monitor["configCount"]; ok {
+		out = append(out, mk("nacos_config_count", v))
+	}
+	if v, ok := monitor["serviceCount"]; ok {
+		out = append(out, mk("nacos_naming_service_count", v))
+	}
+	if v, ok := monitor["subscriberCount"]; ok {
+		out = append(out, mk("nacos_subscriber_count", v))
+	}
+	if heapUsed > 0 {
+		out = append(out, mk("nacos_jvm_heap_used_bytes", heapUsed))
+	}
+	if heapMax > 0 {
+		out = append(out, mk("nacos_jvm_heap_max_bytes", heapMax))
+		if heapUsed > 0 {
+			out = append(out, mk("nacos_jvm_heap_used_percent", round2(heapUsed/heapMax*100)))
+		}
+	}
+	return out
 }

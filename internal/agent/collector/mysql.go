@@ -194,6 +194,10 @@ func (c *MySQLCollector) collectDirect(ctx context.Context, cfg model.MySQLInsta
 	out = append(out, mk("mysql_bytes_sent", parseFloat(status["Bytes_sent"])))
 	// 临时表
 	out = append(out, mk("mysql_created_tmp_disk_tables", parseFloat(status["Created_tmp_disk_tables"])))
+	// 表/文件缓存溢出与 InnoDB 日志刷盘等待：前者持续增长说明 table_open_cache 太小
+	// （每次查询都要打开文件），后者非零增长说明 redo log 过小或刷盘跟不上写入。
+	out = append(out, mk("mysql_opened_tables", parseFloat(status["Opened_tables"])))
+	out = append(out, mk("mysql_innodb_log_waits", parseFloat(status["Innodb_log_waits"])))
 	// 运行时长
 	out = append(out, mk("mysql_uptime", uptime))
 	// 平均语句响应时间（ms）：基于 performance_schema 中各语句类型的累计等待时间/次数加权威得出，

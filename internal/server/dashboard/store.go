@@ -28,6 +28,16 @@ const (
 	ChartGauge ChartType = "gauge"
 )
 
+// PanelSize 面板栅格宽度档位。
+type PanelSize string
+
+const (
+	// SizeHalf 半宽（默认，一行两个面板）。
+	SizeHalf PanelSize = "half"
+	// SizeFull 全宽（独占一行）。
+	SizeFull PanelSize = "full"
+)
+
 // Panel 仪表盘中的一个面板。
 type Panel struct {
 	Title     string            `yaml:"title" json:"title"`         // 面板标题
@@ -38,6 +48,7 @@ type Panel struct {
 	Labels    map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`     // 附加筛选标签（如 disk/iface）
 	Range     string            `yaml:"range,omitempty" json:"range,omitempty"`       // 时间范围，如 1h/6h/24h/7d
 	Step      int64             `yaml:"step,omitempty" json:"step,omitempty"`         // 步长（毫秒），0 用默认
+	Size      PanelSize         `yaml:"size,omitempty" json:"size,omitempty"`         // 宽度档位：half/full（空=half）
 }
 
 // Dashboard 一块自定义看板。

@@ -554,13 +554,14 @@ type RocketMQInstanceConfig struct {
 
 // RocketMQInstance 是上报给 Server 的 RocketMQ 实例元信息。
 type RocketMQInstance struct {
-	Instance string `json:"instance"` // NameServer/Broker 地址
-	Name     string `json:"name"`
-	Node     string `json:"node"`
-	Group    string `json:"group"`   // 集群名
-	Role     string `json:"role"`    // nameserver|broker
-	Version  string `json:"version"` // RocketMQ 版本
-	Up       bool   `json:"up"`
+	Instance string  `json:"instance"` // NameServer/Broker 地址
+	Name     string  `json:"name"`
+	Node     string  `json:"node"`
+	Group    string  `json:"group"`   // 集群名
+	Role     string  `json:"role"`    // nameserver|broker
+	Version  string  `json:"version"` // RocketMQ 版本
+	Uptime   float64 `json:"uptime"`  // 运行时长（秒），取自 broker 的 boottime
+	Up       bool    `json:"up"`
 }
 
 // ---- Kubernetes ----

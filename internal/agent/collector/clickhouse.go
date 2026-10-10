@@ -145,6 +145,15 @@ func (c *ClickHouseCollector) collectOne(ctx context.Context, cfg model.ClickHou
 		mk("clickhouse_merges_running", ci.MergesRunning),
 		mk("clickhouse_uptime_seconds", ci.UptimeSeconds),
 	}
+	// active parts 数：超过 max_parts_in_total（默认 10 万）后该表直接拒绝写入，
+	// 「too many parts」是 ClickHouse 写入侧最典型的故障（写入过频/分区粒度过细）。
+	if parts, err := strconv.ParseFloat(strings.TrimSpace(mustQuery(query, "SELECT count() FROM system.parts WHERE active FORMAT TSV")), 64); err == nil {
+		out = append(out, mk("clickhouse_active_parts", parts))
+	}
+	// 副本延迟（Replicated* 表才有数据，单机恒为 0）
+	if delay, err := strconv.ParseFloat(strings.TrimSpace(mustQuery(query, "SELECT coalesce(max(absolute_delay), 0) FROM system.replicas FORMAT TSV")), 64); err == nil {
+		out = append(out, mk("clickhouse_replica_delay_seconds", delay))
+	}
 	return out, ci
 }
 

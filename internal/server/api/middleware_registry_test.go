@@ -29,8 +29,12 @@ func (s *seriesStore) QueryInstant(string, string, map[string]string) ([]model.S
 func (s *seriesStore) QueryInstantWithLookback(string, string, map[string]string, time.Duration) ([]model.Series, error) {
 	return nil, nil
 }
-func (s *seriesStore) QueryAllLatest(string, map[string]string) ([]model.Series, error) {
-	return nil, nil
+func (s *seriesStore) QueryAllLatest(name string, _ map[string]string) ([]model.Series, error) {
+	// 未预置序列时返回 nil，既有用例不受影响。
+	if s.series == nil {
+		return nil, nil
+	}
+	return s.series[name], nil
 }
 func (s *seriesStore) Close() error    { return nil }
 func (s *seriesStore) Backend() string { return "fake" }

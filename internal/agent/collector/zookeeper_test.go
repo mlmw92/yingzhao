@@ -26,10 +26,20 @@ func fakeZooKeeper(t *testing.T, payload string) net.Listener {
 			}
 			go func(c net.Conn) {
 				defer c.Close()
-				buf := make([]byte, 16)
-				_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
-				_, _ = c.Read(buf) // 读取 mntr 命令
+				// 先回写响应、再读掉客户端命令。
+				// 反过来（先读后写）在本机（Windows）会随机失败：读超时或连接被 RST，
+				// 表现为「能解析」的用例时而超时、时而报 connection forcibly closed，
+				// 被误判成离线。回写后再把命令读掉，是为了避免 Close 时接收缓冲区
+				// 仍有未读数据而触发 RST。
 				_, _ = c.Write([]byte(payload))
+				buf := make([]byte, 64)
+				_ = c.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+				_, _ = c.Read(buf)
+				// 半关闭写端（发 FIN），让客户端正常读到 EOF 而不是连接重置。
+				if tc, ok := c.(*net.TCPConn); ok {
+					_ = tc.CloseWrite()
+				}
+				time.Sleep(20 * time.Millisecond)
 			}(conn)
 		}
 	}()

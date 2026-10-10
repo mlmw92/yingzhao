@@ -1,6 +1,29 @@
 package auth
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// TestPermissionCatalogJSONKeysAreLowercase 权限目录的 JSON 字段名必须是 domain / items。
+//
+// 前端（RolesView）按 `d.domain` / `d.items` 读取。`permDomain` 曾缺 json tag，
+// 被序列化成 `Domain` / `Items`（首字母大写）→ 权限矩阵整块空白，且 `d.items.length`
+// 直接抛 TypeError。字段名是跨端契约，只能用序列化结果钉住，靠肉眼看结构体看不出来。
+func TestPermissionCatalogJSONKeysAreLowercase(t *testing.T) {
+	b, err := json.Marshal(PermissionCatalog())
+	if err != nil {
+		t.Fatalf("序列化权限目录失败: %v", err)
+	}
+	s := string(b)
+	if !strings.Contains(s, `"domain"`) || !strings.Contains(s, `"items"`) {
+		t.Errorf("权限目录 JSON 字段名必须是小写 domain / items，实际: %s", s)
+	}
+	if strings.Contains(s, `"Domain"`) || strings.Contains(s, `"Items"`) {
+		t.Errorf("权限目录 JSON 出现了大写字段名（permDomain 缺 json tag）: %s", s)
+	}
+}
 
 // TestPermissionCatalogContainsAddedKeys 新增权限点必须出现在目录中（目录是 /api/v1/permissions/catalog 的唯一来源）。
 func TestPermissionCatalogContainsAddedKeys(t *testing.T) {

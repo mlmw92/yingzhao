@@ -29,6 +29,7 @@ import (
 	"github.com/nebula/monitor/internal/server/dashboard"
 	"github.com/nebula/monitor/internal/server/dialtest"
 	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/nebula/monitor/internal/server/k8sproxy"
 	"github.com/nebula/monitor/internal/server/logstore"
 	"github.com/nebula/monitor/internal/server/mwreg"
 	"github.com/nebula/monitor/internal/server/mwview"
@@ -321,6 +322,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// K8s 实时清单代理（ADR-0004）：集群凭据文件由运维手工维护（权限 0600），
+	// 查询时读取、改完即生效；文件不存在时实时接口返回 501，不影响其余功能。
+	k8sLiveMgr := k8sproxy.New(filepath.Join(cfg.DataDir, "k8s-live.yaml"))
+
 	// 系统 UI 品牌配置（系统名称/Logo）：独立文件（Web 端设置写入），不存在则用默认初始化并落盘。
 	uiMgr, err := uicfg.New(cfg.UIFile, uicfg.DefaultUIConfig())
 	if err != nil {
@@ -415,6 +420,8 @@ func main() {
 	rest.SetDashboardManager(dashMgr)
 	// AI 配置管理器（可选能力；未注入时 AI 接口明确报"未初始化"，不静默）。
 	rest.SetAIManager(aiMgr)
+	// K8s 实时清单代理（ADR-0004，可选能力；未配置凭据文件时实时接口返回 501）。
+	rest.SetK8sLive(k8sLiveMgr)
 	// 下行操作通道：与 receiver 共用同一个 service 实例（见上面 opsSvc 的说明）
 	rest.SetOpsService(opsSvc)
 	// 高风险操作双人复核：审批单与配置都与下行操作同处一个数据目录（同为"要能人工查看、

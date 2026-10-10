@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nebula/monitor/internal/model"
 )
@@ -180,5 +181,88 @@ func TestRocketMQCollectorExporterNoWork(t *testing.T) {
 	}})
 	if metrics, instances := c.CollectCtx(ctx); len(metrics) != 0 || len(instances) != 0 {
 		t.Fatalf("ctx 已取消应跳过采集：metrics=%+v instances=%+v", metrics, instances)
+	}
+}
+
+// apache/rocketmq-exporter 把版本放在 des（形如 V5_3_1）、把 broker 启动时刻放在
+// boottime（毫秒时间戳）。此前只认 rocketmq_instance_up 的 version 标签，于是实例
+// 列表的「版本」列恒为空、「运行时长」恒显示 -。这里锁定这两个字段的取值来源。
+func TestRocketMQCollectorExporterVersionAndUptime(t *testing.T) {
+	boot := time.Now().Add(-3 * time.Hour).UnixMilli()
+	body := fmt.Sprintf(
+		"rocketmq_brokeruntime_msg_put_total_today_now{cluster=\"DefaultCluster\",des=\"V5_3_1\",boottime=\"%d\"} 0\n",
+		boot,
+	)
+	srv := newRocketMQExporterServer(t, body)
+	metrics, instances := collectRocketMQExporter(t, "127.0.0.1:9876", srv.URL)
+
+	if len(instances) != 1 {
+		t.Fatalf("实例数 = %d，want 1", len(instances))
+	}
+	if got := instances[0].Version; got != "5.3.1" {
+		t.Errorf("版本应取 des 并归一化为 5.3.1，got %q", got)
+	}
+	if got := instances[0].Uptime; got < 10790 || got > 10810 {
+		t.Errorf("运行时长应约 10800 秒（boottime 取 3 小时前），got %v", got)
+	}
+
+	byName := map[string]model.Metric{}
+	for _, m := range metrics {
+		byName[m.Name] = m
+	}
+	up, ok := byName["rocketmq_uptime_seconds"]
+	if !ok {
+		t.Fatalf("应产出 rocketmq_uptime_seconds 指标：%+v", metrics)
+	}
+	if up.Labels["name"] != "dev-rocketmq" || !strings.HasSuffix(up.Labels["instance"], ":9876") {
+		t.Errorf("uptime 指标标签应与其他 RocketMQ 指标一致：%+v", up.Labels)
+	}
+}
+
+// exporter 暴露的是 topic/group 维度的细粒度指标，而平台查的是实例级指标名
+// （rocketmq_topic_count / rocketmq_message_accumulation ...）。这里用 dev-server 上
+// apache/rocketmq-exporter 的实测输出形态锁定归并结果。
+func TestRocketMQCollectorExporterAdaptsMetrics(t *testing.T) {
+	body := `rocketmq_producer_offset{cluster="DefaultCluster",broker="broker-a",topic="nebula-mw-demo",} 200.0
+rocketmq_producer_offset{cluster="DefaultCluster",broker="broker-a",topic="TBW102",} 0.0
+rocketmq_group_diff{group="nebula-mw-demo-group",topic="nebula-mw-demo",countOfOnlineConsumers="1",msgModel="1",} 200.0
+rocketmq_group_diff{group="nebula-mw-demo-group",topic="other-topic",countOfOnlineConsumers="1",msgModel="1",} 30.0
+rocketmq_consumer_tps{cluster="DefaultCluster",broker="broker-a",topic="nebula-mw-demo",group="nebula-mw-demo-group",} 12.5
+rocketmq_brokeruntime_put_tps{cluster="DefaultCluster",brokerIP="127.0.0.1:10911",} 42.0
+`
+	srv := newRocketMQExporterServer(t, body)
+	metrics, _ := collectRocketMQExporter(t, "127.0.0.1:9876", srv.URL)
+
+	byName := map[string]model.Metric{}
+	count := map[string]int{}
+	for _, m := range metrics {
+		byName[m.Name] = m
+		count[m.Name]++
+	}
+	want := map[string]float64{
+		"rocketmq_broker_count":         1,   // producer_offset 的 broker 去重
+		"rocketmq_topic_count":          2,   // producer_offset 的 topic 去重
+		"rocketmq_consumer_group_count": 1,   // group_diff 的 group 去重
+		"rocketmq_message_accumulation": 230, // group_diff 累加
+		"rocketmq_consumer_lag":         200, // group_diff 取最大
+		"rocketmq_consumer_tps":         12.5,
+		"rocketmq_producer_tps":         42,
+	}
+	for name, v := range want {
+		m, ok := byName[name]
+		if !ok {
+			t.Errorf("缺少归并后的指标 %s", name)
+			continue
+		}
+		if m.Value != v {
+			t.Errorf("%s = %v，want %v", name, m.Value, v)
+		}
+		if m.Labels["node"] != "node-a" || m.Labels["name"] != "dev-rocketmq" {
+			t.Errorf("%s 应带平台统一标签：%+v", name, m.Labels)
+		}
+	}
+	// 细粒度同名序列必须剔除，否则同实例落在多条序列上、聚合时相互覆盖
+	if count["rocketmq_consumer_tps"] != 1 {
+		t.Errorf("rocketmq_consumer_tps 应只保留归并后的 1 条，实际 %d 条", count["rocketmq_consumer_tps"])
 	}
 }

@@ -131,6 +131,52 @@ func (c *ElasticsearchCollector) collectOne(ctx context.Context, cfg model.Elast
 		mk("es_primary_shards", ei.PrimaryShards),
 		mk("es_unassigned_shards", ei.UnassignedShards),
 	}
+
+	// 节点统计：JVM 堆 / 线程池拒绝 / 熔断器。ES 最常见的生产故障是堆打满触发熔断
+	// （对外表现为 5xx）与磁盘水位打满导致索引变只读——集群健康状态反而最后才变红。
+	var stats struct {
+		Nodes map[string]struct {
+			JVM struct {
+				Mem struct {
+					HeapUsedPercent int `json:"heap_used_percent"`
+				} `json:"mem"`
+			} `json:"jvm"`
+			ThreadPool map[string]struct {
+				Rejected int64 `json:"rejected"`
+			} `json:"thread_pool"`
+			Breakers map[string]struct {
+				Tripped int64 `json:"tripped"`
+			} `json:"breakers"`
+		} `json:"nodes"`
+	}
+	if err := c.getJSON(ctx, cfg, cfg.Addr+"/_nodes/stats/jvm,thread_pool,breaker", &stats); err == nil {
+		var maxHeap float64
+		var rejected, tripped float64
+		for _, n := range stats.Nodes {
+			if p := float64(n.JVM.Mem.HeapUsedPercent); p > maxHeap {
+				maxHeap = p
+			}
+			for _, tp := range n.ThreadPool {
+				rejected += float64(tp.Rejected)
+			}
+			for _, b := range n.Breakers {
+				tripped += float64(b.Tripped)
+			}
+		}
+		if maxHeap > 0 {
+			out = append(out, mk("es_jvm_heap_used_percent", maxHeap))
+		}
+		out = append(out, mk("es_thread_pool_rejected_total", rejected))
+		out = append(out, mk("es_breakers_tripped_total", tripped))
+	}
+
+	// 集群管理任务排队：pending tasks 长期堆积说明元数据操作（建索引/映射变更）卡住
+	var pending struct {
+		PendingTasks []struct{} `json:"pending_tasks"`
+	}
+	if err := c.getJSON(ctx, cfg, cfg.Addr+"/_cluster/pending_tasks", &pending); err == nil {
+		out = append(out, mk("es_pending_tasks", float64(len(pending.PendingTasks))))
+	}
 	return out, ei
 }
 

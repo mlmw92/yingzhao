@@ -151,6 +151,16 @@ func (c *PostgresCollector) collectDirect(ctx context.Context, cfg model.Postgre
 	if size, err := queryPGDatabaseSize(ctx, db, cfg.Database); err == nil {
 		out = append(out, mk("postgres_database_size_bytes", float64(size)))
 	}
+	// 健康信号：长事务 / idle-in-transaction / 死元组 / 复制槽 WAL 滞后。
+	// 长事务会顶住 vacuum、锁和连接池，是 PG 生产环境最高频的问题来源。
+	if lt, it, dt, lag, ok := queryPGHealthExtras(ctx, db); ok {
+		out = append(out, mk("postgres_longest_transaction_seconds", round2(lt)))
+		out = append(out, mk("postgres_idle_in_transaction", it))
+		out = append(out, mk("postgres_dead_tuples", dt))
+		if lag > 0 {
+			out = append(out, mk("postgres_replication_slot_lag_bytes", lag))
+		}
+	}
 	// 运行时长
 	if uptime, err := queryPGUptime(ctx, db); err == nil {
 		out = append(out, mk("postgres_uptime_seconds", uptime))
@@ -327,6 +337,28 @@ func queryPGUptime(ctx context.Context, db *sql.DB) (float64, error) {
 	var uptime float64
 	err := db.QueryRowContext(ctx, "SELECT EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))").Scan(&uptime)
 	return uptime, err
+}
+
+// queryPGHealthExtras 采集长事务 / idle-in-transaction / 死元组 / 复制槽滞后。
+// 长事务顶住 vacuum 与连接池；复制槽永不推进则 WAL 无限堆积直至磁盘打满。
+// 主查询失败（如权限不足）整体返回 false；dead tuples 与槽滞后各自失败按 0 处理。
+func queryPGHealthExtras(ctx context.Context, db *sql.DB) (longestTxn, idleInTx, deadTups, slotLag float64, ok bool) {
+	var lt, it float64
+	err := db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(EXTRACT(EPOCH FROM (now() - xact_start))), 0),
+		       COUNT(*) FILTER (WHERE state = 'idle in transaction')
+		FROM pg_stat_activity
+		WHERE xact_start IS NOT NULL AND backend_type = 'client backend'`).Scan(&lt, &it)
+	if err != nil {
+		return 0, 0, 0, 0, false
+	}
+	var dt float64
+	_ = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(n_dead_tup), 0) FROM pg_stat_user_tables`).Scan(&dt)
+	var lag float64
+	_ = db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)), 0)
+		FROM pg_replication_slots`).Scan(&lag)
+	return lt, it, dt, lag, true
 }
 
 // queryPGStmtLatencyMs 返回实例平均语句响应时间（毫秒），基于 pg_stat_statements。

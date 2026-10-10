@@ -81,7 +81,13 @@ func auditFilter(r *http.Request, defaultLimit int) audit.QueryFilter {
 		User: q.Get("user"), Path: q.Get("path"), Category: q.Get("category"),
 		// requestId 是"从一条资产变更跳到那次操作"的入口（精确匹配，见 auditWhere）。
 		RequestID: strings.TrimSpace(q.Get("requestId")),
-		From:      from, To: to, Limit: limit, Offset: offset,
+		// 排障三件套：只看失败 / 只看某个来源 IP / 只看某种 method。
+		// result 只认 ok|fail（其余当"不限"，见 auditWhere）；remoteIP 与 method 精确匹配，
+		// 前后空白一律剪掉——从表格里复制粘贴很容易带上看不见的空格。
+		Result:   strings.ToLower(strings.TrimSpace(q.Get("result"))),
+		RemoteIP: strings.TrimSpace(q.Get("remoteIP")),
+		Method:   strings.TrimSpace(q.Get("method")),
+		From:     from, To: to, Limit: limit, Offset: offset,
 	}
 }
 

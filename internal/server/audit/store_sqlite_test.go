@@ -171,6 +171,71 @@ func TestQueryFilterByRequestIDOnSQLite(t *testing.T) {
 	}
 }
 
+// 排障三件套（只看失败 / 来源 IP / method）在**入库与降级两条路径上必须同语义**。
+//
+// 这两个实现各写一遍过滤是刻意的取舍（降级模式要能在台账库不可用时继续查），
+// 代价就是"两处语义会漂"——所以这里把同一组断言对两种模式各跑一遍。
+func TestQueryFilterByResultRemoteIPAndMethod(t *testing.T) {
+	seed := []Event{
+		{User: "alice", Method: "PUT", Path: "/api/v1/assets/1", Category: "management", RemoteIP: "10.0.0.1", Succeeded: true},
+		{User: "alice", Method: "DELETE", Path: "/api/v1/assets/2", Category: "management", RemoteIP: "10.0.0.10", Succeeded: false},
+		{User: "bob", Method: "POST", Path: "/api/v1/rules", Category: "management", RemoteIP: "10.0.0.1", Succeeded: false},
+	}
+
+	t.Run("内存降级模式", func(t *testing.T) {
+		store := New("")
+		for _, ev := range seed {
+			if err := store.Record(ev); err != nil {
+				t.Fatalf("写入失败: %v", err)
+			}
+		}
+		assertAuditFilters(t, store)
+	})
+
+	t.Run("入库模式", func(t *testing.T) {
+		store := New("")
+		if err := store.UseSQLite(openTestDB(t).DB()); err != nil {
+			t.Fatalf("切入库模式失败: %v", err)
+		}
+		for _, ev := range seed {
+			if err := store.Record(ev); err != nil {
+				t.Fatalf("写入失败: %v", err)
+			}
+		}
+		assertAuditFilters(t, store)
+	})
+}
+
+func assertAuditFilters(t *testing.T, store *Store) {
+	t.Helper()
+	cases := []struct {
+		name   string
+		filter QueryFilter
+		want   int
+	}{
+		{"只看失败", QueryFilter{Result: "fail"}, 2},
+		{"只看成功", QueryFilter{Result: "ok"}, 1},
+		// 取值拼错时宁可不过滤，也不要给出一个看起来"确实没有"的空列表
+		{"未知 result 视为不限", QueryFilter{Result: "false"}, 3},
+		// 精确匹配：10.0.0.1 不能把 10.0.0.10 一起捞出来
+		{"来源 IP 精确匹配", QueryFilter{RemoteIP: "10.0.0.1"}, 2},
+		{"来源 IP 前缀不算命中", QueryFilter{RemoteIP: "10.0.0."}, 0},
+		{"method 精确匹配", QueryFilter{Method: "PUT"}, 1},
+		{"method 大小写不敏感", QueryFilter{Method: "put"}, 1},
+		{"条件可叠加", QueryFilter{Result: "fail", RemoteIP: "10.0.0.1"}, 1},
+	}
+	for _, c := range cases {
+		events, total, err := store.Query(c.filter)
+		if err != nil {
+			t.Fatalf("%s: 查询失败: %v", c.name, err)
+		}
+		// 总数与列表必须一致：两者共用一处 WHERE，不一致就是分页自相矛盾的界面
+		if total != c.want || len(events) != c.want {
+			t.Fatalf("%s: 期望 %d 条，实际 total=%d len=%d", c.name, c.want, total, len(events))
+		}
+	}
+}
+
 // 坏文件**不阻断启动、也不改名**：宁可丢历史，也不能因为一份坏 JSON 让服务起不来，
 // 更不能把现场改没了。
 func TestUseSQLiteKeepsCorruptFile(t *testing.T) {
