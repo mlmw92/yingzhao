@@ -330,6 +330,6 @@ fi
 echo "================================================"
 echo
 c_info "如需重新安装："
-c_dim "  curl -fsSL -O https://github.com/mlmw92/nebula-monitor/releases/download/<VER>/nebula-monitor-<VER>-full.tar.gz"
+c_dim "  curl -fsSL -O https://github.com/mlmw92/yingzhao/releases/download/<VER>/nebula-monitor-<VER>-full.tar.gz"
 c_dim "  tar -xzf nebula-monitor-<VER>-full.tar.gz && cd nebula-monitor-<VER>-full"
 c_dim "  sudo ./install.sh"

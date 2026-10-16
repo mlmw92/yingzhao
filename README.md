@@ -4,10 +4,10 @@
 
 **基于 Go 的 C/S 架构服务器监控系统**：轻量 Agent 部署于被监控节点，定时 HTTP 上报；无状态 Server 通过 Prometheus `remote_write` 写入、PromQL 读取时序库，提供多节点分组管理、Web 仪表盘（实时 + 历史趋势）、数据查询 API 与阈值告警。
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/mlmw92/nebula-monitor)](https://goreportcard.com/report/github.com/mlmw92/nebula-monitor)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mlmw92/yingzhao)](https://goreportcard.com/report/github.com/mlmw92/yingzhao)
 [![License](https://img.shields.io/badge/license-Internal-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/mlmw92/nebula-monitor)](https://github.com/mlmw92/nebula-monitor/releases)
-[![Platform](https://img.shields.io/badge/platform-linux--amd64%20%7C%20arm64%20%7C%20arm-lightgrey.svg)](https://github.com/mlmw92/nebula-monitor/releases)
+[![Release](https://img.shields.io/github/v/release/mlmw92/yingzhao)](https://github.com/mlmw92/yingzhao/releases)
+[![Platform](https://img.shields.io/badge/platform-linux--amd64%20%7C%20arm64%20%7C%20arm-lightgrey.svg)](https://github.com/mlmw92/yingzhao/releases)
 
 </div>
 
@@ -507,11 +507,11 @@ securityStoreFile: /var/lib/monitor-server/security_store.json
 
 下载 full 包（首次部署用），解压后 `sudo ./install.sh` 进入交互菜单：
 
-> 最新发布包见 [GitHub Releases](https://github.com/mlmw92/nebula-monitor/releases)。
+> 最新发布包见 [GitHub Releases](https://github.com/mlmw92/yingzhao/releases)。
 
 ```bash
 VERSION=1.17.27
-curl -fsSL -O https://github.com/mlmw92/nebula-monitor/releases/download/v${VERSION}/yingzhao-v${VERSION}-full.tar.gz
+curl -fsSL -O https://github.com/mlmw92/yingzhao/releases/download/v${VERSION}/yingzhao-v${VERSION}-full.tar.gz
 tar -xzf yingzhao-v${VERSION}-full.tar.gz
 cd yingzhao-v${VERSION}-full
 sudo ./install.sh
@@ -1013,7 +1013,7 @@ dist/                     编译产物（不入库）
 
 欢迎参与本项目开发。
 
-- **问题反馈**：请通过 [GitHub Issues](https://github.com/mlmw92/nebula-monitor/issues) 提交 Bug 报告或功能建议；提交前请先检索是否已有相同或类似问题。
+- **问题反馈**：请通过 [GitHub Issues](https://github.com/mlmw92/yingzhao/issues) 提交 Bug 报告或功能建议；提交前请先检索是否已有相同或类似问题。
 - **代码贡献**：Fork 本仓库后从 `main` 分支切出特性分支，完成修改并自测（建议本地执行 `bash build/release.sh` 验证可正常出包）后提交 Pull Request，并在描述中说明改动目的与验证方式。
 - **提交规范**：提交信息建议以 `feat:` / `fix:` / `chore:` / `docs:` 等前缀开头，一句话概括本次改动。
 
