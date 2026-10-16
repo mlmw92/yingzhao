@@ -44,7 +44,7 @@
               v-model="form.subtitle"
               maxlength="32"
               show-word-limit
-              placeholder="如 监控中心、运维平台"
+              placeholder="如 运维平台、监控中心"
             />
             <div class="field-hint">显示在侧栏品牌区名称下方；留空则不显示</div>
           </el-form-item>
@@ -108,7 +108,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBrand } from '../../composables/useBrand'
 
 const { brand, saveBrand } = useBrand()
-const DEFAULTS = { name: '英招', logo: '', footer: '', subtitle: '监控中心' }
+const DEFAULTS = { name: '英招', logo: '', footer: '', subtitle: '运维平台' }
 const form = ref({ ...DEFAULTS })
 const baseline = ref({ ...DEFAULTS })
 const fileInput = ref(null)

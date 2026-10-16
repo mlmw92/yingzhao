@@ -28,12 +28,12 @@ type UIConfig struct {
 	Name     string `yaml:"name" json:"name"`         // 系统名称
 	Logo     string `yaml:"logo" json:"logo"`         // 可选 Logo：图片 data URL（data:image/...;base64,）或 http(s) 链接
 	Footer   string `yaml:"footer" json:"footer"`     // 页脚文本（支持 HTML），空则隐藏
-	Subtitle string `yaml:"subtitle" json:"subtitle"` // 侧栏副标题（如「监控中心」），留空则不显示
+	Subtitle string `yaml:"subtitle" json:"subtitle"` // 侧栏副标题（如「运维平台」），留空则不显示
 }
 
 // DefaultUIConfig 返回默认品牌（系统名 英招，无自定义 Logo 时使用前端默认徽标）。
 func DefaultUIConfig() UIConfig {
-	return UIConfig{Name: "英招", Logo: "", Footer: "", Subtitle: "监控中心"}
+	return UIConfig{Name: "英招", Logo: "", Footer: "", Subtitle: "运维平台"}
 }
 
 // Manager 负责 UI 配置的加载与落盘。
