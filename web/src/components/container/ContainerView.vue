@@ -2,9 +2,15 @@
   <div class="container-view">
     <PageHeader
       title="容器与工作负载"
-      desc="只读查看 K8s 集群的工作负载、Pod 与事件。指令随 Agent 上报下发，结果约一个上报周期后返回"
-    >
-      <template #actions>
+      :desc="platformDesc"
+    />
+
+    <!-- 平台切换：K8s 与 Docker 是两条独立的数据通路——K8s 有 Server 侧只读实时代理（ADR-0004），
+         Docker 走 Server 直连 daemon（ADR-0006），因此按平台分开而不是混在一张表里。
+         它独占一行（内容区顶部）是为了别缩在页头右侧、和「选择集群」挤成同级；
+         但**收在行尾**——它是"整页模式"，不必占着标题旁的视线焦点（2026-10-11 用户反馈）。 -->
+    <div class="platform-bar">
+      <template v-if="platform === 'k8s'">
         <el-select
           v-model="clusterKey"
           placeholder="选择集群"
@@ -22,33 +28,57 @@
         </el-select>
         <el-button size="small" :icon="Refresh" :loading="loading" @click="loadClusters">刷新集群</el-button>
       </template>
-    </PageHeader>
+      <span class="platform-pick">
+        <span class="platform-bar-label">平台</span>
+        <!-- 没有 docker:read 时不显示开关：点了只会撞 403 的入口不该摆在那里。
+             此时平台锁在 K8s，这里如实写出当前平台，不留一个悬空的「平台」标签。 -->
+        <el-radio-group
+          v-if="canDocker"
+          v-model="platform"
+          class="platform-switch"
+          @change="onPlatformChange"
+        >
+          <el-radio-button value="k8s">Kubernetes</el-radio-button>
+          <el-radio-button value="docker">Docker</el-radio-button>
+        </el-radio-group>
+        <span v-else class="platform-locked">Kubernetes</span>
+      </span>
+    </div>
+
+    <!-- Docker 平台：端点 / 引擎概览 / 容器 / 镜像（Server 直连 daemon，ADR-0006） -->
+    <DockerPanel v-if="platform === 'docker'" />
 
     <!-- 没配集群时先把"怎么配"说清楚，而不是给一个空表格 -->
     <EmptyState
-      v-if="!loading && clusters.length === 0"
+      v-if="platform === 'k8s' && !loading && clusters.length === 0"
       :icon="Grid"
       title="尚未采集到 Kubernetes 集群"
       :hints="[
-        '在目标机器的 agent.yaml 里配置 k8sInstances（apiserver 地址 + kubeconfig 或 token），凭据只留在该机器上',
-        '确认该节点在线，且 Agent 已开启 K8s 采集（collectors.k8s: true）',
-        '配置生效需要等一个上报周期',
+        '在目标机器的 agent.yaml 里配置 k8sInstances（apiserver 地址 + kubeconfig 或 token），Agent 采集（collectors.k8s: true）开启后这里才有集群可选',
+        '查询走 Server 直连 apiserver，还需要在 Server 的 dataDir 下维护 k8s-live.yaml（同样的集群名 + 凭据）',
+        '两处名字要对得上：选择器里的名字来自 Agent 上报，直连查询认的是 k8s-live.yaml 里的名字',
       ]"
     />
 
-    <template v-else>
-      <el-tabs v-model="activeTab" type="card" class="container-tabs" @tab-change="onTabChange">
+    <template v-else-if="platform === 'k8s'">
+      <el-tabs v-model="activeTab" type="card" class="container-tabs">
         <el-tab-pane v-for="t in TABS" :key="t.key" :label="t.title" :name="t.key" />
       </el-tabs>
 
       <div v-if="!currentCluster" class="cluster-hint">请选择要查看的集群</div>
 
       <template v-else>
-        <div v-if="!currentCluster.up && activeTab !== 'live'" class="offline-hint">
+        <div v-if="!currentCluster.up" class="offline-hint">
           该集群当前不在线（上报节点 {{ currentCluster.node }} 可能已离线），查询会被服务端拒绝
         </div>
+        <!-- 集群名对不上是最容易踩的一个坑：直连查询认的是 k8s-live.yaml 里的名字，
+             而选择器里的名字来自 Agent 上报。先在界面上说清楚，别让人对着 502 猜。 -->
+        <div v-else-if="!liveConfigured" class="offline-hint">
+          该集群在 Server 侧没有直连凭据：请把名字「{{ currentCluster.name || currentCluster.instance }}」
+          加进 Server 的 dataDir/k8s-live.yaml（见 docs/adr/0004-k8s-live-proxy.md）
+        </div>
 
-        <SectionCard v-if="activeTab !== 'live'" title="查询结果" dense>
+        <SectionCard title="查询结果" dense>
           <template #actions>
             <div class="query-toolbar">
               <el-autocomplete
@@ -83,19 +113,10 @@
             :title="q.error"
           />
 
-          <!-- 异步任务：必须把"在等 Agent 上报"这件事说清楚，否则用户会以为按钮没反应 -->
+          <!-- 直连查询是同步的：没有"在等 Agent 上报"那一段，只需要一句"正在查询" -->
           <div v-if="q.busy && !q.error" class="query-state">
-            <span class="state-dot" :class="q.task ? 'delivering' : 'pending'"></span>
-            <span>{{ stateText }}</span>
-            <span class="state-task mono">{{ q.task ? q.task.id : '' }}</span>
-            <el-button
-              v-if="q.task && q.task.state === 'queued'"
-              link
-              size="small"
-              @click="cancel(activeTab)"
-            >
-              撤回
-            </el-button>
+            <span class="state-dot delivering"></span>
+            <span>正在查询…</span>
           </div>
 
           <template v-if="result">
@@ -117,7 +138,12 @@
               >
                 <template #default="{ row }">{{ row.cells[i] }}</template>
               </el-table-column>
-              <el-table-column v-if="canDescribe || canLogs || canLedger" label="操作" :width="actionColWidth" fixed="right">
+              <el-table-column
+                v-if="canDescribe || canLogs || canLedger || canContainerWrite"
+                label="操作"
+                :width="actionColWidth"
+                fixed="right"
+              >
                 <template #default="{ row }">
                   <el-button v-if="canDescribe" link size="small" @click.stop="describeRow(row)">详情</el-button>
                   <el-button v-if="canLogs" link size="small" @click.stop="openLogs(row)">日志</el-button>
@@ -126,6 +152,12 @@
                        两个入口的数据源不同，所以并排摆着而不是二选一。 -->
                   <el-button v-if="canLogs && canSearchLogs" link size="small" @click.stop="searchLogs(row)">检索日志</el-button>
                   <el-button v-if="canLedger" link size="small" :loading="ledgerBusy" @click.stop="openLedger(row)">台账</el-button>
+                  <!-- 排障写动作（批次 C）：container:write 是超管专属权限点，无权时完全不出现。
+                       重启只对 Deployment/StatefulSet/DaemonSet 有意义（Job 跑完就该退出）；
+                       扩缩容对 DaemonSet 无意义（副本数由节点数决定）。 -->
+                  <el-button v-if="canRestartWorkload(row)" link type="warning" size="small" @click.stop="restartWorkload(row)">重启</el-button>
+                  <el-button v-if="canScaleWorkload(row)" link type="warning" size="small" @click.stop="scaleWorkload(row)">扩缩容</el-button>
+                  <el-button v-if="canDeletePod(row)" link type="danger" size="small" @click.stop="deletePod(row)">删除</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -134,18 +166,11 @@
               <span>
                 共 {{ result.total }} 个对象{{ result.truncated ? '，仅显示前 ' + result.rows.length + ' 条' : '' }}
               </span>
-              <!-- 数据来自异步下发，界面必须回答"这是什么时候的数据"：
-                   否则用户唯一的安全假设就是"它可能过期了，再点一次吧"，然后一直白等。 -->
               <span v-if="q.busy" class="foot-time">正在刷新…</span>
-              <span
-                v-else-if="q.at"
-                class="foot-time"
-                :title="'上次刷新：' + new Date(q.at).toLocaleString('zh-CN')"
-              >上次刷新 {{ refreshedText(q.at) }}</span>
               <span v-if="result.truncated" class="foot-warn">结果已截断，请缩小命名空间范围</span>
               <!-- 结果会被保留、命名空间却随时可改：条件变了必须说出来，
                    否则就是"输入框写着 default、表里是全部命名空间的对象"而界面一言不发。 -->
-              <span v-if="q.at && q.ns !== namespace.trim()" class="foot-warn">
+              <span v-if="q.result && q.ns !== namespace.trim()" class="foot-warn">
                 这份结果是「{{ q.ns || '全部命名空间' }}」的，改条件后请点「查询」
               </span>
             </div>
@@ -156,53 +181,12 @@
             :icon="activeIcon"
             title="还没有查询结果"
             :hints="[
-              '已按当前集群提交一次查询，结果通常 15 秒内返回',
-              '结果会保留：切集群、切 Tab 都不会重新下发，需要最新数据时点「查询」',
+              '点「查询」按当前集群与命名空间直连 apiserver 取一次当前态（同步返回，不需要等上报）',
+              '需要先在 Server 的 dataDir 下维护 k8s-live.yaml（集群地址与凭据），否则这一页查不到东西',
             ]"
           />
         </SectionCard>
 
-        <!-- 实时清单（ADR-0004）：Server 直连集群查询当前态，与上面的异步上报通路并存。
-             数据不进时序库、不参与告警——它回答的是「现在」，历史与趋势看前三个 Tab。 -->
-        <SectionCard v-else title="实时清单（当前态）" dense>
-          <template #actions>
-            <div class="query-toolbar">
-              <el-select v-model="liveCluster" size="small" placeholder="选择集群" class="ns-input">
-                <el-option v-for="c in liveClusters" :key="c" :value="c" :label="c" />
-              </el-select>
-              <el-input
-                v-model="liveNs"
-                size="small"
-                clearable
-                placeholder="命名空间（留空为全部）"
-                class="ns-input"
-                @keyup.enter="runLive"
-              />
-              <el-button size="small" type="primary" :loading="liveBusy" @click="runLive">刷新</el-button>
-            </div>
-          </template>
-          <el-alert v-if="liveError" type="error" :closable="false" show-icon :title="liveError" />
-          <el-table v-if="liveRows.length" :data="liveRows" size="small" stripe :max-height="520">
-            <el-table-column prop="ns" label="命名空间" min-width="120" show-overflow-tooltip />
-            <el-table-column prop="name" label="Pod" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="phase" label="状态" width="110" />
-            <el-table-column prop="node" label="节点" min-width="140" show-overflow-tooltip />
-            <el-table-column prop="restarts" label="重启" width="80" />
-            <el-table-column prop="age" label="创建时间" width="170" />
-          </el-table>
-          <EmptyState
-            v-else-if="!liveBusy && !liveError"
-            :icon="DataLine"
-            title="还没有实时数据"
-            :hints="[
-              '实时清单由 Server 直连集群查询当前态，需先在 Server 的 dataDir 下维护 k8s-live.yaml（集群凭据）',
-              '点「刷新」立即查询；它不产生历史数据，趋势与告警仍看「工作负载 / Pod / 事件」这几个 Tab',
-            ]"
-          />
-          <div class="result-foot">
-            <span v-if="liveAt" class="foot-time">上次刷新 {{ refreshedText(liveAt) }}</span>
-          </div>
-        </SectionCard>
       </template>
     </template>
 
@@ -212,12 +196,11 @@
       <div class="detail-bar">
         <span class="muted">
           <template v-if="detailBusy">正在刷新…</template>
-          <template v-else-if="detailState.at">上次刷新 {{ refreshedText(detailState.at) }}</template>
-          <template v-else>尚未查询</template>
+          <template v-else-if="!detail">尚未查询</template>
         </span>
         <el-button size="small" :loading="detailBusy" @click="refreshDetail">刷新</el-button>
       </div>
-      <div v-if="detailBusy" class="drawer-loading">正在查询（等待 Agent 上报）…</div>
+      <div v-if="detailBusy" class="drawer-loading">正在查询…</div>
       <el-alert v-else-if="detailError" type="error" :closable="false" show-icon :title="detailError" />
       <template v-else-if="detail">
         <div v-if="detail.notice" class="result-notice">{{ detail.notice }}</div>
@@ -227,13 +210,12 @@
         </el-table>
       </template>
     </el-drawer>
-    <!-- Pod 日志：与详情同一套异步规矩——拉一次就缓存，要看最新的点「重新拉取」 -->
+    <!-- Pod 日志：与详情同一套直连规矩——每次打开现拉一次，要最新的点「重新拉取」 -->
     <el-drawer v-model="logsVisible" :title="logsTitle" size="min(720px, 94vw)">
       <div class="detail-bar">
         <span class="muted">
-          <template v-if="logsBusy">正在拉取（等待 Agent 上报）…</template>
-          <template v-else-if="logsState.at">上次刷新 {{ refreshedText(logsState.at) }}</template>
-          <template v-else>尚未拉取</template>
+          <template v-if="logsBusy">正在拉取…</template>
+          <template v-else-if="!logs">尚未拉取</template>
         </span>
         <div class="logs-toolbar">
           <el-input
@@ -253,7 +235,7 @@
           >在集中日志中检索</el-button>
         </div>
       </div>
-      <div v-if="logsBusy && !logs" class="drawer-loading">正在拉取（等待 Agent 上报）…</div>
+      <div v-if="logsBusy && !logs" class="drawer-loading">正在拉取…</div>
       <el-alert v-else-if="logsError" type="error" :closable="false" show-icon :title="logsError" />
       <template v-else-if="logs">
         <div v-if="logs.notice" class="result-notice">{{ logs.notice }}</div>
@@ -272,27 +254,31 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Refresh, Grid, Monitor, Bell, DataLine } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { Refresh, Grid, Monitor, Bell } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../../api/http'
-import { createOpsTask, getOpsTask, cancelOpsTasks, listOpsTasks } from '../../api/ops'
+import { createOpsTask, getOpsTask } from '../../api/ops'
 import { lookupAsset } from '../../api/asset'
 import useAuth from '../../composables/useAuth'
 import PageHeader from '../common/PageHeader.vue'
 import SectionCard from '../common/SectionCard.vue'
 import EmptyState from '../common/EmptyState.vue'
+import DockerPanel from './DockerPanel.vue'
 import { containerDetailState, containerQueryState } from './queryCache'
 
-// 容器只读管理面。
+// 容器管理面（Kubernetes 侧）。
 //
-// 交互形态由 ADR-0003 决定：Server 不直连 apiserver（凭据只在 Agent 本地），指令随 Agent
-// 上报的响应下发、回执随下一轮上报送回。所以这里是"提交 → 轮询"的异步任务，不是点开即返回。
+// 数据通路：**Server 直连 apiserver**（ADR-0004 + ADR-0006）。原先这 5 个只读查询走
+// Agent 异步下行（提交 → 轮询，通常 15 秒以上），已整体删除——ADR-0004 写过的理由：
+// 「异步下发的延迟等于一个上报周期，不满足管理面的要求」。
+// 现在切集群 / 切 Tab / 点刷新都是**一次同步查询**，点开即得；界面不再需要"等待上报"那套状态。
+//
+// 写操作（重启工作负载 / 扩缩容 / 删除 Pod）**仍是异步下行**：它们要的是逐机护栏与
+// Agent 本地的集群凭据，这两样都搬不到 Server 上。
 const TABS = [
-  { key: 'workloads', kind: 'container.workloads', title: '工作负载', icon: Grid },
-  { key: 'pods', kind: 'container.pods', title: 'Pod', icon: Monitor },
-  { key: 'events', kind: 'container.events', title: '事件', icon: Bell },
-  // 实时清单走另一条通路（ADR-0004：Server 直连集群查当前态），kind 为空即不参与异步下发
-  { key: 'live', kind: '', title: '实时清单', icon: DataLine },
+  { key: 'workloads', cap: 'workloads', title: '工作负载', icon: Grid },
+  { key: 'pods', cap: 'pods', title: 'Pod', icon: Monitor },
+  { key: 'events', cap: 'events', title: '事件', icon: Bell },
 ]
 
 // 详情要用到的定位信息。刻意在这里显式写出列下标，而不是让后端在载荷里塞一个"魔法列"：
@@ -311,9 +297,6 @@ const DETAIL_SPEC = {
   pods: { nsCol: 0, nameCol: 1, resource: 'pods' },
 }
 
-const POLL_INTERVAL = 3000
-const POLL_TIMEOUT = 60000
-
 // 后端没有命名空间列表接口（只有 /api/v1/container/k8s/clusters），所以不做下拉：
 // 建议项来自「当前结果里出现过的命名空间」+「本机历史输入」，零后端改动。
 const NS_HISTORY_KEY = 'nebula-container-ns-history'
@@ -328,12 +311,30 @@ const clusterKey = ref('')
 const namespace = ref('')
 const activeTab = ref('workloads')
 
+// 平台切换：K8s 与 Docker 的授权面不同（集群内部对象 vs 本机容器运行时），因此分开授权、
+// 也分开成两个面板。两者的读通路现在都是 Server 直连（ADR-0006）。没有 docker:read 时开关不渲染，
+// 平台锁在 K8s（点了只会撞 403 的入口不该摆在那里）。
+const canDocker = computed(() => can('docker:read'))
+const platform = ref('k8s')
+const platformDesc = computed(() =>
+  platform.value === 'docker'
+    ? '查看 Docker 端点的引擎概览、容器与镜像，并可启停 / 重启 / 删除容器（写操作仅超管）。由 Server 直连 daemon，点开即得'
+    : '查看 K8s 集群的工作负载、Pod 与事件，并可按权限重启 / 扩缩容 / 删除 Pod。由 Server 直连 apiserver，点开即得'
+)
+
+// 切平台不重新下发：Docker 面板自己负责首次加载。
+// 这里只负责"切回 K8s 时补一次查询"——否则从 Docker 切回来会停在空白面板上。
+function onPlatformChange(val) {
+  const p = String(val || platform.value)
+  if (p === 'k8s') nextTick(() => run(activeTab.value))
+}
+
 const detailVisible = ref(false)
 const detailTitle = ref('对象详情')
 
 // 查询状态（含结果与**结果落地时间**）存在组件之外，理由见 queryCache.js：
-// 结果来自异步下行任务（下发 → 等 Agent 上报 → 回执，通常 15 秒以上），
-// 只放在组件状态里的话，每次路由切回来都会丢掉它、于是"点进这一页"就等于重新下发一轮。
+// 直连之后"进页面就查"是默认行为，但状态仍在组件之外——换集群 / 换 Tab 时
+// 旧结果继续显示（刷新期间不白屏），路由切回来也还能看到上次那份与它的时间。
 const q = computed(() => containerQueryState(clusterKey.value, activeTab.value))
 const currentCluster = computed(() => clusters.value.find((c) => keyOf(c) === clusterKey.value) || null)
 const result = computed(() => q.value.result)
@@ -407,8 +408,20 @@ const canLedger = computed(() => activeTab.value === 'pods' || activeTab.value =
 // （日志内容可能含敏感数据，见 router/index.js）。无权时按钮不出现：点了只会撞 403 的入口
 // 不该摆在那里。这与台账入口同一取向（能否跳过去由目标页的权限决定）。
 const canSearchLogs = computed(() => can('logs:read'))
+// K8s 排障写动作（批次 C）：container:write 是**超管专属**权限点（用户 2026-10-10 拍板），
+// 无权时按钮完全不出现——摆一个点了必 403 的按钮只会让人以为平台坏了。
+const canContainerWrite = computed(() => can('container:write'))
+// 与服务端动作目录的规格一致（正则卡 3 位、Agent 侧再校 0-500）。
+const MAX_REPLICAS = 500
+// writeBusy 是"正在下发一次写操作"的闸门：写操作不能靠连点两次来加速。
+const writeBusy = ref(false)
 // 操作列宽度按实际按钮数给：写死宽度会把「检索日志」挤成省略号。
-const actionColWidth = computed(() => (canLogs.value ? (canSearchLogs.value ? 240 : 160) : 120))
+// 写动作按 Tab 给（工作负载最多两个：重启 / 扩缩容；Pod 一个：删除）。
+const actionColWidth = computed(() => {
+  let w = canLogs.value ? (canSearchLogs.value ? 240 : 160) : 120
+  if (canContainerWrite.value) w += activeTab.value === 'workloads' ? 80 : 40
+  return w
+})
 // Pod 日志抽屉的空态提示按权限给：没有 logs:read 的用户不该被指去一个他进不去的页面。
 const logsEmptyHints = computed(() => {
   const hints = ['容器可能还没启动，或该时间段确实没有输出', '可换一个容器名，或直接上机器查看完整日志']
@@ -423,9 +436,213 @@ const logsEmptyHints = computed(() => {
 const WORKLOAD_LEDGER_KINDS = { Deployment: 'deployment', StatefulSet: 'statefulset', DaemonSet: 'daemonset' }
 const ledgerBusy = ref(false)
 
-// 详情抽屉也走同一套缓存：重复点同一行同样是一次 15 秒的下发，没理由重来一遍。
+// ---- 排障写操作（批次 C）----
+//
+// 三项都只给超管（container:write），且都**仍走异步下发**：写操作需要逐机护栏与凭据边界，
+// 而 ADR-0006 的 Server 侧直连刻意保持只读（写要过 Agent 那台机器自己的同意）。
+// 因此这一页的"读"是点开即得，"写"仍是提交后等一个上报周期——差别是刻意的，不是没改完。
+
+// 重启只对这三种有意义：Job 跑完就该退出，"重启 Job"没有语义。
+const RESTARTABLE_WORKLOAD_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet']
+// 扩缩容不含 DaemonSet：它的副本数由"匹配到几个节点"决定，没有 replicas 可调。
+const SCALABLE_WORKLOAD_KINDS = ['Deployment', 'StatefulSet']
+
+function rowCell(row, idx) {
+  return String((row && row.cells && row.cells[idx]) || '').trim()
+}
+
+function canRestartWorkload(row) {
+  return canContainerWrite.value && activeTab.value === 'workloads' &&
+    RESTARTABLE_WORKLOAD_KINDS.includes(rowCell(row, 0))
+}
+
+function canScaleWorkload(row) {
+  return canContainerWrite.value && activeTab.value === 'workloads' &&
+    SCALABLE_WORKLOAD_KINDS.includes(rowCell(row, 0))
+}
+
+function canDeletePod(row) {
+  return canContainerWrite.value && activeTab.value === 'pods' && !!rowCell(row, DETAIL_SPEC.pods.nameCol)
+}
+
+function clusterParam() {
+  return (currentCluster.value && (currentCluster.value.name || currentCluster.value.instance)) || ''
+}
+
+async function confirmWrite(text, title) {
+  try {
+    await ElMessageBox.confirm(text, title, {
+      type: 'warning', confirmButtonText: '执行', cancelButtonText: '取消',
+    })
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+// ---- 写操作的轮询（**只有写操作还走异步下行**）----
+//
+// 读已经全部改成 Server 直连（见文件头的说明），但写操作仍走统一下行通道：
+// 它们要的是逐机护栏（这台机器同不同意被改）与 Agent 本地的集群凭据，两者都搬不到 Server 上。
+// 因此"提交 → 轮询 → 回执"这套机制保留下来，但只为写操作服务——
+// 别把它当成"这一页还是异步的"的证据，读那几条路径已经不经过它了。
+
+const WRITE_POLL_INTERVAL = 3000
+const WRITE_POLL_TIMEOUT = 60000
+
+// writeTimers 只登记写操作的轮询定时器：组件卸载时要清掉，
+// 否则一次未完成的写操作会在页面已经离开后继续打接口。
+const writeTimers = new Set()
+
+function waitTask(id, onTick, done) {
+  return new Promise((resolve) => {
+    let waited = 0
+    const tick = async () => {
+      let task = null
+      try {
+        const res = await getOpsTask(id)
+        task = res && res.task
+      } catch (e) {
+        done(null, e.message || '查询任务失败')
+        resolve()
+        return
+      }
+      if (task) {
+        onTick(task)
+        if (['succeeded', 'failed', 'expired', 'cancelled'].includes(task.state)) {
+          done(task)
+          resolve()
+          return
+        }
+      }
+      waited += WRITE_POLL_INTERVAL
+      if (waited >= WRITE_POLL_TIMEOUT) {
+        done(null, '等待超过 60 秒仍未返回。确认目标节点在线，且已升级到支持容器写操作的 Agent 版本')
+        resolve()
+        return
+      }
+      const h = setTimeout(() => {
+        writeTimers.delete(h)
+        tick()
+      }, WRITE_POLL_INTERVAL)
+      writeTimers.add(h)
+    }
+    tick()
+  })
+}
+
+function taskFailureText(t) {
+  if (t.state === 'expired') return '任务已过期：Agent 未在有效期内领取，通常意味着目标节点离线或未声明支持该动作'
+  if (t.state === 'cancelled') return '任务已被撤回'
+  return t.message || '任务未成功'
+}
+
+// submitWrite 下发一次写操作：提交 → 轮询 → 提示 → 重新拉列表。
+// 写操作是异步的，因此成功后必须重拉列表，否则界面还显示着旧的对象状态。
+async function submitWrite(kind, params, label) {
+  if (writeBusy.value) return
+  const cluster = currentCluster.value
+  if (!cluster) return
+  writeBusy.value = true
+  try {
+    const res = await createOpsTask({ node: cluster.node, kind, params, reason: `容器排障：${label}` })
+    // 平台若开启了高风险操作审批，写动作会返回 202 + pending：**尚未下发**。
+    // 把它说成"已下发"会让操作者以为改动已经生效。
+    if (res && res.pending) {
+      ElMessage.warning(res.message || '已提交审批：本动作尚未下发，需另一位同事批准后才会执行')
+      return
+    }
+    const task = res && res.task
+    if (!task || !task.id) throw new Error('服务端未返回任务 ID')
+    await waitTask(
+      task.id,
+      () => {},
+      (t, err) => {
+        if (err) ElMessage.error(err)
+        else if (t.state !== 'succeeded') ElMessage.error(taskFailureText(t))
+        else ElMessage.success(`${label}：已下发`)
+      },
+    )
+    await run(activeTab.value)
+  } catch (e) {
+    ElMessage.error(e.message || `${label}失败`)
+  } finally {
+    writeBusy.value = false
+  }
+}
+
+async function restartWorkload(row) {
+  const kind = rowCell(row, 0)
+  const ns = rowCell(row, DETAIL_SPEC.workloads.nsCol)
+  const name = rowCell(row, DETAIL_SPEC.workloads.nameCol)
+  if (!ns || !name) return
+  const ok = await confirmWrite(
+    `将对 ${kind}/${name} 执行滚动重启：控制器会逐个替换 Pod，滚动期间服务不中断。`,
+    '确认重启工作负载',
+  )
+  if (!ok) return
+  await submitWrite('container.restart', { cluster: clusterParam(), namespace: ns, kind, name },
+    `重启 ${kind}/${name}`)
+}
+
+async function scaleWorkload(row) {
+  const kind = rowCell(row, 0)
+  const ns = rowCell(row, DETAIL_SPEC.workloads.nsCol)
+  const name = rowCell(row, DETAIL_SPEC.workloads.nameCol)
+  if (!ns || !name) return
+  let input = ''
+  try {
+    const res = await ElMessageBox.prompt(
+      `把 ${kind}/${name} 的副本数改为（0 到 ${MAX_REPLICAS}；填 0 等于让这项服务下线）：`,
+      '调整副本数',
+      {
+        confirmButtonText: '调整',
+        cancelButtonText: '取消',
+        inputValue: rowCell(row, 3) || '1',
+        inputPattern: /^[0-9]{1,3}$/,
+        inputErrorMessage: '请填 0-999 的整数',
+      },
+    )
+    input = String(res.value || '').trim()
+  } catch (e) {
+    return
+  }
+  const replicas = Number(input)
+  if (!Number.isInteger(replicas) || replicas < 0 || replicas > MAX_REPLICAS) {
+    ElMessage.error(`副本数应为 0-${MAX_REPLICAS} 的整数`)
+    return
+  }
+  // 0 副本等于下线：单独再确认一次。这是"用户真知道自己在做什么"的唯一保障——
+  // 服务端只校验取值范围，它无从判断填 0 是不是手滑。
+  if (replicas === 0) {
+    const ok = await confirmWrite(
+      `副本数填 0 会让 ${kind}/${name} 的所有 Pod 被删除，这项服务会下线。确认继续？`,
+      '确认把副本数改为 0',
+    )
+    if (!ok) return
+  }
+  await submitWrite('container.scale',
+    { cluster: clusterParam(), namespace: ns, kind, name, replicas: String(replicas) },
+    `把 ${kind}/${name} 的副本数改为 ${replicas}`)
+}
+
+async function deletePod(row) {
+  const ns = rowCell(row, DETAIL_SPEC.pods.nsCol)
+  const name = rowCell(row, DETAIL_SPEC.pods.nameCol)
+  if (!ns || !name) return
+  const ok = await confirmWrite(
+    `将删除 Pod ${ns}/${name}。若它由控制器管理会被重建（对无状态服务通常无感）；` +
+    '裸 Pod 与单副本有状态负载上就是一次真实中断。',
+    '确认删除 Pod',
+  )
+  if (!ok) return
+  await submitWrite('container.delete', { cluster: clusterParam(), namespace: ns, name },
+    `删除 Pod ${ns}/${name}`)
+}
+
+// 详情抽屉的状态按对象身份分键：换对象是换内容，不能把上一个对象的详情显示在新标题下。
 const detailKey = ref({ cluster: '', kind: '', namespace: '', name: '' })
-// 记住打开的是哪一行：抽屉里的「刷新」要能重新下发同一个对象。
+// 记住打开的是哪一行：抽屉里的「刷新」要能重查同一个对象。
 const detailRow = ref(null)
 const detailState = computed(() => containerDetailState(
   detailKey.value.cluster, detailKey.value.kind, detailKey.value.namespace, detailKey.value.name
@@ -434,7 +651,7 @@ const detailBusy = computed(() => detailState.value.busy)
 const detailError = computed(() => detailState.value.error)
 const detail = computed(() => detailState.value.result)
 
-// Pod 日志抽屉：与详情共用同一套「异步下发 + 缓存 + 上次刷新」状态机。
+// Pod 日志抽屉：与详情共用同一套「直连查询」状态机。
 // 缓存键里带上容器名：换容器是换内容，不能把上一个容器的日志显示在新容器名下。
 const logsVisible = ref(false)
 const logsTitle = ref('Pod 日志')
@@ -449,13 +666,6 @@ const logsError = computed(() => logsState.value.error)
 const logs = computed(() => logsState.value.result)
 const logText = computed(() => (logs.value?.rows || []).map((cells) => cells[0]).join('\n'))
 
-const timers = new Set()
-
-// now 只为把"上次刷新"的相对时间刷新成真话：只显示绝对时刻的话，
-// "10:31:02" 需要在脑子里减一遍才知道多久以前；只显示"3 分钟前"则不会自己走。
-const now = ref(Date.now())
-let nowTimer = null
-
 const activeMeta = computed(() => TABS.find((t) => t.key === activeTab.value) || TABS[0])
 const activeIcon = computed(() => activeMeta.value.icon)
 
@@ -465,98 +675,32 @@ const detailRows = computed(() =>
   (detail.value?.rows || []).map((cells) => ({ field: cells[0], value: cells[1] }))
 )
 
-const stateText = computed(() => {
-  const t = q.value.task
-  if (!t) return '正在提交任务…'
-  switch (t.state) {
-    case 'queued':
-      return '已排队，等待 Agent 下一轮上报时领取…'
-    case 'delivered':
-      return 'Agent 已领取，正在查询…'
-    case 'running':
-      return '正在查询…'
-    default:
-      return '处理中…'
-  }
-})
-
-/* ===== 实时清单（ADR-0004）：Server 直连集群查当前态，与异步上报通路并存 ===== */
+// liveClusters 是 Server 侧 k8s-live.yaml 里配好的集群名。
+//
+// 它只用来提示"当前选中的集群在 Server 侧没配"：直连查询认的就是那份清单里的名字，
+// 两处名字对不上时查询会以"集群未配置"失败，而那句话不会告诉你"名字该怎么对齐"。
 const liveClusters = ref([])
-const liveCluster = ref('')
-const liveNs = ref('')
-const liveRows = ref([])
-const liveBusy = ref(false)
-const liveAt = ref(0)
-const liveError = ref('')
 
 async function loadLiveClusters() {
   try {
     const res = await http.get('/api/v1/container/k8s/live-configs')
     liveClusters.value = res.clusters || []
-    if (!liveClusters.value.includes(liveCluster.value)) {
-      liveCluster.value = liveClusters.value[0] || ''
-    }
   } catch {
+    // 拿不到清单就不做任何断言：这条提示是帮忙的，不该自己变成一个错误来源。
     liveClusters.value = []
   }
 }
 
-// 只查 pods：清单实时态的高频需求是 Pod；deployments/events 后续按需扩展。
-async function runLive() {
-  if (!liveCluster.value) {
-    liveError.value = '尚未配置实时集群：在 Server 的 dataDir 下维护 k8s-live.yaml 即可启用'
-    return
-  }
-  liveBusy.value = true
-  liveError.value = ''
-  try {
-    const ns = liveNs.value.trim()
-    const qs = ns ? '?namespace=' + encodeURIComponent(ns) : ''
-    const res = await http.get(
-      '/api/v1/container/k8s/live/' + encodeURIComponent(liveCluster.value) + '/pods' + qs,
-    )
-    liveRows.value = (res.items || []).map((p) => {
-      const cs = (p.status && p.status.containerStatuses) || []
-      const restarts = cs.reduce((a, s) => a + (s.restartCount || 0), 0)
-      return {
-        ns: (p.metadata || {}).namespace || '-',
-        name: (p.metadata || {}).name || '-',
-        phase: (p.status || {}).phase || '-',
-        node: (p.spec || {}).nodeName || '-',
-        restarts,
-        age: fmtAge((p.metadata || {}).creationTimestamp),
-      }
-    })
-    liveAt.value = Date.now()
-  } catch (e) {
-    liveError.value = (e && e.message) || '查询失败'
-  } finally {
-    liveBusy.value = false
-  }
-}
-
-// age 按 K8s 惯例显示相对时长（如 5h / 2d）。
-function fmtAge(ts) {
-  if (!ts) return '-'
-  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000)
-  if (s < 3600) return Math.floor(s / 60) + 'm'
-  if (s < 86400) return Math.floor(s / 3600) + 'h'
-  return Math.floor(s / 86400) + 'd'
-}
-
-// 切到实时 Tab 时自动查一次（结果为空时）；其余情况由「刷新」手动触发。
-function onTabChange(key) {
-  if (key === 'live') {
-    loadLiveClusters().then(() => {
-      if (!liveRows.value.length) runLive()
-    })
-  }
-}
+// liveConfigured：当前集群是否在 Server 侧配了直连凭据。
+// 清单为空（没配 / 没权限）时一律返回 true——宁可不提示，也不误报"没配"。
+const liveConfigured = computed(() => {
+  const c = currentCluster.value
+  if (!c || !liveClusters.value.length) return true
+  return liveClusters.value.includes(c.name || c.instance)
+})
 
 const keyOf = (c) => c.node + '|' + c.instance
 const clusterLabel = (c) => `${c.name || c.instance}（${c.node}${c.up ? '' : ' · 离线'}）`
-const isTerminal = (state) => ['succeeded', 'failed', 'expired', 'cancelled'].includes(state)
-
 /* ===== 集群清单 ===== */
 async function loadClusters() {
   loading.value = true
@@ -577,215 +721,53 @@ async function loadClusters() {
 }
 
 function onClusterChange() {
-  // 换集群**不清缓存**：缓存按「集群 + 动作」分键，切回来要能直接看到那个集群上次的结果与时间
-  // ——那正是"记住上次刷新的状态"。仍然不会张冠李戴：显示的结果取自
-  // (当前集群, 当前 Tab) 这一个键，结构上就不可能把 A 的表显示在 B 下面。
-  autoRun(activeTab.value)
+  // 换集群直接重查：状态按「集群 + 动作」分键，切回来会先显示那个集群上次的结果
+  // （刷新期间不白屏），随即被新结果替换——结构上不可能把 A 的表显示在 B 下面。
+  run(activeTab.value)
 }
 
-// autoRun 只在"这个（集群 + Tab）还没有结果"时自动发起**一次**查询。
-//
-// 为什么要自动查一次：全平台其它 Tab 都是自动加载，只有这一页要手点「查询」，
-// 第一眼看到「还没有查询结果」会以为功能坏了（真实用户反馈）。
-//
-// 为什么只查一次：结果是异步下发来的（通常 15 秒以上），重复下发纯属让用户白等。
-// 已经有结果时一律等用户点「查询」——数据新鲜度由界面上那句"上次刷新"负责说明。
-//
-// 命名空间输入**不**触发自动查询：那是"改条件"而不是"换视图"，
-// 边打字边下发任务既吵又费，那种场景让用户点「查询」更合适。
-async function autoRun(tab) {
-  const item = containerQueryState(clusterKey.value, tab)
-  if (!item || item.busy || item.result) return
-  if (!currentCluster.value || !currentCluster.value.up) return
-  // 先尝试认领服务端留下的上次结果（秒出），没有再下发。
-  if (await adoptLastResult(tab)) return
-  run(tab)
-}
+/* ===== 查询（Server 直连） ===== */
 
-// adoptLastResult 从服务端任务列表里"认领"该（集群 + 动作 + 命名空间）最近一次成功的回执。
+// liveURL 组出直连查询的地址。
 //
-// 为什么需要它：结果本身是**持久化**的（服务端 `ops_tasks.json` 保留最近 500 条任务，
-// 回执的结构化载荷就在每条任务的 `json` 字段里），而前端缓存只在内存里 ——
-// 浏览器刷新（F5）之后本地什么都没有，若直接自动下发，用户又要白等一个上报周期。
-// 既然那份结果还在服务端，就先把它拿来用：普通 HTTP、**不惊动 Agent**、秒出。
-//
-// 时间用任务**完成**的时刻（doneAt）而不是现在：这才是这份数据真实的新鲜度，
-// 界面照实显示"上次刷新 3 小时前"，而不是把一份旧快照说成刚查的。
-//
-// 失败一律返回 false 让调用方走正常下发：任务列表要 `ops:read`，
-// 只有 `container:read` 的账号拿不到它——那是权限差异，不该让这一页报错或空白。
-async function adoptLastResult(tab) {
-  const target = TABS.find((t) => t.key === tab)
-  const item = containerQueryState(clusterKey.value, tab)
-  const cluster = currentCluster.value
-  if (!target || !item || !cluster || item.result || item.busy) return false
-  const ns = namespace.value.trim()
-  const clusterName = cluster.name || cluster.instance
-
-  let tasks = []
-  try {
-    const res = await listOpsTasks({ node: cluster.node, kind: target.kind, state: 'succeeded', limit: 50 })
-    tasks = (res && res.tasks) || []
-  } catch (e) {
-    return false
+// 集群用**上报里的集群名**（k8s-live.yaml 里配的必须是同一个名字）：
+// 两处名字不一致时服务端会明确回"集群 X 未配置"，而不是给一份空数据。
+function liveURL(cap, extra = {}) {
+  const params = new URLSearchParams()
+  for (const [k, v] of Object.entries(extra)) {
+    if (v !== '' && v !== undefined && v !== null) params.set(k, String(v))
   }
-
-  // 命名空间必须完全一致才认领：条件是"全部命名空间"时，不能拿一条 default 的结果来顶。
-  const hit = tasks.find((t) => {
-    const p = t.params || {}
-    return (p.cluster || '') === clusterName && (p.namespace || '') === ns
-  })
-  if (!hit) return false
-  const payload = parsePayload(hit)
-  if (!payload) return false
-
-  item.result = payload
-  item.ns = ns
-  item.error = ''
-  item.at = hit.doneAt || hit.createdAt || 0
-  return true
+  const qs = params.toString()
+  return '/api/v1/container/k8s/live/' + encodeURIComponent(clusterParam()) + '/' + cap + (qs ? '?' + qs : '')
 }
 
-// refreshedText 把"上次刷新时间"说成人话：绝对时刻 + 相对时长。
+// run 按当前（集群 + Tab + 命名空间）发起一次同步查询。
 //
-// 两个都要：只有绝对时刻要在脑子里减一遍；只有相对时长则不会自己走（且刷新后再看还是旧文案）。
-function refreshedText(at) {
-  if (!at) return ''
-  const clock = new Date(at).toLocaleTimeString('zh-CN', { hour12: false })
-  const diff = Math.max(0, now.value - at)
-  if (diff < 60_000) return `${clock} · 刚刚`
-  if (diff < 3600_000) return `${clock} · ${Math.floor(diff / 60_000)} 分钟前`
-  if (diff < 86400_000) return `${clock} · ${Math.floor(diff / 3600_000)} 小时前`
-  return `${clock} · ${Math.floor(diff / 86400_000)} 天前`
-}
-
-/* ===== 提交与轮询 ===== */
+// 直连之后没有"下发 → 等上报"这段路：切集群、切 Tab、点「查询」都是同一次调用，
+// 因此每次换视图都直接查——"只在没有缓存时查一次"那条规矩的理由（避免让人白等一个上报周期）
+// 已经不存在了。
+//
+// **不清 result**：刷新期间旧结果继续留在表里，否则点一次刷新就是白屏。
 async function run(tab) {
   const target = TABS.find((t) => t.key === tab)
   const item = containerQueryState(clusterKey.value, tab)
-  if (!target || !currentCluster.value) return
+  const cluster = currentCluster.value
+  if (!target || !item || !cluster) return
 
+  const ns = namespace.value.trim()
   item.error = ''
-  // **不清 result**：刷新期间旧结果继续留在表里（配合"上次刷新"那句），
-  // 只在成功回来后才替换。否则点一次刷新就是白屏等 15 秒，
-  // 而"看到一份略旧的数据 + 明确的刷新时间"比白屏好判断得多。
-  item.task = null
   item.busy = true
   try {
-    const params = { cluster: currentCluster.value.name || currentCluster.value.instance }
-    const ns = namespace.value.trim()
-    if (ns) params.namespace = ns
-    const res = await createOpsTask({
-      node: currentCluster.value.node,
-      kind: target.kind,
-      params,
-      reason: '容器只读查询',
-    })
-    const task = res && res.task
-    if (!task || !task.id) throw new Error('服务端未返回任务 ID')
-    item.task = task
-    // 任务创建本身就是一次真实下发：先把状态摆出来，再等回执。
-    await waitTask(
-      task.id,
-      (t) => {
-        item.task = t
-      },
-      (t, err) => {
-        if (err) {
-          item.error = err
-        } else if (t.state !== 'succeeded') {
-          item.error = taskFailureText(t)
-        } else {
-          item.result = parsePayload(t)
-          if (!item.result) {
-            item.error = t.message || '任务成功但未返回结构化结果'
-          } else {
-            // 只有结果真的落地才推进"上次刷新"：失败时保留旧时间，
-            // 界面才不会把一次失败说成"刚刷新过"。
-            item.at = Date.now()
-            // 一并记下这份结果是按什么条件查的（见 queryCache 里 ns 的说明）
-            item.ns = ns
-            // 只有真的查到了结果才把它记进历史，避免把拼错的命名空间当建议推给用户
-            pushNsHistory(ns)
-          }
-        }
-        item.busy = false
-      }
-    )
+    const res = await http.get(liveURL(target.cap, ns ? { namespace: ns } : {}))
+    item.result = res
+    item.ns = ns
+    // 只有真的查到了结果才把它记进历史，避免把拼错的命名空间当建议推给用户
+    pushNsHistory(ns)
   } catch (e) {
-    // 服务端的说明就是给用户的下一步（升级 Agent / 改 guards.ops / 换命名空间），原样展示。
-    item.error = e.message || '下发失败'
+    // 服务端的说明就是给用户的下一步（凭据没配 / 名字对不上 / apiserver 拒绝），原样展示。
+    item.error = (e && e.message) || '查询失败'
+  } finally {
     item.busy = false
-  }
-}
-
-// waitTask 轮询到终态；超时给明确结论，而不是让界面永远转圈。
-function waitTask(id, onTick, done) {
-  return new Promise((resolve) => {
-    let waited = 0
-    const tick = async () => {
-      let task = null
-      try {
-        const res = await getOpsTask(id)
-        task = res && res.task
-      } catch (e) {
-        done(null, e.message || '查询任务失败')
-        resolve()
-        return
-      }
-      if (task) {
-        onTick(task)
-        if (isTerminal(task.state)) {
-          done(task)
-          resolve()
-          return
-        }
-      }
-      waited += POLL_INTERVAL
-      if (waited >= POLL_TIMEOUT) {
-        done(null, '等待超过 60 秒仍未返回。确认目标节点在线，且已升级到支持容器查询的 Agent 版本')
-        resolve()
-        return
-      }
-      const h = setTimeout(() => {
-        timers.delete(h)
-        tick()
-      }, POLL_INTERVAL)
-      timers.add(h)
-    }
-    tick()
-  })
-}
-
-function taskFailureText(t) {
-  if (t.state === 'expired') return '任务已过期：Agent 未在有效期内领取，通常意味着目标节点离线或未声明支持该动作'
-  if (t.state === 'cancelled') return '任务已被撤回'
-  return t.message || '任务未成功'
-}
-
-function parsePayload(task) {
-  if (!task || !task.json) return null
-  try {
-    return JSON.parse(task.json)
-  } catch (e) {
-    return null
-  }
-}
-
-async function cancel(tab) {
-  // 与 run 用同一处取法：`q` 是当前 Tab 的计算属性，这里按传入的 tab 取状态，
-  // 免得"看着是 A 的按钮、撤的是 B 的任务"。
-  const item = containerQueryState(clusterKey.value, tab)
-  const task = item.task
-  if (!task) return
-  try {
-    await cancelOpsTasks({ ids: [task.id] })
-    item.error = ''
-    item.busy = false
-    item.task = null
-    ElMessage.success('已撤回')
-  } catch (e) {
-    ElMessage.error(e.message || '撤回失败：任务可能已被 Agent 领取')
   }
 }
 
@@ -796,8 +778,9 @@ async function onRowClick(row) {
 
 // describeRow 打开某个对象的详情。force=true 表示用户明确要求刷新（抽屉里的「刷新」）。
 //
-// 默认**命中缓存不再下发**：点一下行就是一次 15 秒的下发，而用户点开往往只是"看看"，
-// 来回点几行就要等好几轮。要看最新的点抽屉里的「刷新」——与主表的规矩一致。
+// 直连之后每次打开都是一次即时查询，因此**不再"命中缓存就不查"**：
+// 那条规矩是为了避开一次 15 秒的下发，代价是看到的可能是一份很久以前的快照。
+// 现在只跳过"同一个对象正在查"的重复请求。
 async function describeRow(row, force = false) {
   const spec = DETAIL_SPEC[activeTab.value]
   if (!spec || !currentCluster.value) return
@@ -813,60 +796,27 @@ async function describeRow(row, force = false) {
   detailVisible.value = true
 
   const st = containerDetailState(clusterKey.value, resource, ns, name)
-  if (st.result && !force) return // 有上次的结果：直接显示，连同它的刷新时间
+  if (st.busy && !force) return
 
   st.error = ''
-  st.task = null
   st.busy = true
   try {
-    const res = await createOpsTask({
-      node: currentCluster.value.node,
-      kind: 'container.describe',
-      params: {
-        cluster: currentCluster.value.name || currentCluster.value.instance,
-        namespace: ns,
-        resource,
-        name,
-      },
-      reason: '容器对象详情',
-    })
-    const task = res && res.task
-    if (!task || !task.id) throw new Error('服务端未返回任务 ID')
-    st.task = task
-    await waitTask(
-      task.id,
-      () => {},
-      (t, err) => {
-        st.busy = false
-        if (err) {
-          st.error = err
-        } else if (t.state !== 'succeeded') {
-          st.error = taskFailureText(t)
-        } else {
-          st.result = parsePayload(t)
-          if (!st.result) {
-            st.error = t.message || '未返回结构化结果'
-          } else {
-            st.at = Date.now()
-          }
-        }
-      }
-    )
+    st.result = await http.get(liveURL('object', { namespace: ns, resource, name }))
   } catch (e) {
-    st.error = e.message || '下发失败'
+    st.error = (e && e.message) || '查询失败'
+  } finally {
     st.busy = false
   }
 }
 
-// refreshDetail 是抽屉里的「刷新」：显式重新下发同一个对象的详情。
+// refreshDetail 是抽屉里的「刷新」：显式重查同一个对象的详情。
 function refreshDetail() {
   if (detailRow.value) describeRow(detailRow.value, true)
 }
 
 /* ===== Pod 日志 ===== */
 
-// openLogs 打开某个 Pod 的日志抽屉。默认**命中缓存不再下发**（与详情同一规矩）：
-// 点一下就是一次 15 秒的下发，用户点开往往只是"看看"。
+// openLogs 打开某个 Pod 的日志抽屉（每次打开都现拉一次：直连是即时的）。
 function openLogs(row) {
   const spec = DETAIL_SPEC.pods
   const cells = row.cells || []
@@ -983,92 +933,72 @@ async function applyDeepLink() {
   if (tab && TABS.some((t) => t.key === tab)) activeTab.value = tab
   if (pod) activeTab.value = 'pods'
   await nextTick()
-  // 列表：只在没有缓存结果时才下发（与 autoRun 同一规矩）；日志抽屉另走一次按需拉取
-  autoRun(activeTab.value)
+  // 列表：进页面就查一次（直连是同步的）；日志抽屉另走一次按需拉取
+  run(activeTab.value)
   if (pod) openLogsFor(ns, pod)
 }
 
 // fetchLogs 拉取当前 Pod 的最近日志；force=true 表示用户明确要求重新拉取。
 //
-// 行数与时间窗由服务端动作目录的规格兜住（默认 200 行、最多 500 行 / 24 小时）：
-// 界面不提供"全量下载"，那是另一条通道的事，不是这一页能顺手打开的。
+// 行数与时间窗由服务端的规格兜住（默认 200 行、最多 500 行 / 24 小时）：
+// 界面不提供"全量下载"，那是另一条通道（集中日志）的事，不是这一页能顺手打开的。
 async function fetchLogs(force = false) {
   const target = logsTarget.value
   if (!target || !currentCluster.value) return
   const container = logsContainer.value.trim()
+  // 缓存键带上容器名：换容器是换内容，不能把上一个容器的日志显示在新容器名下。
   const cacheName = target.pod + (container ? '/' + container : '')
   logsKey.value = {
     cluster: clusterKey.value, kind: 'container.logs', namespace: target.namespace, name: cacheName,
   }
   const st = containerDetailState(clusterKey.value, 'container.logs', target.namespace, cacheName)
-  if (st.result && !force) return
+  // 与详情同一取向：直连之后不再"命中缓存就不查"，只跳过正在进行的同一次请求。
+  if (st.busy && !force) return
 
   st.error = ''
-  st.task = null
   st.busy = true
   try {
-    const params = {
-      cluster: currentCluster.value.name || currentCluster.value.instance,
-      namespace: target.namespace,
-      name: target.pod,
-    }
-    if (container) params.container = container
-    const res = await createOpsTask({
-      node: currentCluster.value.node,
-      kind: 'container.logs',
-      params,
-      reason: 'Pod 日志',
-    })
-    const task = res && res.task
-    if (!task || !task.id) throw new Error('服务端未返回任务 ID')
-    st.task = task
-    await waitTask(
-      task.id,
-      () => {},
-      (t, err) => {
-        st.busy = false
-        if (err) {
-          st.error = err
-        } else if (t.state !== 'succeeded') {
-          st.error = taskFailureText(t)
-        } else {
-          st.result = parsePayload(t)
-          if (!st.result) {
-            st.error = t.message || '未返回结构化结果'
-          } else {
-            st.at = Date.now()
-          }
-        }
-      }
-    )
+    const extra = { namespace: target.namespace, name: target.pod }
+    if (container) extra.container = container
+    st.result = await http.get(liveURL('logs', extra))
   } catch (e) {
-    st.error = e.message || '下发失败'
+    st.error = (e && e.message) || '拉取失败'
+  } finally {
     st.busy = false
   }
 }
 
 onMounted(async () => {
-  // "上次刷新多久之前"要自己走：否则停了十分钟再看，它还会说"刚刚"。
-  nowTimer = setInterval(() => {
-    now.value = Date.now()
-  }, 30_000)
+  // 平台深链（?platform=docker|k8s）：中间件监控的 Docker Tab 跳过来时用得上。
+  // 只认一次（消费后把参数清掉），否则用户手动切回去又被 query 拽回来。
+  const wantPlatform = String(route.query.platform || '').trim()
+  if (wantPlatform) {
+    const next = { ...route.query }
+    delete next.platform
+    router.replace({ path: '/container', query: next })
+    if (wantPlatform === 'docker' && canDocker.value) {
+      platform.value = 'docker'
+      // Docker 面板自己负责首次加载，这里不必再触发。
+      return
+    }
+  }
   await loadClusters()
+  // Server 侧配了哪些集群：用来提示"当前这个没配直连凭据"，拉不到就不提示。
+  await loadLiveClusters()
   // 从台账反向点进来时优先按地址定位（applyDeepLink 内部会自己触发列表与日志的拉取）
   await applyDeepLink()
-  // 只在"这个（集群 + Tab）还没有结果"时查一次（不要让人对着空白面板猜）；
-  // 有上次的结果就直接显示结果与刷新时间——**进页面不等于刷新**。
-  await autoRun(activeTab.value)
+  // 进页面就查一次：直连是同步的，没有"等一个上报周期"的代价，没必要让人对着空面板猜。
+  await run(activeTab.value)
 })
 
-// 切 Tab：同样只在没有结果时查一次。已有结果直接显示，不重复下发。
+// 切 Tab 直接查：直连查询是即时的，缓存旧结果的唯一价值是刷新期间不白屏。
 watch(activeTab, (tab) => {
-  nextTick(() => autoRun(tab))
+  nextTick(() => run(tab))
 })
 
 onBeforeUnmount(() => {
-  for (const h of timers) clearTimeout(h)
-  timers.clear()
-  if (nowTimer) clearInterval(nowTimer)
+  for (const h of writeTimers) clearTimeout(h)
+  writeTimers.clear()
 })
 </script>
 
@@ -1077,6 +1007,39 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+/* 平台切换：独占一行放在内容区顶部（别缩在页头右侧与「选择集群」挤成同级），
+   但**收在行尾**——它是"整页模式"，不必占着标题旁的视线焦点。
+   尺寸只比工具控件略收一点（13px / 27px 高 vs 下拉框的 13px / 32px）：够看得见，不喧宾夺主。
+   行间距由 .container-view 的 gap 给，这里不再加 margin。 */
+.platform-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+/* 靠右：margin-left:auto 把「平台 + 开关」推到行尾，左边留给它依赖的目标选择器。 */
+.platform-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+.platform-bar-label {
+  font-size: var(--fs-sm);
+  color: var(--t3);
+  letter-spacing: 0.04em;
+}
+/* 无 docker:read 时开关不渲染，这里如实写出当前平台，不留悬空的「平台」标签。 */
+.platform-locked {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--t2);
+}
+.platform-switch :deep(.el-radio-button__inner) {
+  padding: 7px 14px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
 }
 .cluster-select {
   width: 240px;
@@ -1133,15 +1096,8 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.state-dot.pending {
-  background: var(--warn);
-}
 .state-dot.delivering {
   background: var(--accent);
-}
-.state-task {
-  color: var(--t3);
-  font-size: var(--fs-xs);
 }
 .result-notice {
   margin-bottom: 10px;
@@ -1167,7 +1123,7 @@ onBeforeUnmount(() => {
 .foot-warn {
   color: var(--warn);
 }
-/* 「上次刷新」推到右侧：它是这份数据的"保质期标签"，不该和计数挤在一起。 */
+/* 刷新中的提示推到右侧，不和计数挤在一起。 */
 .foot-time {
   margin-left: auto;
 }

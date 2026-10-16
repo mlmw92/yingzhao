@@ -1,6 +1,12 @@
 <template>
   <div class="mw-tab">
-    <RefreshBar :loading="loading" @refresh="load" />
+    <div class="mw-head">
+      <RefreshBar :loading="loading" @refresh="load" />
+      <!-- 本页只做**指标展示**（由 Agent 采集、进时序库的聚合计数与用量，粒度止于集群/节点）；
+           对象级明细与操作（工作负载 / Pod / 事件 / 详情 / 日志，以及排障写操作）都在
+           「容器与工作负载」那一页。这是 2026-10-10 重规划刻意切开的两个信息面。 -->
+      <el-button size="small" @click="openConsole">进入容器与工作负载</el-button>
+    </div>
 
     <el-alert v-if="error" type="error" :closable="false" show-icon class="mw-err">
       <template #title>
@@ -35,9 +41,17 @@
         <KpiCard :value="stats.podsTotal" label="Pod 总数" tone="total">
           <template #icon><BoxIcon /></template>
         </KpiCard>
-        <KpiCard :value="stats.podsAbnormal" label="异常 Pod" :tone="stats.podsAbnormal > 0 ? 'down' : 'total'">
-          <template #icon><AlertIcon /></template>
-        </KpiCard>
+        <!-- 「异常 Pod」计数留在这里（它是指标），明细去管理面看——因此这张卡可点。
+             计数与明细分属两个信息面：本页回答"有多少"，管理面回答"是哪个"。 -->
+        <div
+          class="kpi-clickable"
+          :title="'查看异常 Pod 明细：跳到「容器与工作负载」（按容器级有效状态判定的明细在那里）'"
+          @click="openConsole"
+        >
+          <KpiCard :value="stats.podsAbnormal" label="异常 Pod" :tone="stats.podsAbnormal > 0 ? 'down' : 'total'">
+            <template #icon><AlertIcon /></template>
+          </KpiCard>
+        </div>
         <KpiCard :value="stats.workloadsUnhealthy" label="不健康工作负载" :tone="stats.workloadsUnhealthy > 0 ? 'alert' : 'total'">
           <template #icon><ActivityIcon /></template>
         </KpiCard>
@@ -103,31 +117,21 @@
         </el-table>
       </SectionCard>
 
-      <!-- 异常 Pod -->
-      <SectionCard v-if="pods.length > 0" title="异常 Pod（非 Running/Succeeded）" dense class="mw-block">
-        <el-table :data="pods" style="width: 100%">
-          <el-table-column prop="pod" label="Pod" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="namespace" label="命名空间" width="160" />
-          <el-table-column prop="cluster" label="集群" width="140" />
-          <el-table-column label="状态" width="160">
-            <template #default="{ row }">
-              <!-- 显示有效状态（status），phase 只在旧 Agent 缺 status 时兜底。
-                   两者含义不同：ImagePullBackOff 的 Pod 的 phase 是 Pending，
-                   CrashLoopBackOff 的 Pod 的 phase 是 Running。 -->
-              <MwStatusDot
-                :status="['Running', 'Succeeded', 'Completed'].includes(row.status || row.phase) ? 'normal' : 'abnormal'"
-                :label="row.status || row.phase"
-              />
-            </template>
-          </el-table-column>
-        </el-table>
-      </SectionCard>
+      <!-- 异常 Pod 明细**刻意不在这里**：它含对象标识（Pod 名 / 命名空间 / 原因），
+           属于「容器与工作负载」那个信息面（本页只留计数，见上面的 KPI 卡）。
+           这里说明明细去哪了——否则用户会以为"功能没了"。 -->
+      <div v-if="pods.length > 0" class="mw-moved">
+        有 {{ pods.length }} 个异常 Pod。明细（Pod 名 / 命名空间 / 状态）已移到
+        <el-button link type="primary" size="small" @click="openConsole">容器与工作负载</el-button>
+        页——那里可以逐条查看、看日志，并由超管执行删除等排障操作。
+      </div>
     </template>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed, h } from 'vue'
+import { useRouter } from 'vue-router'
 import http from '../../api/http'
 import RefreshBar from '../RefreshBar.vue'
 import KpiCard from '../KpiCard.vue'
@@ -207,11 +211,22 @@ function formatBytes(n) {
   return v.toFixed(1) + ' ' + units[i]
 }
 
+const router = useRouter()
+// openConsole 跳到管理面：本页只做**指标展示**，对象级查看与操作都在那边
+// （见 docs/superpowers/specs/2026-10-10-container-workload-management-design.md §一）。
+// 带 platform=k8s 让它直接落在 Kubernetes 平台（容器页支持该深链）。
+function openConsole() {
+  router.push({ path: '/container', query: { platform: 'k8s' } })
+}
+
 onMounted(load)
 </script>
 
 <style scoped>
 .mw-tab { padding: 4px 0; }
+.mw-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.kpi-clickable { cursor: pointer; }
+.mw-moved { font-size: var(--fs-base); color: var(--t3); margin-bottom: 16px; }
 .mw-err { margin-bottom: 16px; }
 .mw-err-text { margin-right: 8px; }
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }

@@ -1,28 +1,30 @@
-// 「容器与工作负载」页的**查询时机**回归测试。
+// 「容器与工作负载」页的**数据通路**回归测试。
 //
-// 为什么要有这个文件：这一页的数据来自**异步下行任务**——下发指令 → 等 Agent 下一轮上报 → 回执，
-// 通常 15 秒以上。因此"什么时候会下发"直接决定体验。用户报过：
-// 「容器与工作负载不应该每次点击都刷新，应该记住上次刷新的状态以及刷新时间，需要刷新时手动刷新即可」。
+// 这个文件在 2026-10-10 重规划（ADR-0006）后重写过：这一页的读从「Agent 异步下行」
+// （下发指令 → 等 Agent 下一轮上报 → 回执，通常 15 秒以上）改成了 **Server 直连**
+// （k8sproxy / dockerproxy，同步返回）。
 //
-// 这类缺陷不报错、不白屏、控制台也干净（只是悄悄多发了一次任务、让人白等 15 秒），
-// 只能靠用例钉住——顺带把"上次刷新时间"这个**用户唯一能判断数据新鲜度的依据**钉住。
+// 因此这里钉的东西也换了：
+//  1. **读不经过下行动作通道**（createOpsTask 一次都不该被调用）——这是本次改动最核心的一条，
+//     退化成"又走回上报"不会报错、只会让页面莫名其妙地慢十几秒；
+//  2. 切集群 / 切 Tab / 点查询都是**一次同步 GET**，不再有"有缓存就不查"那套；
+//  3. 写操作（K8s 的 restart/scale/delete）**仍然**走下行通道，且成功后必须重拉列表；
+//  4. Docker 侧同样是直连（含写操作）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import http from '../../api/http'
-import { createOpsTask, getOpsTask, listOpsTasks, cancelOpsTasks } from '../../api/ops'
+import { createOpsTask, getOpsTask } from '../../api/ops'
 import { lookupAsset } from '../../api/asset'
 import ContainerView from './ContainerView.vue'
 import { resetContainerQueryCache } from './queryCache'
 
 vi.mock('../../api/http', () => ({
-  default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn(), delete: vi.fn() },
 }))
 vi.mock('../../api/ops', () => ({
   createOpsTask: vi.fn(),
   getOpsTask: vi.fn(),
-  cancelOpsTasks: vi.fn(),
-  listOpsTasks: vi.fn(),
 }))
 vi.mock('../../api/asset', () => ({
   lookupAsset: vi.fn(),
@@ -35,8 +37,7 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push: routerPush, replace: routerReplace }),
   useRoute: () => ({ query: routeQuery }),
 }))
-// 集中日志入口按 `logs:read` 门控（与 container:read 是两个权限点），
-// 所以权限表要能逐例改：无权时按钮必须**不出现**，而不是点了撞 403。
+// 权限表要能逐例改：无权时按钮必须**不出现**，而不是点了撞 403。
 const authState = vi.hoisted(() => ({ perms: ['logs:read'] }))
 vi.mock('../../composables/useAuth', () => ({
   default: () => ({ can: (p) => authState.perms.includes(p) }),
@@ -53,12 +54,23 @@ if (!globalThis.ResizeObserver) {
 
 const CLUSTER_A = { node: 'web-01', instance: 'https://10.0.0.9:6443', name: 'k3s-dev', up: true }
 const CLUSTER_B = { node: 'web-02', instance: 'https://10.0.0.10:6443', name: 'k8s-2', up: true }
+// Server 侧 k8s-live.yaml 里配的集群名：与上报的 name 对得上才查得到东西。
+const LIVE_CLUSTERS = ['k3s-dev', 'k8s-2']
+
+const DOCKER_ENDPOINTS = [
+  { node: 'web-01', name: 'local-docker', reachable: true, unixSocket: false },
+  { node: 'db-01', name: 'db-docker', reachable: false, unixSocket: true },
+]
 
 const keyOf = (c) => c.node + '|' + c.instance
 
-// 每次下发的任务 id 递增，用来在断言里区分"这是第几次下发的结果"。
-let seq = 0
 let wrappers = []
+// liveCalls 记录每一次 K8s 直连查询（cluster + 能力），用来断言"什么时候查了"。
+let liveCalls = []
+// dockerCalls 记录每一次 Docker 直连请求的路径。
+let dockerCalls = []
+// payloadByCap 让用例按能力替换返回内容（默认是一份通用表）。
+let payloadByCap = {}
 
 function mountView() {
   const w = mount(ContainerView, { global: { plugins: [ElementPlus] }, attachTo: document.body })
@@ -66,363 +78,541 @@ function mountView() {
   return w
 }
 
-// settle 等两拍：loadClusters → autoRun → createOpsTask → 立即轮询一次到终态。
-async function settle(w) {
+// settle 等三拍：loadClusters → loadLiveClusters → run（直连 GET）。
+async function settle() {
   await flushPromises()
   await flushPromises()
   await flushPromises()
 }
 
-const calls = () => createOpsTask.mock.calls.length
+function defaultLivePayload(cap) {
+  if (cap === 'logs') {
+    return { kind: 'container.logs', columns: ['日志'], rows: [['log-line-1'], ['log-line-2']], total: 2 }
+  }
+  if (cap === 'object') {
+    return { kind: 'container.describe', columns: ['字段', '值'], rows: [['状态', '运行中']], total: 1 }
+  }
+  if (cap === 'pods') {
+    return {
+      kind: 'container.pods',
+      columns: ['命名空间', '名称', '状态', '重启', '节点', 'Pod IP'],
+      rows: [['default', 'web-1', '运行中', '0', 'node-1', '10.1.2.3']],
+      total: 1,
+    }
+  }
+  return {
+    kind: 'container.' + cap,
+    columns: ['类型', '命名空间', '名称', '期望', '就绪', '可用', '状态'],
+    rows: [['Deployment', 'default', 'web', '3', '3', '3', '就绪']],
+    total: 1,
+  }
+}
+
+function defaultDockerPayload(path) {
+  if (path.includes('/containers/') && path.includes('/logs')) {
+    return { kind: 'docker.logs', columns: ['日志'], rows: [['container-log-1']], total: 1 }
+  }
+  if (path.includes('/containers/')) {
+    return { kind: 'docker.inspect', columns: ['项目', '值'], rows: [['状态', 'running']], total: 1 }
+  }
+  if (path.includes('/containers')) {
+    return {
+      kind: 'docker.containers',
+      columns: ['名称', '状态', '镜像', '端口', '创建时间', 'ID'],
+      rows: [['web-1', 'Up 2 hours', 'nginx:1.27', '80/tcp', '2026-10-01 10:00:00', 'aaaa11112222']],
+      total: 1,
+    }
+  }
+  if (path.includes('/images')) {
+    return { kind: 'docker.images', columns: ['仓库标签', '镜像 ID', '大小', '创建时间'], rows: [['nginx:1.27', 'aaaa11112222', '1 MiB', '2026-10-01']], total: 1 }
+  }
+  return { kind: 'docker.info', columns: ['项目', '值'], rows: [['引擎版本', '27.0.0']], total: 1 }
+}
+
+function mockHttp() {
+  http.get.mockImplementation(async (path) => {
+    const p = String(path)
+    if (p.includes('/container/k8s/clusters')) return { clusters: [CLUSTER_A, CLUSTER_B] }
+    if (p.includes('/container/k8s/live-configs')) return { clusters: LIVE_CLUSTERS }
+    if (p.includes('/container/k8s/live/')) {
+      const m = p.match(/\/live\/([^/]+)\/([^?]+)/)
+      const cluster = m ? decodeURIComponent(m[1]) : ''
+      const cap = m ? m[2] : ''
+      liveCalls.push({ cluster, cap })
+      return payloadByCap[cap] || defaultLivePayload(cap)
+    }
+    if (p.includes('/container/docker/endpoints')) return { endpoints: DOCKER_ENDPOINTS }
+    if (p.includes('/container/docker/')) {
+      dockerCalls.push(p)
+      return defaultDockerPayload(p)
+    }
+    return {}
+  })
+}
+
+const liveCaps = () => liveCalls.map((c) => c.cap)
+const dockerWrites = () => ({
+  posts: http.post.mock.calls.map((c) => String(c[0])),
+  dels: http.del.mock.calls.map((c) => String(c[0])),
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
   resetContainerQueryCache()
-  seq = 0
   wrappers = []
   routeQuery = {}
+  liveCalls = []
+  dockerCalls = []
+  payloadByCap = {}
   authState.perms = ['logs:read']
-  http.get.mockImplementation(async (path) => {
-    if (String(path).includes('/container/k8s/clusters')) return { clusters: [CLUSTER_A, CLUSTER_B] }
-    return {}
-  })
-  createOpsTask.mockImplementation(async () => {
-    seq += 1
-    return { task: { id: 't' + seq, state: 'queued' } }
-  })
-  // 默认：服务端没有可认领的历史结果（用例要认领时自行覆盖）
-  listOpsTasks.mockResolvedValue({ tasks: [] })
-  // 轮询第一次就返回终态：用例关心的是"下发了几次"，不是轮询节奏。
-  getOpsTask.mockImplementation(async (id) => ({
-    task: {
-      id,
-      state: 'succeeded',
-      json: JSON.stringify({
-        columns: ['名称', '命名空间'],
-        rows: [['row-for-' + id, 'default']],
-        total: 1,
-        truncated: false,
-      }),
-    },
-  }))
+  mockHttp()
+  // K8s 写操作仍走下行通道：默认立即成功。
+  createOpsTask.mockImplementation(async () => ({ task: { id: 't1', state: 'queued' } }))
+  getOpsTask.mockResolvedValue({ task: { id: 't1', state: 'succeeded', json: '{}' } })
 })
 
 afterEach(() => {
   for (const w of wrappers) w.unmount()
+  // ElMessageBox 会往 body 挂节点且**不随组件卸载移除**：不清掉会污染后续用例——
+  // 它的弹窗是单例，上一用例没关掉的框会让下一个用例的 confirm 拿不到自己的 promise。
+  for (const el of document.querySelectorAll('.el-overlay, .el-message-box__wrapper')) el.remove()
 })
 
-describe('ContainerView 容器与工作负载页', () => {
-  it('首次进入自动下发一次，并显示上次刷新时间', async () => {
+// 行内按钮**必须**收敛到真实表格行（`.el-table__row`）：Element Plus 会把列的插槽
+// 在 `.hidden-columns` 里用 `row=undefined` 再渲染一次（用于测列宽），那里也会产出按钮节点。
+const rowButtons = (w) => w.findAll('.el-table__row button')
+const rowLabels = (w) => new Set(rowButtons(w).map((b) => b.text()))
+
+// confirmBox 点掉**最新**那个确认框的按钮。
+// 必须取最后一个：ElMessageBox 是单例、弹窗挂在 body 上且不随组件卸载移除，
+// 上一个用例残留的框会让这里点到"别人的按钮"，于是本用例的 confirm promise 永远不 resolve。
+function confirmBox(label) {
+  const boxes = [...document.body.querySelectorAll('.el-message-box')]
+  const box = boxes[boxes.length - 1]
+  const btn = box && [...box.querySelectorAll('button')].find((b) => b.textContent.includes(label))
+  expect(btn, '确认框应已出现（label=' + label + '）').toBeTruthy()
+  btn.click()
+}
+
+const lastCallOf = (kind) => createOpsTask.mock.calls.map((c) => c[0]).find((c) => c.kind === kind)
+
+async function clickTab(w, index) {
+  await w.findAll('.el-tabs__item')[index].trigger('click')
+  await settle()
+}
+
+async function switchCluster(w, clusterKey) {
+  const select = w.findComponent({ name: 'ElSelect' })
+  select.vm.$emit('update:modelValue', clusterKey)
+  select.vm.$emit('change', clusterKey)
+  await settle()
+}
+
+describe('ContainerView · K8s 读走 Server 直连', () => {
+  it('首次进入直连查询一次，结果直接落在表里（不再有「上次刷新」时间）', async () => {
     const w = mountView()
-    await settle(w)
+    await settle()
 
-    expect(calls()).toBe(1)
-    expect(w.text()).toContain('row-for-t1')
-    // 没有时间戳，用户就无法判断看到的是 5 秒前还是 5 小时前的数据
-    expect(w.text()).toContain('上次刷新')
+    expect(liveCalls).toEqual([{ cluster: 'k3s-dev', cap: 'workloads' }])
+    expect(w.text()).toContain('web')
+    // 2026-10-10 起去掉这行时间戳：直连点开即得，它只剩噪音。钉住它别再回来。
+    expect(w.text()).not.toContain('上次刷新')
   })
 
-  it('离开再回来沿用上次结果与时间，不重新下发', async () => {
-    const first = mountView()
-    await settle(first)
-    expect(calls()).toBe(1)
-    first.unmount()
-
-    // 重新进入这一页（等价于路由切走再切回）：结果是异步任务等来的，
-    // 不该因为"点进来"就再下发一轮、让人再等 15 秒。
-    const again = mountView()
-    await settle(again)
-
-    expect(calls()).toBe(1)
-    expect(again.text()).toContain('row-for-t1')
-    expect(again.text()).toContain('上次刷新')
-  })
-
-  it('切 Tab：没有结果的 Tab 查一次，已有结果的 Tab 不重查', async () => {
+  it('平台开关独占一行放在内容区顶部（不再缩在页头右侧与「选择集群」同级）', async () => {
+    authState.perms = ['logs:read', 'docker:read']
     const w = mountView()
-    await settle(w)
-    expect(calls()).toBe(1)
+    await settle()
 
-    const tabs = w.findAll('.el-tabs__item')
-    await tabs[1].trigger('click') // Pod
-    await settle(w)
-    expect(calls()).toBe(2)
-    expect(w.text()).toContain('row-for-t2')
-
-    await tabs[0].trigger('click') // 切回工作负载：已有结果，不该再下发
-    await settle(w)
-    expect(calls()).toBe(2)
-    expect(w.text()).toContain('row-for-t1')
+    const bar = w.find('.platform-bar')
+    expect(bar.exists()).toBe(true)
+    expect(bar.text()).toContain('平台')
+    expect(bar.find('.platform-switch').exists()).toBe(true)
+    // 页头里不该再有它：放回去就等于又变回那枚 12px / 22px 高、与旁边「选择集群」
+    // 完全同级的小控件——用户 2026-10-10 的反馈正是"不明显"。
+    expect(w.find('.page-header .platform-switch').exists()).toBe(false)
   })
 
-  it('换集群：目标集群没有缓存才下发，切回来直接显示缓存', async () => {
+  it('读**不经过**下行动作通道（本次改动最核心的一条）', async () => {
     const w = mountView()
-    await settle(w)
-    expect(calls()).toBe(1)
+    await settle()
+    await clickTab(w, 1) // Pod
+    await clickTab(w, 2) // 事件
 
-    const select = w.findComponent({ name: 'ElSelect' })
-    select.vm.$emit('update:modelValue', keyOf(CLUSTER_B))
-    select.vm.$emit('change', keyOf(CLUSTER_B))
-    await settle(w)
-    expect(calls()).toBe(2)
-    expect(w.text()).toContain('row-for-t2')
-
-    select.vm.$emit('update:modelValue', keyOf(CLUSTER_A))
-    select.vm.$emit('change', keyOf(CLUSTER_A))
-    await settle(w)
-    // 换集群是换视图、不是刷新：切回来应该直接看到上次的结果与时间
-    expect(calls()).toBe(2)
-    expect(w.text()).toContain('row-for-t1')
+    // 读全走直连：一条下行动作都不该被创建。
+    // 退化成"又走回上报"不会报错，只会让页面莫名其妙地慢十几秒——所以必须钉住。
+    expect(createOpsTask).not.toHaveBeenCalled()
+    expect(liveCaps()).toEqual(['workloads', 'pods', 'events'])
   })
 
-  // 结果本身持久化在服务端（ops_tasks.json 的 json 字段），前端缓存只在内存里。
-  // 因此浏览器刷新（F5）之后本地空了，但服务端那份还在——先去认领它，
-  // 而不是又下发一轮让用户再等一个上报周期。
-  it('本地没有缓存时先认领服务端上次的回执，不下发', async () => {
-    const doneAt = Date.now() - 5 * 60_000
-    listOpsTasks.mockResolvedValue({
-      tasks: [{
-        id: 'old-1',
-        node: CLUSTER_A.node,
-        kind: 'container.workloads',
-        state: 'succeeded',
-        doneAt,
-        params: { cluster: CLUSTER_A.name },
-        json: JSON.stringify({ columns: ['名称'], rows: [['from-server']], total: 1, truncated: false }),
-      }],
+  it('切 Tab 直接重查：不再有"有缓存就不查"那套', async () => {
+    const w = mountView()
+    await settle()
+    expect(liveCaps()).toEqual(['workloads'])
+
+    await clickTab(w, 1) // Pod
+    expect(liveCaps()).toEqual(['workloads', 'pods'])
+
+    // 切回工作负载：直连是即时的，缓存旧结果只会让人以为"看到的是最新的"。
+    await clickTab(w, 0)
+    expect(liveCaps()).toEqual(['workloads', 'pods', 'workloads'])
+  })
+
+  it('换集群直接重查，且用上报里的集群名作为直连标识', async () => {
+    const w = mountView()
+    await settle()
+
+    await switchCluster(w, keyOf(CLUSTER_B))
+    expect(liveCalls).toEqual([
+      { cluster: 'k3s-dev', cap: 'workloads' },
+      { cluster: 'k8s-2', cap: 'workloads' },
+    ])
+  })
+
+  it('集群不在 k8s-live.yaml 里时先给出提示，而不是让人对着 502 猜', async () => {
+    // 上报里有这个集群，Server 侧却没配：直连查询会失败，界面要先把原因说出来。
+    http.get.mockImplementation(async (path) => {
+      const p = String(path)
+      if (p.includes('/container/k8s/clusters')) return { clusters: [CLUSTER_A] }
+      if (p.includes('/container/k8s/live-configs')) return { clusters: ['另一个集群'] }
+      if (p.includes('/container/k8s/live/')) return defaultLivePayload('workloads')
+      return {}
     })
 
     const w = mountView()
-    await settle(w)
+    await settle()
 
-    expect(calls()).toBe(0) // 认领到了就不该再下发（不惊动 Agent）
-    expect(w.text()).toContain('from-server')
-    expect(w.text()).toContain('上次刷新')
-    // 时间取任务的**完成**时刻，不是"现在"——否则一份 5 分钟前的快照会被说成刚查的
-    expect(w.text()).toContain('5 分钟前')
+    expect(w.text()).toContain('没有直连凭据')
+    expect(w.text()).toContain('k8s-live.yaml')
   })
 
-  it('历史结果的命名空间与当前条件不一致时不认领，退回正常下发', async () => {
-    listOpsTasks.mockResolvedValue({
-      tasks: [{
-        id: 'old-1',
-        node: CLUSTER_A.node,
-        kind: 'container.workloads',
-        state: 'succeeded',
-        doneAt: Date.now(),
-        params: { cluster: CLUSTER_A.name, namespace: 'kube-system' },
-        json: JSON.stringify({ columns: ['名称'], rows: [['wrong-ns']], total: 1, truncated: false }),
-      }],
-    })
-
+  it('命名空间随查询一起下发，且改条件不会偷偷改表里的数据', async () => {
     const w = mountView()
-    await settle(w)
+    await settle()
+    expect(liveCalls.length).toBe(1)
 
-    expect(calls()).toBe(1) // 条件对不上就不能顶替，"全部命名空间"的查询结果里不该混进某个命名空间的对象
-    expect(w.text()).not.toContain('wrong-ns')
-    expect(w.text()).toContain('row-for-t1')
+    // 输入命名空间后不自动查（边打字边查既吵又费），要点「查询」
+    const input = w.find('.ns-input input')
+    await input.setValue('kube-system')
+    await settle()
+    expect(liveCalls.length).toBe(1)
+
+    const queryBtn = w.findAll('button').find((b) => b.text() === '查询')
+    await queryBtn.trigger('click')
+    await settle()
+    expect(liveCalls.length).toBe(2)
   })
+})
 
-  // 排队中的任务可以撤回：这条路径此前引用了未定义的状态对象，
-  // 点下去必抛 ReferenceError（控制台报错、按钮看着没反应），因此单独钉住。
-  it('排队中的任务可撤回，且撤的是那条任务', async () => {
-    getOpsTask.mockImplementation(async (id) => ({ task: { id, state: 'queued' } }))
-    cancelOpsTasks.mockResolvedValue({})
-
+describe('ContainerView · 详情与日志抽屉', () => {
+  it('Pod 行的「日志」直连 logs 并按原样展示日志行', async () => {
     const w = mountView()
-    await settle(w)
+    await settle()
+    await clickTab(w, 1) // Pod
 
-    const btn = w.findAll('button').find((b) => b.text().includes('撤回'))
+    const btn = rowButtons(w).find((b) => b.text() === '日志')
     expect(btn).toBeTruthy()
     await btn.trigger('click')
-    await settle(w)
+    await settle()
 
-    expect(cancelOpsTasks).toHaveBeenCalledWith({ ids: ['t1'] })
+    expect(liveCaps()).toContain('logs')
+    expect(w.text()).toContain('log-line-1')
   })
 
-  // Pod 日志：行上的「日志」必须下发 container.logs（带命名空间与 Pod 名），
-  // 并把回执按原样展示——日志重排过就等于换了一份内容。
-  it('Pod 行上的「日志」下发 container.logs 并按原样展示日志行', async () => {
-    getOpsTask.mockImplementation(async (id) => {
-      if (id === 't3') {
-        return {
-          task: {
-            id,
-            state: 'succeeded',
-            json: JSON.stringify({
-              kind: 'container.logs',
-              columns: ['日志'],
-              rows: [['line-1'], ['line-2']],
-              total: 2,
-              truncated: false,
-              notice: 'Pod default/web-1 · 最近 200 行',
-            }),
-          },
-        }
-      }
-      return {
-        task: {
-          id,
-          state: 'succeeded',
-          json: JSON.stringify({
-            columns: ['命名空间', '名称'], rows: [['default', 'web-1']], total: 1, truncated: false,
-          }),
-        },
-      }
-    })
-
+  it('点行打开详情：直连 object 并按字段/值两列展示', async () => {
     const w = mountView()
-    await settle(w)
-    const tabs = w.findAll('.el-tabs__item')
-    await tabs[1].trigger('click') // Pod
-    await settle(w)
+    await settle()
 
-    const logBtn = w.findAll('button').find((b) => b.text() === '日志')
-    expect(logBtn).toBeTruthy()
-    await logBtn.trigger('click')
-    await settle(w)
+    await w.findAll('.el-table__row')[0].trigger('click')
+    await settle()
 
-    const call = createOpsTask.mock.calls.at(-1)[0]
-    expect(call.kind).toBe('container.logs')
-    expect(call.params).toMatchObject({ cluster: CLUSTER_A.name, namespace: 'default', name: 'web-1' })
-
-    // 抽屉走 teleport，断言落在 body 上
-    expect(document.body.textContent).toContain('line-1')
-    expect(document.body.textContent).toContain('line-2')
-    expect(document.body.textContent).toContain('最近 200 行')
+    expect(liveCaps()).toContain('object')
+    // 状态是服务端翻好的中文（k8sproxy.zhPodStatus）：判定值保持英文，展示层不出英文。
+    expect(w.text()).toContain('运行中')
   })
+})
 
-  // 跨页联动：容器页的 Pod/工作负载行 → 台账资产详情。
-  // 集群必须传 **apiserver 地址**（台账的自然键就是按它建的），传别名会查不到。
-  it('Pod 行上的「台账」命中后跳到资产详情，未命中给明确提示', async () => {
-    lookupAsset.mockResolvedValue({ ok: true, status: 200, body: { asset: { id: 42 } } })
-    // Pod 列表的列序是「命名空间, 名称」（见 DETAIL_SPEC.pods）
-    getOpsTask.mockImplementation(async (id) => ({
-      task: {
-        id,
-        state: 'succeeded',
-        json: JSON.stringify({
-          columns: ['命名空间', '名称'], rows: [['default', 'web-1']], total: 1, truncated: false,
-        }),
-      },
-    }))
-
-    const w = mountView()
-    await settle(w)
-    await w.findAll('.el-tabs__item')[1].trigger('click') // Pod
-    await settle(w)
-
-    const btn = w.findAll('button').find((b) => b.text() === '台账')
-    expect(btn).toBeTruthy()
-    await btn.trigger('click')
-    await settle(w)
-
-    expect(lookupAsset).toHaveBeenCalledTimes(1)
-    expect(lookupAsset.mock.calls[0][0]).toMatchObject({
-      type: 'pod', cluster: CLUSTER_A.instance, namespace: 'default', name: 'web-1',
-    })
-    expect(routerPush).toHaveBeenCalledWith({ path: '/assets', query: { id: 42 } })
-
-    // 未命中（404 是正常结果：清单上报有一个采集周期）→ 不跳转，只说清楚
-    lookupAsset.mockResolvedValue({ ok: false, status: 404, body: { error: '资产不存在' } })
-    routerPush.mockClear()
-    await btn.trigger('click')
-    await settle(w)
-    expect(routerPush).not.toHaveBeenCalled()
-    expect(document.body.textContent).toContain('尚未进入台账')
-  })
-
-  // 反向联动：从台账的容器资产点进来（?cluster=&namespace=&pod=），
-  // 必须选中该集群、切到 Pod Tab、并打开那个 Pod 的日志抽屉；参数只认领一次。
-  it('带 ?cluster/namespace/pod 进入时直接定位并打开日志抽屉', async () => {
-    routeQuery = { cluster: CLUSTER_A.instance, namespace: 'default', pod: 'web-1' }
-    const w = mountView()
-    await settle(w)
-
-    expect(routerReplace).toHaveBeenCalledWith({ path: '/container', query: {} })
-    // 选中了集群（否则 currentCluster 为空，下面一切都不会发生）
-    expect(w.findComponent({ name: 'ElSelect' }).props('modelValue')).toBe(keyOf(CLUSTER_A))
-    // 列表与日志是两次独立下发，顺序不保证：按动作找，而不是取最后一次
-    const logsCall = createOpsTask.mock.calls.map((c) => c[0]).find((c) => c.kind === 'container.logs')
-    expect(logsCall).toBeTruthy()
-    expect(logsCall.params).toMatchObject({ namespace: 'default', name: 'web-1' })
-  })
-
-  it('点「查询」= 手动刷新：会重新下发并更新时间', async () => {
-    const w = mountView()
-    await settle(w)
-    expect(calls()).toBe(1)
-
-    const button = w.findAll('button').find((b) => b.text().includes('查询'))
-    expect(button).toBeTruthy()
-    await button.trigger('click')
-    await settle(w)
-
-    expect(calls()).toBe(2)
-    expect(w.text()).toContain('row-for-t2')
-    expect(w.text()).toContain('上次刷新')
-  })
-
-  // 集中日志入口：Pod 行上的「检索日志」跳 /logs?pods=<命名空间>|<Pod>。
-  //
-  // 它和「日志」是**两条数据源不同的路径**（那条是按需拉取，这条是集中日志），
-  // 所以两件事都要钉住：① 参数形态与服务端 `pods=` 完全相同（前端不拼自然键、不猜节点）；
-  // ② 没有 logs:read 时整个入口不出现——点了只会撞 403 的按钮不该摆在那里。
-  function podsPayload() {
-    return async (id) => ({
-      task: {
-        id,
-        state: 'succeeded',
-        json: JSON.stringify({
-          columns: ['命名空间', '名称'], rows: [['nebula-demo', 'web-1']], total: 1, truncated: false,
-        }),
-      },
-    })
-  }
-
+describe('ContainerView · 跨页联动与权限门', () => {
   it('Pod 行「检索日志」跳到集中日志并按容器身份收窄', async () => {
-    getOpsTask.mockImplementation(podsPayload())
-
+    authState.perms = ['logs:read']
     const w = mountView()
-    await settle(w)
-    await w.findAll('.el-tabs__item')[1].trigger('click') // Pod
-    await settle(w)
+    await settle()
+    await clickTab(w, 1) // Pod
 
-    const btn = w.findAll('button').find((b) => b.text().includes('检索日志'))
+    const btn = rowButtons(w).find((b) => b.text() === '检索日志')
     expect(btn).toBeTruthy()
     await btn.trigger('click')
+    await settle()
 
-    // 只带 pods：节点在这里无从得知（猜错就是一个空结果），时间窗用检索页自己的默认
-    expect(routerPush).toHaveBeenCalledWith({ path: '/logs', query: { pods: 'nebula-demo|web-1' } })
-  })
-
-  it('日志抽屉里也能直接跳集中日志（从台账反向进来时正看着这一屏）', async () => {
-    getOpsTask.mockImplementation(podsPayload())
-    routeQuery = { cluster: CLUSTER_A.instance, namespace: 'nebula-demo', pod: 'web-1' }
-
-    const w = mountView()
-    await settle(w)
-
-    const btn = [...document.body.querySelectorAll('button')].find((b) => b.textContent.includes('在集中日志中检索'))
-    expect(btn).toBeTruthy()
-    btn.click()
-    await settle(w)
-
-    expect(routerPush).toHaveBeenCalledWith({ path: '/logs', query: { pods: 'nebula-demo|web-1' } })
+    expect(routerPush).toHaveBeenCalled()
+    const target = routerPush.mock.calls[routerPush.mock.calls.length - 1][0]
+    expect(target.path).toBe('/logs')
+    expect(String(target.query.pods)).toContain('default|web-1')
   })
 
   it('没有 logs:read 时不出现集中日志入口（按需拉取仍可用）', async () => {
     authState.perms = []
-    getOpsTask.mockImplementation(podsPayload())
+    const w = mountView()
+    await settle()
+    await clickTab(w, 1) // Pod
+
+    const labels = rowLabels(w)
+    expect(labels.has('检索日志')).toBe(false)
+    expect(labels.has('日志')).toBe(true)
+  })
+
+  it('Pod 行「台账」命中后跳到资产详情', async () => {
+    lookupAsset.mockResolvedValue({ ok: true, status: 200, body: { asset: { id: 'asset-1' } } })
+    const w = mountView()
+    await settle()
+    await clickTab(w, 1) // Pod
+
+    const btn = rowButtons(w).find((b) => b.text() === '台账')
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await settle()
+
+    expect(routerPush).toHaveBeenCalledWith({ path: '/assets', query: { id: 'asset-1' } })
+  })
+
+  it('带 ?cluster/namespace/pod 进入时直接定位并打开日志抽屉', async () => {
+    routeQuery = { cluster: 'k3s-dev', namespace: 'default', pod: 'web-1' }
+    const w = mountView()
+    await settle()
+
+    // 深链参数只认一次：消费后清掉，否则用户手动切集群又被拽回来
+    expect(routerReplace).toHaveBeenCalledWith({ path: '/container', query: {} })
+    expect(liveCaps()).toContain('logs')
+  })
+
+  it('没有 docker:read 时不出现平台切换开关', async () => {
+    const w = mountView()
+    await settle()
+    expect(w.findAll('.el-radio-button').some((r) => r.text().includes('Docker'))).toBe(false)
+  })
+})
+
+describe('ContainerView · K8s 排障写操作（仍走下行通道）', () => {
+  it('没有 container:write 时不出现写按钮，只读入口仍在', async () => {
+    const w = mountView()
+    await settle()
+
+    const labels = rowLabels(w)
+    expect(labels.has('重启')).toBe(false)
+    expect(labels.has('扩缩容')).toBe(false)
+    expect(labels.has('详情')).toBe(true)
+  })
+
+  it('超管点「重启」：先确认再下发 container.restart，并在成功后重拉列表', async () => {
+    authState.perms = ['logs:read', 'container:write']
+    const w = mountView()
+    await settle()
+
+    const before = liveCalls.length
+    const btn = rowButtons(w).find((b) => b.text() === '重启')
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await settle()
+
+    // 二次确认：此刻还没有下发
+    expect(lastCallOf('container.restart')).toBeFalsy()
+    confirmBox('执行')
+    await settle()
+
+    const call = lastCallOf('container.restart')
+    expect(call).toBeTruthy()
+    expect(call.node).toBe(CLUSTER_A.node)
+    expect(call.params).toMatchObject({
+      cluster: CLUSTER_A.name, namespace: 'default', kind: 'Deployment', name: 'web',
+    })
+    // 写操作改变了集群状态 → 必须重新拉一次列表（读仍然是直连）
+    expect(liveCalls.length).toBeGreaterThan(before)
+  })
+
+  it('Job 行不给「重启」与「扩缩容」（跑完就该退出，没有可重启的语义）', async () => {
+    authState.perms = ['logs:read', 'container:write']
+    payloadByCap.workloads = {
+      kind: 'container.workloads',
+      columns: ['类型', '命名空间', '名称', '期望', '就绪', '可用', '状态'],
+      rows: [['Job', 'default', 'batch', '—', '1', '成功 1 / 失败 0', '已完成']],
+      total: 1,
+    }
+    const w = mountView()
+    await settle()
+
+    const labels = rowLabels(w)
+    expect(labels.has('重启')).toBe(false)
+    expect(labels.has('扩缩容')).toBe(false)
+  })
+
+  it('DaemonSet 行给「重启」但不给「扩缩容」（副本数由节点数决定）', async () => {
+    authState.perms = ['logs:read', 'container:write']
+    payloadByCap.workloads = {
+      kind: 'container.workloads',
+      columns: ['类型', '命名空间', '名称', '期望', '就绪', '可用', '状态'],
+      rows: [['DaemonSet', 'default', 'agent', '3', '3', '3', '就绪']],
+      total: 1,
+    }
+    const w = mountView()
+    await settle()
+
+    const labels = rowLabels(w)
+    expect(labels.has('重启')).toBe(true)
+    expect(labels.has('扩缩容')).toBe(false)
+  })
+
+  it('Pod Tab 的「删除」下发 container.delete', async () => {
+    authState.perms = ['logs:read', 'container:write']
+    const w = mountView()
+    await settle()
+    await clickTab(w, 1) // Pod
+
+    const btn = rowButtons(w).find((b) => b.text() === '删除')
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await settle()
+    confirmBox('执行')
+    await settle()
+
+    const call = lastCallOf('container.delete')
+    expect(call).toBeTruthy()
+    expect(call.params).toMatchObject({ cluster: CLUSTER_A.name, namespace: 'default', name: 'web-1' })
+  })
+})
+
+describe('ContainerView · Docker 平台（同样是直连）', () => {
+  async function enterDocker(w) {
+    const dockerBtn = w.findAll('.el-radio-button').find((r) => r.text().includes('Docker'))
+    expect(dockerBtn).toBeTruthy()
+    await dockerBtn.trigger('click')
+    await settle()
+  }
+
+  it('切到 Docker：拉端点并直连查一次引擎概览（不经过下行通道）', async () => {
+    authState.perms = ['logs:read', 'docker:read']
+    const w = mountView()
+    await settle()
+    await enterDocker(w)
+
+    expect(dockerCalls.some((p) => p.includes('/container/docker/info'))).toBe(true)
+    // 端点定位是 (node, name) 二元组：只按 name 会命中同名的那台别的机器
+    expect(dockerCalls[0]).toContain('node=web-01')
+    expect(dockerCalls[0]).toContain('name=local-docker')
+    expect(w.text()).toContain('27.0.0')
+    expect(createOpsTask).not.toHaveBeenCalled()
+  })
+
+  it('容器 Tab：直连列表，且「详情」直连单个容器', async () => {
+    authState.perms = ['logs:read', 'docker:read']
+    const w = mountView()
+    await settle()
+    await enterDocker(w)
+
+    await clickTab(w, 1) // 容器
+    expect(dockerCalls.some((p) => p.includes('/containers') && p.includes('all=true'))).toBe(true)
+    expect(w.text()).toContain('web-1')
+
+    const btn = rowButtons(w).find((b) => b.text() === '详情')
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await settle()
+    expect(dockerCalls.some((p) => /\/containers\/web-1(\?|$)/.test(p))).toBe(true)
+  })
+
+  it('没有 docker:write 时不出现写按钮，只读入口仍在', async () => {
+    authState.perms = ['logs:read', 'docker:read']
+    const w = mountView()
+    await settle()
+    await enterDocker(w)
+    await clickTab(w, 1) // 容器
+
+    const labels = rowLabels(w)
+    expect(labels.has('停止')).toBe(false)
+    expect(labels.has('删除')).toBe(false)
+    expect(labels.has('详情')).toBe(true)
+  })
+
+  it('超管点「停止」：先二次确认再直连 POST，成功后重新拉列表', async () => {
+    authState.perms = ['logs:read', 'docker:read', 'docker:write']
+    const w = mountView()
+    await settle()
+    await enterDocker(w)
+    await clickTab(w, 1) // 容器
+
+    const before = dockerCalls.length
+    const btn = rowButtons(w).find((b) => b.text() === '停止')
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await settle()
+
+    // 二次确认：此刻还没有发请求
+    expect(dockerWrites().posts.length).toBe(0)
+    confirmBox('停止')
+    await settle()
+
+    const posts = dockerWrites().posts
+    expect(posts.length).toBe(1)
+    expect(posts[0]).toContain('/containers/web-1/stop')
+    // 写操作改变了运行态 → 必须重新拉列表
+    expect(dockerCalls.length).toBeGreaterThan(before)
+  })
+
+  it('运行中的容器只给「停止 / 重启」，不给「启动」', async () => {
+    authState.perms = ['logs:read', 'docker:read', 'docker:write']
+    const w = mountView()
+    await settle()
+    await enterDocker(w)
+    await clickTab(w, 1)
+
+    const labels = rowLabels(w)
+    expect(labels.has('停止')).toBe(true)
+    expect(labels.has('重启')).toBe(true)
+    expect(labels.has('启动')).toBe(false)
+  })
+
+  it('已停止的容器只给「启动」，不给「停止 / 重启」', async () => {
+    authState.perms = ['logs:read', 'docker:read', 'docker:write']
+    http.get.mockImplementation(async (path) => {
+      const p = String(path)
+      if (p.includes('/container/k8s/clusters')) return { clusters: [CLUSTER_A] }
+      if (p.includes('/container/k8s/live-configs')) return { clusters: LIVE_CLUSTERS }
+      if (p.includes('/container/k8s/live/')) return defaultLivePayload('workloads')
+      if (p.includes('/container/docker/endpoints')) return { endpoints: DOCKER_ENDPOINTS }
+      if (p.includes('/container/docker/containers')) {
+        return {
+          kind: 'docker.containers',
+          columns: ['名称', '状态', '镜像', '端口', '创建时间', 'ID'],
+          rows: [['web-1', 'Exited (0) 2 hours ago', 'nginx:1.27', '—', '2026-10-01 10:00:00', 'aaaa11112222']],
+          total: 1,
+        }
+      }
+      return {}
+    })
 
     const w = mountView()
-    await settle(w)
-    await w.findAll('.el-tabs__item')[1].trigger('click') // Pod
-    await settle(w)
+    await settle()
+    await enterDocker(w)
+    await clickTab(w, 1)
 
-    expect(w.text()).toContain('web-1') // Pod 列表照常
-    expect(w.findAll('button').some((b) => b.text().includes('检索日志'))).toBe(false)
-    // 「日志」（按需拉取，只要 container:read）不受影响
-    expect(w.findAll('button').some((b) => b.text() === '日志')).toBe(true)
+    const labels = rowLabels(w)
+    expect(labels.has('启动')).toBe(true)
+    expect(labels.has('停止')).toBe(false)
+    expect(labels.has('重启')).toBe(false)
+  })
+
+  it('unix socket 且不可达的端点给出可执行的提示（不是一句"失败了"）', async () => {
+    authState.perms = ['logs:read', 'docker:read']
+    const w = mountView()
+    await settle()
+    await enterDocker(w)
+
+    // 切到第二个端点（db-docker：unix socket、不可达）
+    const select = w.findComponent({ name: 'ElSelect' })
+    select.vm.$emit('update:modelValue', 'db-01|db-docker')
+    select.vm.$emit('change', 'db-01|db-docker')
+    await settle()
+
+    expect(w.text()).toContain('unix socket')
+    expect(w.text()).toContain('tcp://')
   })
 })
