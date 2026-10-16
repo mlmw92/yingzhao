@@ -16,7 +16,7 @@ import { useBrand } from '../composables/useBrand'
 import { WEB_VERSION } from '../version'
 
 const { brand } = useBrand()
-const brandName = computed(() => brand.name || 'NebulaEye')
+const brandName = computed(() => brand.name || '守微')
 // 版本号来自 build 生成的 src/version.js（与 server/agent 经 ldflags 注入的版本同源）
 const version = WEB_VERSION
 const footerText = computed(() => brand.footer || '')

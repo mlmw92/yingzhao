@@ -31,9 +31,9 @@ type UIConfig struct {
 	Subtitle string `yaml:"subtitle" json:"subtitle"` // 侧栏副标题（如「监控中心」），留空则不显示
 }
 
-// DefaultUIConfig 返回默认品牌（系统名 NebulaEye，无自定义 Logo 时使用前端默认徽标）。
+// DefaultUIConfig 返回默认品牌（系统名 守微，无自定义 Logo 时使用前端默认徽标）。
 func DefaultUIConfig() UIConfig {
-	return UIConfig{Name: "NebulaEye", Logo: "", Footer: "", Subtitle: "监控中心"}
+	return UIConfig{Name: "守微", Logo: "", Footer: "", Subtitle: "监控中心"}
 }
 
 // Manager 负责 UI 配置的加载与落盘。

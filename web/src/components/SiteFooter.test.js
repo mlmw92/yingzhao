@@ -9,13 +9,13 @@ describe('站点页脚', () => {
   const { brand } = useBrand()
 
   beforeEach(() => {
-    brand.name = 'NebulaEye'
+    brand.name = '守微'
     brand.footer = ''
   })
 
   it('展示品牌名与构建版本号', () => {
     const w = mount(SiteFooter)
-    expect(w.find('.site-footer__name').text()).toBe('NebulaEye')
+    expect(w.find('.site-footer__name').text()).toBe('守微')
     expect(w.find('.site-footer__ver').text()).toBe(`v${WEB_VERSION}`)
     w.unmount()
   })
