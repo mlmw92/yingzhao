@@ -12,7 +12,7 @@ import (
 func (a *API) handleUIGet(w http.ResponseWriter, r *http.Request) {
 	cfg := a.uiMgr.Get()
 	if cfg.Name == "" {
-		cfg.Name = "守微"
+		cfg.Name = "NebulaEye"
 	}
 	writeJSON(w, http.StatusOK, cfg)
 }

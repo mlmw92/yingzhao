@@ -1,6 +1,6 @@
 # 角色权限管理（RBAC）设计文档
 
-> 适用范围：守微 Server（单机 / `standalone` 模式）+ Web 管理台。
+> 适用范围：Nebula Monitor Server（单机 / `standalone` 模式）+ Web 管理台。
 > 本文档为设计与实施规格，供后端、前端、测试与运维依据使用。
 > 面向终端用户的操作说明见 `README.md` 的「角色权限管理」章节。
 

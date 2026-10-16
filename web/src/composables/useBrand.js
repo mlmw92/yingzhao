@@ -7,7 +7,7 @@ import http from '../api/http'
 const STORAGE_KEY = 'nebula_brand'
 
 function defaults() {
-  return { name: '守微', logo: '', footer: '', subtitle: '监控中心' }
+  return { name: 'NebulaEye', logo: '', footer: '', subtitle: '监控中心' }
 }
 
 function loadCache() {

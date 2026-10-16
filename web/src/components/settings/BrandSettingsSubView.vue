@@ -108,7 +108,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBrand } from '../../composables/useBrand'
 
 const { brand, saveBrand } = useBrand()
-const DEFAULTS = { name: '守微', logo: '', footer: '', subtitle: '监控中心' }
+const DEFAULTS = { name: 'NebulaEye', logo: '', footer: '', subtitle: '监控中心' }
 const form = ref({ ...DEFAULTS })
 const baseline = ref({ ...DEFAULTS })
 const fileInput = ref(null)

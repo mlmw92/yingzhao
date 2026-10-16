@@ -7,7 +7,7 @@
       <div class="brand">
         <img v-if="brand.logo" :src="brand.logo" class="logo-img" alt="logo" />
         <div class="brand-text">
-          <h1>{{ brand.name || '守微' }}</h1>
+          <h1>{{ brand.name || 'NebulaEye' }}</h1>
           <p v-if="brand.subtitle">{{ brand.subtitle }}</p>
           <p v-else class="default-sub">服务器监控系统</p>
         </div>
