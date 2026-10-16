@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------------
-# nebula-monitor 离线发布包组装脚本
+# yingzhao（英招）离线发布包组装脚本
 #   产出两种 tarball 到 dist/release/：
 #     1) -full       首次部署用（bin + web + deploy + packages + install.sh）
 #     2) -upgrade    增量升级用（bin + web + deploy/agent-install.sh + VERSION + SHA256SUMS + UPGRADE.md）
@@ -13,15 +13,15 @@
 #     可用 ./build/fetch-packages.sh 自动拉取（CI 常用）
 #
 # 输出:
-#   dist/release/nebula-monitor-v{VERSION}-full.tar.gz
-#   dist/release/nebula-monitor-v{VERSION}-upgrade.tar.gz
+#   dist/release/yingzhao-v{VERSION}-full.tar.gz
+#   dist/release/yingzhao-v{VERSION}-upgrade.tar.gz
 # ----------------------------------------------------------------------------
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 VERSION="$(bash "$ROOT/build/version.sh")"
-NAME="nebula-monitor-v${VERSION}"
+NAME="yingzhao-v${VERSION}"
 STAGE_ROOT="${ROOT}/dist/release"
 OUT_FULL="${STAGE_ROOT}/${NAME}-full.tar.gz"
 OUT_UPGRADE="${STAGE_ROOT}/${NAME}-upgrade.tar.gz"
@@ -271,7 +271,7 @@ cat > "$STAGE_FULL/README.md" <<EOF
 ## 1) 部署 Server（含自带 CDN，向已部署的时序库写入）
 
 \`\`\`
-tar -xzf nebula-monitor-v${VERSION}-full.tar.gz
+tar -xzf yingzhao-v${VERSION}-full.tar.gz
 cd ${NAME}-full
 sudo ./install.sh server \\
     --listen :8080 \\
@@ -417,7 +417,7 @@ cat > "$STAGE_UPGRADE/UPGRADE.md" <<EOF
 
 \`\`\`
 # 1. 解压
-tar -xzf nebula-monitor-v${VERSION}-upgrade.tar.gz
+tar -xzf yingzhao-v${VERSION}-upgrade.tar.gz
 cd ${NAME}-upgrade
 
 # 2. 替换 server 二进制（按本机架构取对应文件）

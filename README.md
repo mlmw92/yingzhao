@@ -1,4 +1,4 @@
-# Nebula Monitor
+# 英招
 
 <div align="center">
 
@@ -10,6 +10,27 @@
 [![Platform](https://img.shields.io/badge/platform-linux--amd64%20%7C%20arm64%20%7C%20arm-lightgrey.svg)](https://github.com/mlmw92/nebula-monitor/releases)
 
 </div>
+
+## 名字含义
+
+**英招**（yīng zhāo）是《山海经·西次三经》里的天神，司掌天帝的园圃「平圃」（又称玄圃）。
+
+> 又西三百二十里，曰槐江之山。……实惟帝之平圃，**神英招司之**，其状马身而人面，
+> 虎文而鸟翼，**徇于四海**，其音如榴。 ——《山海经·西次三经》
+
+晋代郭璞《山海经图赞》给他的赞语是：「槐江之山，**英招是主**。**巡游四海**，抚翼云舞。实惟帝囿，有谓玄圃。」
+
+他的三项职责，恰好就是这套系统要做的三件事：
+
+| 英招的职责 | 对应到本平台 |
+|---|---|
+| **徇于四海**——巡游四方、传达天帝号令 | 巡检每个节点，采集并上报状态 |
+| **司掌平圃**——坐镇玄圃、看守园中珍宝 | 值守一片区域，纳管主机 / 中间件 / 资产 |
+| **监管凶兽**——看住土蝼、钦原等害兽 | 发现并盯住异常，把告警送到人 |
+
+后世常把英招简化为「看园子的神兽」，其实他与驻守昆仑正丘、掌管天之九部的**陆吾**同为天帝倚重之神，
+只是分工不同：陆吾偏内务，英招偏外勤。
+
 
 ## 特性
 
@@ -461,6 +482,7 @@ securityStoreFile: /var/lib/monitor-server/security_store.json
 
 ## 目录
 
+- [名字含义](#名字含义)
 - [特性](#特性)
 - [架构](#架构)
 - [功能清单](#功能清单)
@@ -486,9 +508,9 @@ securityStoreFile: /var/lib/monitor-server/security_store.json
 
 ```bash
 VERSION=1.17.27
-curl -fsSL -O https://github.com/mlmw92/nebula-monitor/releases/download/v${VERSION}/nebula-monitor-v${VERSION}-full.tar.gz
-tar -xzf nebula-monitor-v${VERSION}-full.tar.gz
-cd nebula-monitor-v${VERSION}-full
+curl -fsSL -O https://github.com/mlmw92/nebula-monitor/releases/download/v${VERSION}/yingzhao-v${VERSION}-full.tar.gz
+tar -xzf yingzhao-v${VERSION}-full.tar.gz
+cd yingzhao-v${VERSION}-full
 sudo ./install.sh
 
 # 菜单选项：【1】安装 server  【2】安装 agent  【3】安装 VictoriaMetrics
@@ -557,7 +579,7 @@ sudo bash deploy/uninstall.sh --all --yes
 
 ### Server 升级（Web 端推荐）
 
-在仪表盘「系统升级」页上传 `nebula-monitor-v<VERSION>-upgrade.tar.gz`，自动解析 `manifest.json` 显示新版本信息（版本号、各组件架构/大小/SHA256），点击「立即升级」完成备份 → 替换 → 重启。同时也支持 `--upgrade` 脚本方式：
+在仪表盘「系统升级」页上传 `yingzhao-v<VERSION>-upgrade.tar.gz`，自动解析 `manifest.json` 显示新版本信息（版本号、各组件架构/大小/SHA256），点击「立即升级」完成备份 → 替换 → 重启。同时也支持 `--upgrade` 脚本方式：
 
 ```bash
 sudo bash deploy/install-server.sh --upgrade --tsdb-addr http://<tsdb>:8428
@@ -636,8 +658,8 @@ dist/artifacts/web/index.html + assets/
 bash build/release.sh
 
 # 产出：
-#   dist/release/nebula-monitor-v<VERSION>-full.tar.gz      首次部署，含全部资源
-#   dist/release/nebula-monitor-v<VERSION>-upgrade.tar.gz   增量升级，含 bin + web
+#   dist/release/yingzhao-v<VERSION>-full.tar.gz      首次部署，含全部资源
+#   dist/release/yingzhao-v<VERSION>-upgrade.tar.gz   增量升级，含 bin + web
 ```
 
 | 包 | 用途 | 包含 |
@@ -978,8 +1000,8 @@ dist/                     编译产物（不入库）
     web/index.html + assets/              前端构建产物
     packages/                             第三方依赖
   release/                 release.sh 产出的 tarball
-    nebula-monitor-v<VERSION>-full.tar.gz
-    nebula-monitor-v<VERSION>-upgrade.tar.gz
+    yingzhao-v<VERSION>-full.tar.gz
+    yingzhao-v<VERSION>-upgrade.tar.gz
 ```
 
 ---

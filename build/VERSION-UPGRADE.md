@@ -68,8 +68,8 @@ journalctl -u monitor-server | grep 'Server 启动'   # 日志 version 字段应
 `cross-compile.sh` 只产散落的 `dist/artifacts/bin/{server,agent}/linux/<arch>/` 二进制，
 不便于直接交给运维。运行 `build/release.sh` 会把它们打包为两个 tarball 到 `dist/release/`：
 
-- `nebula-monitor-v{VERSION}-full.tar.gz` — 首次部署（含 deploy + packages + install.sh）
-- `nebula-monitor-v{VERSION}-upgrade.tar.gz` — 增量升级（仅 bin + web，轻量）
+- `yingzhao-v{VERSION}-full.tar.gz` — 首次部署（含 deploy + packages + install.sh）
+- `yingzhao-v{VERSION}-upgrade.tar.gz` — 增量升级（仅 bin + web，轻量）
 
 ```bash
 # 在第 2 步之后追加（release.sh 会自动构建前端、按需重编译二进制，无需手动 build-web.sh）：
@@ -85,8 +85,8 @@ bash build/release.sh             # 组装两个 tarball（自动 build-web / �
 ### full 包用法
 
 ```bash
-tar -xzf nebula-monitor-v{VERSION}-full.tar.gz
-cd nebula-monitor-v{VERSION}-full
+tar -xzf yingzhao-v{VERSION}-full.tar.gz
+cd yingzhao-v{VERSION}-full
 sudo ./install.sh server --listen :8080 --tsdb-addr http://10.0.0.10:8428 --agent-auth --yes
 sudo ./install.sh agent  --server http://10.0.0.10:8080 --secret <key>
 ```
@@ -96,8 +96,8 @@ sudo ./install.sh agent  --server http://10.0.0.10:8080 --secret <key>
 只需替换二进制 + 重启（详见包内 `UPGRADE.md`）：
 
 ```bash
-tar -xzf nebula-monitor-v{VERSION}-upgrade.tar.gz
-cd nebula-monitor-v{VERSION}-upgrade
+tar -xzf yingzhao-v{VERSION}-upgrade.tar.gz
+cd yingzhao-v{VERSION}-upgrade
 # 用 install -m 0755：规避运行中二进制的 "Text file busy"，且保证执行位
 sudo install -m 0755 bin/server/linux/<arch>/server /usr/local/bin/monitor-server
 sudo rsync -a --delete web/ /etc/monitor-server/web/

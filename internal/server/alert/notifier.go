@@ -210,7 +210,7 @@ func emailHTML(e model.AlertEvent) string {
 <body style="margin:0;padding:0;background:#f5f7fa;font-family:'Microsoft YaHei','PingFang SC',sans-serif;">
 <div style="max-width:640px;margin:24px auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
   <div style="background:%s;color:#fff;padding:20px 24px;">
-    <div style="font-size:13px;opacity:.9;">Nebula Monitor 监控告警</div>
+    <div style="font-size:13px;opacity:.9;">英招 监控告警</div>
     <div style="font-size:22px;font-weight:600;margin-top:6px;">%s</div>
     <div style="margin-top:10px;">
       <span style="display:inline-block;background:%s;color:%s;font-size:12px;padding:2px 10px;border-radius:12px;margin-right:6px;">级别 %s</span>
@@ -232,7 +232,7 @@ func emailHTML(e model.AlertEvent) string {
     <div style="background:#f5f7fa;border-radius:6px;padding:12px 14px;font-size:13px;color:#606266;line-height:1.6;">%s</div>
   </div>
   <div style="padding:14px 24px;background:#fafafa;color:#c0c4cc;font-size:12px;border-top:1px solid #ebeef5;">
-    本邮件由 Nebula Monitor 自动发送，请勿直接回复。
+    本邮件由 英招 自动发送，请勿直接回复。
   </div>
 </div>
 </body></html>`,
@@ -551,7 +551,7 @@ func groupEmailHTML(events []model.AlertEvent) string {
 <body style="margin:0;padding:0;background:#f5f7fa;font-family:'Microsoft YaHei','PingFang SC',sans-serif;">
 <div style="max-width:720px;margin:24px auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
   <div style="background:#303133;color:#fff;padding:18px 24px;">
-    <div style="font-size:13px;opacity:.9;">Nebula Monitor 监控告警汇总</div>
+    <div style="font-size:13px;opacity:.9;">英招 监控告警汇总</div>
     <div style="font-size:20px;font-weight:600;margin-top:6px;">共 %d 条告警（最高级别 %s）</div>
   </div>
   <div style="padding:18px 24px;">

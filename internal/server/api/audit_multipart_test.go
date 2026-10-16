@@ -17,7 +17,7 @@ import (
 func TestAuditMiddlewareDoesNotBreakMultipartUpload(t *testing.T) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	fw, _ := mw.CreateFormFile("file", "nebula-monitor-v1.2.3-upgrade.tar.gz")
+	fw, _ := mw.CreateFormFile("file", "yingzhao-v1.2.3-upgrade.tar.gz")
 	payload := bytes.Repeat([]byte("X"), 8*1024*1024) // 8MB，远超审计读取阈值
 	fw.Write(payload)
 	mw.Close()

@@ -87,7 +87,7 @@
         </div>
         <template #tip>
           <div class="el-upload__tip">
-            支持 nebula-monitor-v*-upgrade.tar.gz；最大 500MB
+            支持 *-upgrade.tar.gz（如 yingzhao-v1.30.80-upgrade.tar.gz）；最大 500MB
           </div>
         </template>
       </el-upload>

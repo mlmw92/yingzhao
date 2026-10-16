@@ -863,7 +863,7 @@ func (m *Manager) restart() error {
 // ---- 工具函数 ----
 
 func untarGz(src, dst string) error {
-	// 兼容两种打包方式：带唯一顶层目录（如 nebula-monitor-v1.1.0-upgrade/）
+	// 兼容两种打包方式：带唯一顶层目录（如 yingzhao-v1.1.0-upgrade/）
 	// 或扁平包（manifest.json 在根）。若全部条目共享同一顶层目录，则剥离该前缀。
 	prefix := tarLeadingPrefix(src)
 

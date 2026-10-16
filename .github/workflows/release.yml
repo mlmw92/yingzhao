@@ -104,8 +104,8 @@ jobs:
           name: ${{ steps.resolve.outputs.release_tag }}
           draft: ${{ inputs.draft == true }}
           files: |
-            dist/release/nebula-monitor-v*-full.tar.gz
-            dist/release/nebula-monitor-v*-upgrade.tar.gz
+            dist/release/yingzhao-v*-full.tar.gz
+            dist/release/yingzhao-v*-upgrade.tar.gz
           generate_release_notes: true
           fail_on_unmatched_files: true
           overwrite_files: true   # 重跑时覆盖同名资产（修复 bug 后可重新发布到同 tag）
