@@ -7,7 +7,7 @@
 >
 > 覆盖进度：**第一章 告警事件管道**、**第二章 集中日志**（本版）。告警规则阈值、通知渠道
 > 两章的模板与"想做什么 → 去哪配"索引见后续版本；在补齐之前，那几项的字段说明分别在
-> README「配置说明」与 `docs/designs/c2-central-logs.md`。
+> `configuration-reference.md`（本目录，逐字段参考）与 `docs/designs/c2-central-logs.md`。
 
 ---
 

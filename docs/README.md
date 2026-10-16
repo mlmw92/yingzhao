@@ -10,7 +10,7 @@
 |---|---|
 | 某个功能**有没有做**、做到什么程度 | `superpowers/specs/2026-09-30-ops-platform-capability-map.md`——**功能全景与实现状态对照表**（14 个领域 × 已实现/部分实现/未实现 × 优先级 × 复杂度）。**行级状态是权威**，域表数字跟随它 |
 | 这次升级**要注意什么** | `releases/release-notes-v1.30.0.md`——面向运维；含「**刻意不做**」与「**风险后置**」两张清单、以及两条**运维动作**（备份审计链密钥、把日志锚点送往异地） |
-| 系统**怎么用、怎么配** | 仓库根目录 `README.md`（部署/升级/配置/API 全量）+ 本目录 `guides/configuration-cookbook.md`（可复制的配置模板） |
+| 系统**怎么用、怎么配** | 仓库根目录 `README.md`（部署 / 升级 / 上手）+ 本目录 `guides/` 三份：`configuration-reference.md`（**逐字段配置参考**）、`api-reference.md`（**接口清单**）、`configuration-cookbook.md`（可复制的配置模板）。配置与 API 原先挤在 README 里（占其一半篇幅），2026-10-16 下沉到 `guides/` |
 
 > **读文档前的一条规矩**：本仓库的文档里，**设计件**写的是"当时打算怎么做 + 实施记录 + 实机结果"，
 > **不代表现状**；**状态以全景表的行级状态为准**。凡被移入 `archive/` 的，一律**不要当现状读**。
@@ -25,7 +25,7 @@
 | `superpowers/specs/` | **设计件**——功能设计 + 实施记录 + 实机验证结果 | `YYYY-MM-DD-主题-design.md` |
 | `superpowers/plans/` | **实施计划**——批次拆解与执行顺序 | `YYYY-MM-DD-主题.md` |
 | `designs/` | **早期设计件**（成文时未按 `YYYY-MM-DD` 命名，如 C2 集中日志、A1 高可用） | 主题名 |
-| `guides/` | **现役的横切文档**：权限矩阵、RBAC、配置手册 | 主题名 |
+| `guides/` | **现役的横切文档**：权限矩阵、RBAC、配置参考（字段）、API 参考、配置模板手册 | 主题名 |
 | `releases/` | **发布说明** | `release-notes-v<版本>.md` |
 | `notes/` | **排查与修复记录**（方法可复用的那种） | 主题名 |
 | `prototypes/` | **静态原型**（设计参考稿，**不是可运行页面**） | 主题名 |
@@ -131,6 +131,8 @@
 | `guides/permission-matrix.md` | **权限矩阵**：路由 → 权限点 → 资源范围（**权限相关的现状以它为准**） |
 | `guides/role-permission-management.md` | RBAC 设计文档（角色模型、资源范围、迁移策略） |
 | `guides/configuration-cookbook.md` | **配置模板手册**：可复制的告警事件管道、集中日志等配置模板 |
+| `guides/configuration-reference.md` | **配置参考**：`server.yaml` / `agent.yaml` 逐字段说明、各中间件实例配置、采集项开关（**字段语义以它为准**；2026-10-16 从 README 下沉） |
+| `guides/api-reference.md` | **API 参考**：`/api/v1` 接口清单，按域分组并标注权限点与公开接口（2026-10-16 从 README 下沉） |
 
 ### `designs/`（早期设计件，未按日期命名）
 
