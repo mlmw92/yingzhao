@@ -1,21 +1,26 @@
-// Package k8sproxy 管理 Server 侧的 K8s 集群连接配置，并提供只读的 apiserver 实时查询代理。
+// Package k8sproxy 管理 Server 侧的 K8s 集群连接配置，并提供只读的 apiserver 实时查询。
 //
 // 这是 ADR-0004 对 ADR-0003 的修订：平台定位升级为运维平台后，资源清单需要
 // 「点开即得」的实时态——异步下发的延迟等于一个上报周期，不满足管理面的要求。
 // 凭据由运维在 Server 上手工维护于独立配置文件（含 token/kubeconfig，文件权限应设
-// 0600），每次查询时读取、修改即时生效、无需重启。指标仍走 Agent 采集入库——
-// apiserver 本身没有时序数据，这是 K8s 的硬事实。两条通路并存：Agent 不可达或
-// 网闸部署的场景仍走 ADR-0003 的异步任务。
+// 0600），每次查询时读取、修改即时生效、无需重启。
+//
+// 2026-10-10（ADR-0006）：这条通路从「与异步下行并存」变成 K8s 侧的**唯一**读通路——
+// 那 5 个下行动作（container.workloads / pods / describe / events / logs）已删除。
+// 查询结果不是 apiserver 的原始 JSON，而是**白名单投影**（见 query.go）：
+// 原始对象里 Pod 的 env[].value、ConfigMap 的 data、注解里的 last-applied-configuration
+// 都可能含明文密钥，脱敏规则漏一个字段就是一次凭据泄露。
+//
+// 指标仍走 Agent 采集入库——apiserver 本身没有时序数据，这是 K8s 的硬事实。
+// 写操作（重启工作负载 / 扩缩容 / 删除 Pod）也仍走 ADR-0003 的异步下行：
+// 它们要的是逐机护栏与 Agent 本地的集群凭据。
 package k8sproxy
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -148,43 +153,6 @@ func buildConn(c Cluster) (*conn, error) {
 		token:  token,
 		client: &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsCfg}},
 	}, nil
-}
-
-// GetJSON 向指定集群的 apiserver 发起 GET，把响应体原样透传。
-// 路径必须以 / 开头；凭据未配置的集群返回错误（由调用方决定如何呈现）。
-func (m *Manager) GetJSON(ctx context.Context, name, path string) (json.RawMessage, error) {
-	c, ok := m.Get(name)
-	if !ok {
-		return nil, fmt.Errorf("集群 %q 未在 %s 中配置", name, m.path)
-	}
-	conn, err := buildConn(c)
-	if err != nil {
-		return nil, err
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, conn.server+path, nil)
-	if err != nil {
-		return nil, err
-	}
-	if conn.token != "" {
-		req.Header.Set("Authorization", "Bearer "+conn.token)
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := conn.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("apiserver 返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	return json.RawMessage(body), nil
 }
 
 // ---- kubeconfig YAML 的精简解析（取 current-context 对应的 cluster 与 user）----

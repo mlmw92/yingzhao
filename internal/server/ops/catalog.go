@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/nebula/monitor/internal/model"
@@ -29,6 +28,15 @@ const (
 	PermRead = "ops:read"
 	// PermExec 创建（下发）操作任务，属高风险权限。
 	PermExec = "ops:exec"
+	// PermContainerWrite 是 K8s 排障写动作（重启工作负载 / 扩缩容 / 删除 Pod）所需的域权限点。
+	//
+	// 它是**超管专属**（用户 2026-10-10 拍板：三项写操作全都只给超管）。
+	// 只读的 container:read 仍然给运维管理员——"能看"与"能改"是两次不同的授权。
+	//
+	// 注意 docker:read / docker:write 的判定**不在这里**：Docker 管理面（ADR-0006）走
+	// Server 直连接口，权限在路由层由 a.permit 表达（见 api/docker_api.go），
+	// 不经过本动作目录。域权限点本身仍定义在 auth 的权限目录里。
+	PermContainerWrite = "container:write"
 )
 
 // 内置动作标识。字面量定义在 internal/model（Agent 侧分派用的是同一批，不能各写一份）。
@@ -40,13 +48,15 @@ const (
 	// KindSvcRestart 重启 systemd 单元（**写**，默认被本机护栏挡下）。
 	KindSvcRestart = model.OpsKindSvcRestart
 
-	// 容器/K8s 只读查询。集群标识取 Agent 本地的 k8sInstances[].name——
-	// 凭据只在 Agent 本地，Server 侧只知道"有这么个集群"，不知道它的 kubeconfig。
-	KindContainerWorkloads = model.OpsKindContainerWorkloads
-	KindContainerPods      = model.OpsKindContainerPods
-	KindContainerDescribe  = model.OpsKindContainerDescribe
-	KindContainerEvents    = model.OpsKindContainerEvents
-	KindContainerLogs      = model.OpsKindContainerLogs
+	// K8s 排障写动作（**写**，默认被本机护栏挡下；权限点是超管专属的 container:write）。
+	//
+	// 只读查询**不在这里**：2026-10-10 重规划（ADR-0006）之后，K8s 对象级查询与整套
+	// Docker 管理面都改为 Server 直连（k8sproxy / dockerproxy），不再经过下行通道——
+	// 「异步下发的延迟等于一个上报周期，不满足管理面的要求」（ADR-0004）。
+	// 写操作仍走下行通道：它们要的是 Agent 本地的集群凭据与逐机护栏。
+	KindContainerRestart = model.OpsKindContainerRestart
+	KindContainerScale   = model.OpsKindContainerScale
+	KindContainerDelete  = model.OpsKindContainerDelete
 
 	// KindFilePush 向目标机器分发文件（**写**，默认被本机护栏挡下）。
 	// 它不复用 guards.ops.write/units，而是有自己的 guards.ops.file（见 model.OpsKindFilePush）。
@@ -59,7 +69,10 @@ var (
 	clusterPattern    = model.OpsClusterPattern
 	namespacePattern  = model.OpsNamespacePattern
 	objectNamePattern = model.OpsObjectNamePattern
-	resourcePattern   = model.OpsContainerResourcePattern
+
+	replicasPattern     = model.OpsReplicasPattern
+	workloadKindPattern = model.OpsWorkloadKindPattern
+	scalableKindPattern = model.OpsScalableKindPattern
 	filePathPattern   = model.OpsFilePathPattern
 	fileRefPattern    = model.OpsFileRefPattern
 	fileModePattern   = model.OpsFileModePattern
@@ -86,8 +99,15 @@ type Action struct {
 	Group string `json:"group"`
 	Desc  string `json:"desc"`
 	// ReadOnly 为 true 表示该动作不改变目标机器状态；为 false 的动作需要 Agent 本机护栏显式放行。
-	ReadOnly bool    `json:"readOnly"`
-	Params   []Param `json:"params,omitempty"`
+	ReadOnly bool `json:"readOnly"`
+	// Perm 是**除入口权限 ops:exec 之外**还必须具备的域权限点（如 docker:read / container:write）。
+	//
+	// 为什么把权限点写在动作目录里，而不是在 api 层再维护一份 kind → 权限点映射：
+	// 后者是同一件事的两处定义，新增动作时容易只改目录、漏改映射，而**漏改的症状是
+	// 「权限没校验」**——静默放大权限，是最危险的一类遗漏。写在这里则「新增动作只改目录一处」
+	// 这条既有承诺继续成立（见 docs/superpowers/specs/2026-10-10-container-workload-management-design.md §六 决策点 D4）。
+	Perm   string  `json:"perm,omitempty"`
+	Params []Param `json:"params,omitempty"`
 	// NeedAgent 是 Agent 侧需要实现的动作版本（仅用于界面提示，不参与校验）。
 	NeedAgent string `json:"needAgent,omitempty"`
 }
@@ -114,66 +134,44 @@ var catalog = []Action{
 				Example: "nginx.service", Desc: "systemd 单元名，需以 .service 结尾，且必须在目标机器的允许清单里"},
 		},
 	},
+	// ---- K8s 排障写操作（批次 C）----
+	//
+	// 与 Docker 写动作同一取向：另开分组（「容器」分组被既有守卫断言为只读）、
+	// 权限点是超管专属、默认被本机护栏挡下。
 	{
-		Kind: KindContainerWorkloads, Title: "查询工作负载", Group: "容器", ReadOnly: true,
-		Desc: "列出集群（可指定命名空间）下的 Deployment / StatefulSet / DaemonSet / Job 与副本就绪情况。凭据只在 Agent 本地，指令延迟约为一个上报周期",
+		Kind: KindContainerRestart, Title: "重启工作负载", Group: "容器操作", ReadOnly: false, Perm: PermContainerWrite,
+		Desc: "滚动重启一个工作负载（等价 kubectl rollout restart）：给 Pod 模板打一个重启时间戳，控制器逐个替换 Pod，服务不中断。默认不可用：需要目标机器在 agent.yaml 的 guards.ops 里显式开启容器写操作",
 		Params: []Param{
 			{Name: "cluster", Title: "集群", Required: true, Pattern: clusterPattern.String(),
 				Example: "prod-k8s", Desc: "目标机器 agent.yaml 里 k8sInstances[].name 的取值"},
-			{Name: "namespace", Title: "命名空间", Pattern: namespacePattern.String(),
-				Example: "default", Desc: "留空表示全部命名空间"},
+			{Name: "namespace", Title: "命名空间", Required: true, Pattern: namespacePattern.String(), Example: "default"},
+			{Name: "kind", Title: "类型", Required: true, Pattern: workloadKindPattern.String(),
+				Example: "Deployment", Desc: "Deployment / StatefulSet / DaemonSet"},
+			{Name: "name", Title: "名称", Required: true, Pattern: objectNamePattern.String(), Example: "web"},
 		},
 	},
 	{
-		Kind: KindContainerPods, Title: "查询 Pod", Group: "容器", ReadOnly: true,
-		Desc: "列出 Pod 的状态、重启次数、所在节点与所属工作负载，用于快速定位 CrashLoopBackOff / Pending 之类的异常",
-		Params: []Param{
-			{Name: "cluster", Title: "集群", Required: true, Pattern: clusterPattern.String(), Example: "prod-k8s"},
-			{Name: "namespace", Title: "命名空间", Pattern: namespacePattern.String(),
-				Example: "default", Desc: "留空表示全部命名空间"},
-		},
-	},
-	{
-		Kind: KindContainerDescribe, Title: "查看对象详情", Group: "容器", ReadOnly: true,
-		Desc: "单个对象的只读详情（状态、条件、容器镜像与最近事件摘要）。Secret 类敏感字段一律以占位符替换，且 secret 资源本身不在可选范围内",
+		Kind: KindContainerScale, Title: "调整副本数", Group: "容器操作", ReadOnly: false, Perm: PermContainerWrite,
+		Desc: fmt.Sprintf("调整一个工作负载的副本数（0 到 %d）。注意：0 副本等于让这项服务下线。默认不可用：需要目标机器显式开启容器写操作", model.OpsMaxReplicas),
 		Params: []Param{
 			{Name: "cluster", Title: "集群", Required: true, Pattern: clusterPattern.String(), Example: "prod-k8s"},
 			{Name: "namespace", Title: "命名空间", Required: true, Pattern: namespacePattern.String(), Example: "default"},
-			{Name: "resource", Title: "资源类型", Required: true, Pattern: resourcePattern.String(),
-				Example: "pods", Desc: "pods / deployments / statefulsets / daemonsets / jobs / services / configmaps"},
-			{Name: "name", Title: "对象名", Required: true, Pattern: objectNamePattern.String(),
-				Example: "web-7d9f8c6b5-x2k4p"},
+			{Name: "kind", Title: "类型", Required: true, Pattern: scalableKindPattern.String(),
+				Example: "Deployment", Desc: "Deployment / StatefulSet（DaemonSet 的副本数由节点数决定，不支持）"},
+			{Name: "name", Title: "名称", Required: true, Pattern: objectNamePattern.String(), Example: "web"},
+			{Name: "replicas", Title: "副本数", Required: true, Pattern: replicasPattern.String(),
+				Example: "3", Desc: fmt.Sprintf("0-%d；填 0 等于让这项服务下线", model.OpsMaxReplicas)},
 		},
 	},
 	{
-		Kind: KindContainerEvents, Title: "查询事件", Group: "容器", ReadOnly: true,
-		Desc: "列出命名空间（或指定对象）的事件，按时间倒序。事件量大，Agent 侧只返回最近若干条并标注是否被截断",
+		Kind: KindContainerDelete, Title: "删除 Pod", Group: "容器操作", ReadOnly: false, Perm: PermContainerWrite,
+		Desc: "删除一个 Pod。控制器（Deployment / StatefulSet）会重建它，因此对无状态服务通常无感；但裸 Pod 与单副本有状态负载上就是一次真实中断。默认不可用：需要目标机器显式开启容器写操作",
 		Params: []Param{
 			{Name: "cluster", Title: "集群", Required: true, Pattern: clusterPattern.String(), Example: "prod-k8s"},
-			{Name: "namespace", Title: "命名空间", Pattern: namespacePattern.String(),
-				Example: "default", Desc: "留空表示全部命名空间"},
-			{Name: "name", Title: "对象名", Pattern: objectNamePattern.String(),
-				Example: "web-7d9f8c6b5-x2k4p", Desc: "留空表示该命名空间的全部事件"},
-		},
-	},
-	{
-		Kind: KindContainerLogs, Title: "查看 Pod 日志", Group: "容器", ReadOnly: true,
-		Desc: fmt.Sprintf("拉取某个 Pod 最近若干行日志（只读）。行数与时间窗都有硬上限（默认 %d 行、最多 %d 行 / %d 小时），刻意不提供全量下载；日志是业务自己的输出，可能含敏感内容",
-			model.OpsLogDefaultTailLines, model.OpsLogMaxTailLines, model.OpsLogMaxSinceSeconds/3600),
-		Params: []Param{
-			{Name: "cluster", Title: "集群", Required: true, Pattern: clusterPattern.String(),
-				Example: "prod-k8s", Desc: "目标机器 agent.yaml 里 k8sInstances[].name 的取值"},
 			{Name: "namespace", Title: "命名空间", Required: true, Pattern: namespacePattern.String(),
-				Example: "default", Desc: "日志必须指定命名空间（Pod 名只在命名空间内唯一）"},
+				Example: "default", Desc: "Pod 名只在命名空间内唯一，必须指定"},
 			{Name: "name", Title: "Pod 名", Required: true, Pattern: objectNamePattern.String(),
 				Example: "web-7d9f8c6b5-x2k4p"},
-			{Name: "container", Title: "容器", Pattern: namespacePattern.String(),
-				Example: "app", Desc: "留空表示该 Pod 的第一个容器"},
-			{Name: "tailLines", Title: "行数", Pattern: model.OpsLogTailLinesPattern.String(),
-				Example: strconv.Itoa(model.OpsLogDefaultTailLines),
-				Desc:    fmt.Sprintf("留空按 %d，最多 %d", model.OpsLogDefaultTailLines, model.OpsLogMaxTailLines)},
-			{Name: "sinceSeconds", Title: "时间窗（秒）", Pattern: model.OpsLogSinceSecondsPattern.String(),
-				Example: "3600", Desc: fmt.Sprintf("留空表示不按时间过滤，最多 %d", model.OpsLogMaxSinceSeconds)},
 		},
 	},
 	{
@@ -214,7 +212,14 @@ func init() {
 //
 // 不按字符串排序：中文按字节序排出来的顺序是随机的（"服务"恰好排在"节点"前面纯属字节巧合），
 // 用户看到的分组顺序会因为新增一个分组而整体变化。这里显式声明，未列出的分组排在最后。
-var groupOrder = []string{"节点", "服务", "容器", "文件"}
+//
+// 2026-10-10 重规划（ADR-0006）之后只剩两个实义分组：「容器操作」（K8s 排障写动作）
+// 与「文件」。原先的「容器」「Docker」「Docker 操作」三组随只读动作一起删除——
+// 那些能力改由 Server 直连（k8sproxy / dockerproxy），不再出现在动作目录里。
+//
+// 写动作与只读动作**分属不同分组**这条取向不变：界面上先看只读的、再看能改的，
+// 分组顺序即风险顺序。
+var groupOrder = []string{"节点", "服务", "容器操作", "文件"}
 
 func groupRank(g string) int {
 	for i, name := range groupOrder {

@@ -194,6 +194,10 @@ func main() {
 	if k := coll.K8s(); k != nil {
 		opsExec.SetK8sQuerier(k)
 	}
+	// 注：Docker **没有**对应的注入点。2026-10-10 重规划（ADR-0006）之后，整套 Docker 管理面
+	// 改由 Server 侧直连 daemon（internal/server/dockerproxy），不再经过下行通道；
+	// K8s 的**只读**查询同理（改走 ADR-0004 的实时代理）。留在下行通道上的只有 K8s 的
+	// 三个写操作——它们需要本机的集群凭据与逐机护栏。
 	// 到这一行能力清单才完整：Node/服务类动作来自本机护栏，容器类动作取决于上面这次注入。
 	// 单独一条而不是并进上面那句，是为了让代理模式（在注入之前就 return）保持原有日志行为。
 	slog.Info("下行操作能力清单已就绪", "supported", opsExec.Supported())
@@ -430,6 +434,7 @@ func collectAndReport(ctx context.Context, coll *collector.Collector, rep *repor
 		NginxInstances:         res.Nginx,
 		KafkaInstances:         res.Kafka,
 		DockerInstances:        res.Docker,
+		DockerEndpoints:        res.DockerEndpoints,
 		RocketMQInstances:      res.RocketMQ,
 		K8sInstances:           res.K8s,
 		K8sPods:                res.K8sPods,

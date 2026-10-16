@@ -47,8 +47,12 @@ type Executor struct {
 	// 不重复执行——"重启服务"这种动作重复执行的后果不是多一次，而是把刚起来的服务再打一次。
 	statePath string
 
-	// k8s 是容器只读查询的实现（可空：未配置 k8sInstances 时为空）。
-	// 为空时容器类动作既不声明也不执行，由能力协商如实告诉中心"这台机器不支持"。
+	// k8s 是容器**写操作**的实现（可空：未配置 k8sInstances 时为空）。
+	// 为空时容器写动作既不声明也不执行，由能力协商如实告诉中心"这台机器不支持"。
+	//
+	// **只读查询不在这里**：2026-10-10 重规划（ADR-0006）之后，K8s 对象级查询与整套
+	// Docker 管理面都改由 Server 直连（k8sproxy / dockerproxy），Agent 不再承担只读查询。
+	// 写操作仍在这里，因为它们要的是 Agent 本地的集群凭据与逐机护栏。
 	k8s K8sQuerier
 
 	mu       sync.Mutex
@@ -91,10 +95,14 @@ func (e *Executor) Supported() []string {
 		// 只有存在允许清单时才声明写动作能力（units 为空时 opWriteAllowed 为假）
 		out = append(out, model.OpsKindSvcRestart)
 	}
-	// 容器查询读的不是本机而是整个集群内部结构，因此除了只读总开关，还有它自己的开关
-	// （guards.ops.container）与实现是否就位（k8s == nil 表示本机没配集群）。
-	if e.guards.OpsReadOnlyEnabled() && e.guards.OpsContainerEnabled() && e.k8s != nil {
-		out = append(out, containerKinds...)
+	// 容器**写**动作只认 guards.ops.containerWrite（默认关闭），与只读总开关无关：
+	// "能不能看你的集群"与"能不能改你的集群"是两次不同的同意。
+	//
+	// 容器**只读**查询与整套 Docker 管理面**不在这里**：2026-10-10 重规划（ADR-0006）后
+	// 它们改由 Server 直连（k8sproxy / dockerproxy），不再经过下行通道——
+	// 因此本机也不该声明这些能力（声明了只会让中心下发一条没人执行的任务）。
+	if e.guards.ContainerWrite && e.k8s != nil {
+		out = append(out, containerWriteKinds...)
 	}
 	// 文件分发是写动作里最强的一类（直接改磁盘上的文件），因此有自己的开关：
 	// write 与 dirs 都就位才声明能力——宁可让界面显示"该节点未放行"，
@@ -164,9 +172,9 @@ func (e *Executor) run(cmd model.OpsCommand) model.OpsResult {
 			return fail("本机护栏未把 " + unit + " 列入 guards.ops.units，拒绝执行重启")
 		}
 		return e.svcRestart(unit)
-	case model.OpsKindContainerWorkloads, model.OpsKindContainerPods,
-		model.OpsKindContainerDescribe, model.OpsKindContainerEvents, model.OpsKindContainerLogs:
-		// 容器类动作全部只读，参数与护栏集中在 runContainer（见 container.go）。
+	case model.OpsKindContainerRestart, model.OpsKindContainerScale, model.OpsKindContainerDelete:
+		// 容器**写**动作，参数与护栏集中在 runContainer（见 container.go）。
+		// 只读查询与 Docker 管理面不在这里：它们由 Server 直连（ADR-0006）。
 		return e.runContainer(cmd)
 	case model.OpsKindFilePush:
 		// 护栏与落盘细节集中在 runFilePush（见 file.go）。

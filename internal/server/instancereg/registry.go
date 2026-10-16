@@ -25,6 +25,9 @@ type Registry struct {
 	nginx     map[string][]model.NginxInstance
 	kafka     map[string][]model.KafkaInstance
 	docker    map[string][]model.DockerInstance
+	// dockerEndpoints 是**端点（daemon）级**清单，与 docker（容器级）并列且不互相推导：
+	// 零容器的 daemon 只有前者有，而直连需要的地址也只在前者里（见 model.DockerEndpoint）。
+	dockerEndpoints map[string][]model.DockerEndpoint
 	rocketmq  map[string][]model.RocketMQInstance
 	k8s       map[string][]model.K8sInstance
 	mongodb   map[string][]model.MongoDBInstance
@@ -48,6 +51,7 @@ func New() *Registry {
 		nginx:    map[string][]model.NginxInstance{},
 		kafka:    map[string][]model.KafkaInstance{},
 		docker:   map[string][]model.DockerInstance{},
+		dockerEndpoints: map[string][]model.DockerEndpoint{},
 		rocketmq: map[string][]model.RocketMQInstance{},
 		k8s:      map[string][]model.K8sInstance{},
 		mongodb:  map[string][]model.MongoDBInstance{},
@@ -184,6 +188,27 @@ func (r *Registry) DockerInstances() []model.DockerInstance {
 	defer r.mu.RUnlock()
 	var all []model.DockerInstance
 	for _, v := range r.docker {
+		all = append(all, v...)
+	}
+	return all
+}
+
+// SetDockerEndpoints 写入指定节点最近一次上报的 Docker 端点（daemon）清单。
+//
+// 与 SetDocker 分开：一条记录对应一个 daemon 而不是一个容器，且带 daemon 地址——
+// 「容器与工作负载 → Docker」的管理面靠它做直连（ADR-0006）。
+func (r *Registry) SetDockerEndpoints(node string, endpoints []model.DockerEndpoint) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dockerEndpoints[normalizeNode(node)] = endpoints
+}
+
+// DockerEndpoints 返回全部节点已注册的 Docker 端点（合并所有节点）。
+func (r *Registry) DockerEndpoints() []model.DockerEndpoint {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var all []model.DockerEndpoint
+	for _, v := range r.dockerEndpoints {
 		all = append(all, v...)
 	}
 	return all

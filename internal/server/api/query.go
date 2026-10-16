@@ -386,14 +386,34 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/approvals/{id}/reject", a.permit(a.handleApprovalReject, "approval:approve"))
 	mux.HandleFunc("POST /api/v1/approvals/{id}/cancel", a.permit(a.handleApprovalCancel, "approval:read"))
 
-	// 容器管理面（只读）。集群清单与中间件的 /middleware/k8s/instances 同源（都来自
+	// 容器管理面。集群清单与中间件的 /middleware/k8s/instances 同源（都来自
 	// instancereg 的 K8sInstance 上报），但**不合并**：容器管理面的权限点是 container:read，
 	// 不该要求运维为了看工作负载额外拿到 middleware:read。集群标识用上报里的 name
 	// （agent.yaml 的 k8sInstances[].name），凭据始终只在 Agent 本地。
 	mux.HandleFunc("GET /api/v1/container/k8s/clusters", a.permit(a.handleContainerClusters, "container:read"))
-	// K8s 实时清单（ADR-0004）：Server 侧凭据的只读代理，与上面的异步下发并存。
+	// K8s 直连查询（ADR-0004 + ADR-0006）：Server 侧凭据同步查 apiserver。
+	//
+	// 2026-10-10 重规划后它是 K8s 侧的**唯一**读通路（5 个异步只读动作已删除）。
+	// 路径里的 {cap} 是**能力**（workloads/pods/events/object/logs）而不是资源名——
+	// 能查什么由白名单钉死，换一个资源名试不出来。
 	mux.HandleFunc("GET /api/v1/container/k8s/live-configs", a.permit(a.handleK8sLiveConfigs, "container:read"))
-	mux.HandleFunc("GET /api/v1/container/k8s/live/{cluster}/{resource}", a.permit(a.handleK8sLiveQuery, "container:read"))
+	mux.HandleFunc("GET /api/v1/container/k8s/live/{cluster}/{cap}", a.permit(a.handleK8sLiveQuery, "container:read"))
+	// Docker 管理面（ADR-0006）：**全部同步直连 daemon**，端点清单来自 Agent 上报
+	// （运维不必在 Server 上另配一份，与 k8s-live.yaml 的取向不同）。
+	// 权限点刻意用 docker:read 而不是 container:read：读的是本机容器运行时，不是集群内部对象。
+	// 写操作用 docker:write（仅超管）；它不走 ops 通道，因此没有 Agent 侧本机护栏那一道——
+	// 门控是权限点 + 界面二次确认 + 审计（见 docker_api.go 顶部的说明）。
+	mux.HandleFunc("GET /api/v1/container/docker/endpoints", a.permit(a.handleDockerEndpoints, "docker:read"))
+	mux.HandleFunc("GET /api/v1/container/docker/info", a.permit(a.handleDockerInfo, "docker:read"))
+	mux.HandleFunc("GET /api/v1/container/docker/containers", a.permit(a.handleDockerContainerList, "docker:read"))
+	mux.HandleFunc("GET /api/v1/container/docker/containers/{id}", a.permit(a.handleDockerInspect, "docker:read"))
+	mux.HandleFunc("GET /api/v1/container/docker/containers/{id}/logs", a.permit(a.handleDockerLogs, "docker:read"))
+	mux.HandleFunc("GET /api/v1/container/docker/images", a.permit(a.handleDockerImages, "docker:read"))
+	mux.HandleFunc("POST /api/v1/container/docker/containers/{id}/start", a.permit(a.handleDockerContainerStart, "docker:write"))
+	mux.HandleFunc("POST /api/v1/container/docker/containers/{id}/stop", a.permit(a.handleDockerContainerStop, "docker:write"))
+	mux.HandleFunc("POST /api/v1/container/docker/containers/{id}/restart", a.permit(a.handleDockerContainerRestart, "docker:write"))
+	mux.HandleFunc("DELETE /api/v1/container/docker/containers/{id}", a.permit(a.handleDockerContainerRemove, "docker:write"))
+	mux.HandleFunc("DELETE /api/v1/container/docker/images/{id}", a.permit(a.handleDockerImageRemove, "docker:write"))
 
 	// 安装信息含 Agent 长期密钥 → agent:secret:read（高危）；version 登录即可；agent/check 走 X-Agent-Secret（公开）
 	mux.HandleFunc("GET /api/v1/install-info", a.permit(a.handleInstallInfo, "agent:secret:read"))

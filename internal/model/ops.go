@@ -15,28 +15,22 @@ const (
 	// OpsKindSvcRestart 重启 systemd 单元（写操作，需目标机器显式放行）。
 	OpsKindSvcRestart = "svc.restart"
 
-	// 容器/K8s 只读查询（见 docs/superpowers/specs/2026-09-30-container-observability-design.md §3.2）。
-	//
-	// 为什么走「下行指令」而不是 Server 直连 apiserver：K8s 凭据只存 Agent 本地、从不上报
-	// （见 K8sInstanceConfig 的注释），Server 直连就必须把 kubeconfig/token 收上来，
-	// 那是拿凭据边界换一点交互延迟——不值。代价是指令延迟 = 一个上报周期。
-	//
-	// 首批**只做只读**：exec 属 P2，需独立高危权限点与显式开启。
 
-	// OpsKindContainerWorkloads 列工作负载（Deployment/StatefulSet/DaemonSet/Job）与副本状态（只读）。
-	OpsKindContainerWorkloads = "container.workloads"
-	// OpsKindContainerPods 列 Pod（状态、重启次数、所在节点、所属工作负载）（只读）。
-	OpsKindContainerPods = "container.pods"
-	// OpsKindContainerDescribe 单个对象的只读详情（敏感字段脱敏后返回）。
-	OpsKindContainerDescribe = "container.describe"
-	// OpsKindContainerEvents 命名空间/对象的事件列表（只读，按时间倒序）。
-	OpsKindContainerEvents = "container.events"
-	// OpsKindContainerLogs 拉取某个 Pod 的最近日志（只读）。
+
+	// K8s 排障写操作（**写**，默认被本机护栏挡下；权限点 container:write 是**超管专属**）。
 	//
-	// 与其它容器动作的差别：产出是**业务自己写出的文本行**，而不是对象表格，
-	// 内容可能含业务数据与凭据。因此行数与时间窗都必须有硬上限，且**不提供全量下载**——
-	// 要看全量应该上机器或走日志后端，不该把平台当成 kubectl。
-	OpsKindContainerLogs = "container.logs"
+	// 只走异步下行：ADR-0004 的 Server 侧只读代理**保持只读**、白名单不外扩——
+	// 写操作需要逐机护栏与凭据边界。
+	//
+	// 刻意**不做**：删除工作负载 / 删除命名空间 / 任意 apply。
+	// 删除工作负载是不可逆的破坏，与"排障"不是一类；apply 是任意配置写入，等价于绕过白名单。
+
+	// OpsKindContainerRestart 滚动重启工作负载（等价 kubectl rollout restart）。
+	OpsKindContainerRestart = "container.restart"
+	// OpsKindContainerScale 调整工作负载的副本数。
+	OpsKindContainerScale = "container.scale"
+	// OpsKindContainerDelete 删除单个 Pod（由控制器重建）。
+	OpsKindContainerDelete = "container.delete"
 
 	// OpsKindFilePush 向目标机器分发一个文件（**写操作**，需目标机器显式放行）。
 	//
@@ -73,6 +67,49 @@ var (
 	// 刻意**不含 secret**：虽然 describe 会做脱敏，但把 Secret 列进白名单等于给自己留一条
 	// "脱敏规则漏一个字段就泄一次"的路。真要看 Secret 应该走 kubectl 而不是监控平台。
 	OpsContainerResourcePattern = regexp.MustCompile(`^(pods|deployments|statefulsets|daemonsets|jobs|services|configmaps)$`)
+
+	// OpsDockerHostPattern 是 Docker 实例标识：取 Agent 本地 dockerInstances[].name，
+	// 由运维自己起名，因此与 OpsClusterPattern 用同一套字符集。
+	OpsDockerHostPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9@._-]{0,63}$`)
+	// OpsDockerIDPattern 是容器 / 镜像标识（短 ID、完整 ID 或名字）。
+	//
+	// 刻意**不含 `/`**：这个值会被拼进 Docker Engine API 的 URL 路径，
+	// 放进斜杠就等于给了一条改变请求路径的口子（与 OpsClusterPattern 同一个理由）。
+	// 也不含 `:`：镜像的 `name:tag` 形态由 name 与 tag 分开传，不靠这个参数承载。
+	OpsDockerIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	// OpsDockerTimeoutPattern 是 stop / restart 的宽限期（秒）。只放十进制数字，
+	// 范围在 Agent 侧再校一次（见 OpsDockerMaxTimeoutSeconds）。
+	OpsDockerTimeoutPattern = regexp.MustCompile(`^[0-9]{1,3}$`)
+	// OpsDockerMaxTimeoutSeconds 是宽限期的上限（5 分钟）。
+	//
+	// 必须有上限：这个值会被拼进 Docker API 的查询串，且"等 5 分钟"已经超出一次指令的合理时长
+	// （回执要搭在下一轮上报的请求体里）。
+	OpsDockerMaxTimeoutSeconds = 300
+
+	// OpsReplicasPattern 是工作负载副本数：只放十进制数字。
+	//
+	// 正则表达不了"≤500"，因此**范围**由 Agent 侧再校一次（见 OpsMaxReplicas，与 container.logs
+	// 的 tailLines 同一分工：Server 保证形状干净、Agent 保证取值落在合理区间）。
+	// 位数刻意卡在 3 位：4 位以上（9999 这类）一眼就是笔误，让它在提交时就失败，
+	// 比"任务已创建、回执说副本数不合法"早一步。
+	OpsReplicasPattern = regexp.MustCompile(`^[0-9]{1,3}$`)
+	// OpsMaxReplicas 是副本数上限。
+	//
+	// 必须有上限：这个值会被**写进集群**，一次误填 99999 就是把节点资源全占满；
+	// 而排障场景里"临时扩容到几百"从来不是真实需求。
+	OpsMaxReplicas = 500
+	// OpsWorkloadKindPattern 是 container.restart / container.scale 允许的工作负载类型白名单。
+	//
+	// 与 OpsContainerResourcePattern（复数小写）不同：这里的取值是对象的 Kind（首字母大写），
+	// 会被拼进 apiserver 的路径段，因此同样必须白名单化。
+	// 刻意不含 ReplicaSet：它由 Deployment 管理，重启/扩缩容应该作用在 Deployment 上，
+	// 直接动 ReplicaSet 会被控制器改回去，看起来像"操作没生效"。
+	OpsWorkloadKindPattern = regexp.MustCompile(`^(Deployment|StatefulSet|DaemonSet)$`)
+	// OpsScalableKindPattern 是 container.scale 允许的类型。
+	//
+	// 刻意不含 DaemonSet：它的副本数由"匹配到几个节点"决定，没有 replicas 可调——
+	// 让它通过校验再在执行期报错，等于把"参数写错"伪装成"机器不支持"。
+	OpsScalableKindPattern = regexp.MustCompile(`^(Deployment|StatefulSet)$`)
 
 	// OpsFilePathPattern 是文件分发**目标路径**的白名单。
 	//

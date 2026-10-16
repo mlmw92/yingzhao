@@ -310,6 +310,7 @@ func (r *Receiver) HandleReport(w http.ResponseWriter, req *http.Request) {
 	instancereg.Default.SetNginx(payload.Node, payload.NginxInstances)
 	instancereg.Default.SetKafka(payload.Node, payload.KafkaInstances)
 	instancereg.Default.SetDocker(payload.Node, payload.DockerInstances)
+	instancereg.Default.SetDockerEndpoints(payload.Node, payload.DockerEndpoints)
 	instancereg.Default.SetRocketMQ(payload.Node, payload.RocketMQInstances)
 	instancereg.Default.SetK8s(payload.Node, payload.K8sInstances)
 	instancereg.Default.SetMongoDB(payload.Node, payload.MongoDBInstances)

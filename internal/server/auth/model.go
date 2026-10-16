@@ -381,10 +381,21 @@ func PermissionCatalog() []permDomain {
 			{"ops:read", "查看操作任务"},
 			{"ops:exec", "下发操作任务（高风险）"},
 		}},
-		// 容器只读管理面：集群清单 / 工作负载 / Pod / 事件 / 对象详情。
-		// 与 middleware:read 分开，是因为它读的是**集群内部对象**（工作负载、事件里带镜像与节点名
-		// 等运行细节），与"看指标曲线"不是一个信息面；下发容器动作仍走 ops:exec。
-		{Domain: "容器", Items: []Permission{{"container:read", "查看容器与工作负载"}}},
+		// 容器管理面：container:read 读**集群内部对象**（工作负载、事件里带镜像与节点名等运行细节），
+		// docker:read 读**本机（或可达网段）的容器运行时**——两者刻意分开，因为一台机器可能只跑
+		// Docker 不接集群，反之亦然，授权面不同（延续 container:read 与 middleware:read 分开的取舍）。
+		//
+		// 2026-10-10 重规划（ADR-0006）后两者的**读**都在路由层用 a.permit 门控（Server 直连，
+		// 不再经过 ops 通道）；**写**的落点不同：container:write 仍叠在 ops 通道的
+		// ops:exec 之上（K8s 写要走 Agent 的逐机护栏），docker:write 直接门控直连接口。
+		{Domain: "容器", Items: []Permission{
+			{"container:read", "查看容器与工作负载"},
+			{"docker:read", "查看 Docker 容器与镜像"},
+			// 两个写权限点都直接改变被管理对象的状态，且都在被监控的机器/集群上"动业务"。
+			// 用户 2026-10-10 拍板：**只给超管**（刻意不沿用 ops:exec「给运维管理员 + 本机护栏兜底」那条惯例）。
+			{"container:write", "管理容器与工作负载（高风险）"},
+			{"docker:write", "管理 Docker 容器与镜像（高风险）"},
+		}},
 		// 审批（高风险操作双人复核）：读看审批单；批指放行别人的高风险动作——
 		// **批准还需要该动作本身的权限点**（在 handler 里校验），因此这里的"批准"不等于"能执行"；
 		// 改配置单设权限点：关掉审批等于关掉这条护栏，必须只有少数人能改、且每次改动都留痕。
@@ -451,9 +462,11 @@ func BuiltinRoles() []Role {
 				// 这不等于"能随便改机器"——目标机器自己的 guards.ops 还要再放行一次，
 				// 而写动作默认是被那台机器拒绝的。
 				"ops:read", "ops:exec",
-				// 容器只读管理面：与 ops 同一取舍——运维是排障的人，默认给全局运维角色；
-				// 刻意不给只读/告警/安全角色：它读的是集群内部对象（工作负载、事件里的镜像与节点名）。
-				"container:read",
+				// 容器管理面**只读**：与 ops 同一取舍——运维是排障的人，默认给全局运维角色；
+				// 刻意不给只读/告警/安全角色：它读的是集群内部对象（工作负载、事件里的镜像与节点名）
+				// 与本机容器运行时。
+				// 注意这里**只有读**：写动作（docker:write / container:write）是超管专属（用户 2026-10-10 拍板）。
+				"container:read", "docker:read",
 				"report:read", "report:export", "metrics:export", "agent:read", "agent:upgrade",
 				"alerts:read", "roles:read", "system:config",
 				// 审批：运维是提交高风险动作的人，也是**最可能成为第二个人**的角色。

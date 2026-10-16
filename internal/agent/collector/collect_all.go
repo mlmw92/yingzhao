@@ -22,6 +22,9 @@ type Result struct {
 	NginxAccess []model.NginxAccessStat
 	Kafka       []model.KafkaInstance
 	Docker      []model.DockerInstance
+	// DockerEndpoints 是**端点（daemon）级**清单（含 daemon 地址），与 Docker（容器级）并列。
+	// 零容器的 daemon 只有这里才有，Server 直连也要靠它拿地址（见 model.DockerEndpoint）。
+	DockerEndpoints []model.DockerEndpoint
 	RocketMQ    []model.RocketMQInstance
 	K8s         []model.K8sInstance
 	// K8s 台账清单：Pod、工作负载与 Service（见 docs/superpowers/specs/2026-10-04-container-inventory-design.md）。
@@ -144,9 +147,10 @@ func (c *Collector) tasks(res *Result, mu *sync.Mutex) []collectTask {
 			if c.docker == nil {
 				return nil
 			}
-			m, inst := c.docker.CollectCtx(ctx)
+			m, inst, eps := c.docker.CollectCtx(ctx)
 			addMetrics(m)
 			res.Docker = inst
+			res.DockerEndpoints = eps
 			return nil
 		}},
 		{name: "rocketmq", run: func(ctx context.Context) error {

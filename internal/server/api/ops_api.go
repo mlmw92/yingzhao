@@ -190,20 +190,28 @@ func (a *API) handleOpsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 双人复核：写类动作在开启审批后**不再直接下发**，而是登记成待审批单并返回 202。
-	//
-	// 位置刻意在参数校验之后、创建任务之前：先让 `ops.Validate` 过一遍，
-	// 否则会把"参数本来就写错"的请求推给审批人——他批准的是一个注定失败的动作，
-	// 而真正的错误要等执行时才暴露，等于浪费一次人审。
 	// 校验失败时不在这里报错（交给下面的 Create 统一报），避免同一件事有两套错误文案。
-	if action, params, err := ops.Validate(body.Kind, body.Params); err == nil && !action.ReadOnly {
-		if a.approvalGate(w, r, approval.EntryOpsWrite, body.Kind, action.ReadOnly, &approval.Request{
-			Node: nd.Hostname, Params: params, Reason: body.Reason,
-			// 审批人看到的是"要不要批准这个动作"，「写」这个性质必须在单子上写明
-			// （动作标题本身已不含该词，界面上的标记在审批页没有对应位置）。
-			Title: fmt.Sprintf("%s（写操作） @ %s", action.Title, nd.Hostname),
-		}) {
+	if action, params, err := ops.Validate(body.Kind, body.Params); err == nil {
+		// 域权限点：动作目录自带的 Perm（如 docker:read / container:write）在入口的 ops:exec
+		// 之外再叠一道。**权限不足必须当场 403**——那不是"参数写错了"，
+		// 放它过去只会让操作者以为指令已下达。
+		if action.Perm != "" && !a.checkPerm(w, r, action.Perm) {
 			return
+		}
+		// 双人复核：写类动作在开启审批后**不再直接下发**，而是登记成待审批单并返回 202。
+		//
+		// 位置刻意在参数校验之后、创建任务之前：先让 ops.Validate 过一遍，
+		// 否则会把"参数本来就写错"的请求推给审批人——他批准的是一个注定失败的动作，
+		// 而真正的错误要等执行时才暴露，等于浪费一次人审。
+		if !action.ReadOnly {
+			if a.approvalGate(w, r, approval.EntryOpsWrite, body.Kind, action.ReadOnly, &approval.Request{
+				Node: nd.Hostname, Params: params, Reason: body.Reason,
+				// 审批人看到的是"要不要批准这个动作"，「写」这个性质必须在单子上写明
+				// （动作标题本身已不含该词，界面上的标记在审批页没有对应位置）。
+				Title: fmt.Sprintf("%s（写操作） @ %s", action.Title, nd.Hostname),
+			}) {
+				return
+			}
 		}
 	}
 
@@ -325,6 +333,15 @@ func (a *API) handleOpsCreateBatch(w http.ResponseWriter, r *http.Request) {
 	if len(body.Nodes) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "必须指定至少一个目标节点"})
 		return
+	}
+
+	// 域权限点（动作目录自带，与单条下发同一道校验）。放在前置检查**之前**：
+	// 权限不足时不该再去逐个查节点——否则"范围外节点"与"权限不足"会混在同一份 items 里，
+	// 而最坏的一种是 eligible 为空时先返回 409「没有任何节点可以下发」，把 403 掩掉。
+	if action, _, err := ops.Validate(body.Kind, body.Params); err == nil && action.Perm != "" {
+		if !a.checkPerm(w, r, action.Perm) {
+			return
+		}
 	}
 
 	eligible, problems := a.precheckNodes(r, body.Nodes)

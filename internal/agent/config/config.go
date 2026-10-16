@@ -105,15 +105,17 @@ type OpsGuards struct {
 	// 为空时即使 write=true 也不放行任何写操作。
 	Units []string `yaml:"units"`
 
-	// Container 是否允许容器/K8s 只读查询（工作负载 / Pod / 事件 / 对象详情）。默认 true。
+	// ContainerWrite 是否允许容器/K8s 的**写**动作（重启工作负载 / 扩缩容 / 删除 Pod）。默认 false。
 	//
-	// 为什么在 ReadOnly 之外再单设一个开关：容器查询读的不是**本机**，而是这台机器的 Agent
-	// 凭据能够到的**整个集群内部结构**（命名空间、工作负载、镜像、事件、对象详情）。
-	// 一台机器愿意交出自己的负载与磁盘，不等于它愿意交出集群结构——两者的同意是两件事，
-	// 所以"机器自身的同意优先于中心的授权"这条原则要求它们各有一个开关。
+	// 为什么不复用 Write/Units：那是"允许重启哪些 systemd 单元"，units 清单对 K8s 没有意义。
+	// 与 File 单设开关同一个理由：写动作越强，越该有一次单独的同意。
 	//
-	// 升级不改变既有行为：不写这项时与只读类动作一样默认放行。
-	Container *bool `yaml:"container"`
+	// 为什么这里**没有**对应的只读开关（原先有 `container`）：2026-10-10 重规划（ADR-0006）后，
+	// 容器只读查询不再由 Agent 执行——K8s 走 Server 侧 k8sproxy、Docker 走 dockerproxy。
+	// 那两条通路各自的"同意"落在 Server 侧（k8s-live.yaml 里逐集群配置、Docker 端点由
+	// 目标机器自己在 dockerInstances 里声明），因此本机再留一个只读开关只会是**空开关**——
+	// 它看起来像个能用的控制，实际什么都不挡。存量配置里的 `container:` 键会被忽略。
+	ContainerWrite bool `yaml:"containerWrite"`
 
 	// File 是文件分发（file.push）的本机护栏，默认**不放行**。
 	//
@@ -168,11 +170,6 @@ func (g OpsFileGuards) OpsAllowedDirs() []string {
 // OpsReadOnlyEnabled 返回是否放行只读动作（默认放行）。
 func (g OpsGuards) OpsReadOnlyEnabled() bool {
 	return g.ReadOnly == nil || *g.ReadOnly
-}
-
-// OpsContainerEnabled 返回是否放行容器/K8s 只读查询（默认放行）。
-func (g OpsGuards) OpsContainerEnabled() bool {
-	return g.Container == nil || *g.Container
 }
 
 // OpsAllowedUnits 返回归一化后的允许单元集合（统一补 .service 后缀）。

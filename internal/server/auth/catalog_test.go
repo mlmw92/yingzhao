@@ -106,6 +106,17 @@ var superAdminOnlyKeys = map[string]bool{
 	// 部署环境"的配置，而且**改回来也不能把已经发出去的数据收回来**。
 	// 用（ai:read / ai:invoke，已给运维管理员）与配（ai:write）分离："发到哪里"由超管定。
 	"ai:write": true,
+	// Docker 写操作 = 直接改变被监控机器上的运行态（启停 / 删除容器、删除镜像），
+	// 而 Docker 里一个容器往往就是一项业务。用户 2026-10-10 拍板只给超管——
+	// 刻意**没有**沿用 ops:exec「给运维管理员、靠本机护栏兜底」那条惯例。
+	//
+	// 注意它现在**只有一道门**：ADR-0006 之后 Docker 走 Server 直连 daemon，
+	// Agent 侧不再执行这些动作，因此原先那道 guards.ops.docker.write（逐机护栏）已经不存在。
+	// 门控 = 这个权限点 + 界面二次确认 + 审计。
+	"docker:write": true,
+	// K8s 排障写操作（重启工作负载 / 扩缩容 / 删除 Pod）同理：用户 2026-10-10 拍板三项全给超管。
+	// 只读的 container:read 仍给运维管理员——"能看"与"能改"是两次不同的授权。
+	"container:write": true,
 }
 
 // TestEveryCatalogKeyIsGrantedBySomeRole 目录里的每个权限点都必须至少被一个**非超级管理员**的

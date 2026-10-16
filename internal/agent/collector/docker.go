@@ -25,38 +25,54 @@ func NewDockerCollector(node string, instances []model.DockerInstanceConfig) *Do
 }
 
 // Collect 采集所有 Docker 实例（等价于 CollectCtx(context.Background())）。
-func (c *DockerCollector) Collect() ([]model.Metric, []model.DockerInstance) {
+func (c *DockerCollector) Collect() ([]model.Metric, []model.DockerInstance, []model.DockerEndpoint) {
 	return c.CollectCtx(context.Background())
 }
 
 // CollectCtx 采集所有 Docker 实例（每个 cfg.Addr 对应一个 Docker daemon）下的容器指标；
 // ctx 取消或超时后停止采集剩余 daemon。
-func (c *DockerCollector) CollectCtx(ctx context.Context) ([]model.Metric, []model.DockerInstance) {
+//
+// 第三个返回值是**端点（daemon）级**清单：一条对应一个 daemon、且带地址。
+// 它与 instances（容器级）不可互相推导——零容器的 daemon 只有它里面有，
+// 而 Server 直连 daemon 要的地址也只有它有（见 model.DockerEndpoint）。
+// 不可达的 daemon 同样出现在清单里（Reachable=false），否则选择器会凭空少一台。
+func (c *DockerCollector) CollectCtx(ctx context.Context) ([]model.Metric, []model.DockerInstance, []model.DockerEndpoint) {
 	if len(c.instances) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	now := model.NowMillis()
 	var metrics []model.Metric
 	var instances []model.DockerInstance
+	var endpoints []model.DockerEndpoint
 
-	for _, cfg := range c.instances {
+	for i, cfg := range c.instances {
 		if err := ctx.Err(); err != nil {
-			slog.Warn("Docker 采集被中断，跳过剩余 daemon", "err", err)
+			// 剩余 daemon 没采到，但**仍要出现在端点清单里**（Reachable 保持 false）：
+			// 采集被中断不等于"这台机器没有 Docker"，让它从选择器里消失会误导人。
+			slog.Warn("Docker 采集被中断，剩余 daemon 按不可达上报", "err", err)
+			for _, rest := range c.instances[i:] {
+				endpoints = append(endpoints, model.DockerEndpoint{Node: c.node, Name: rest.Name, Addr: rest.Addr})
+			}
 			break
 		}
-		m, dis := c.collectDaemon(ctx, cfg, now)
+		m, dis, ep := c.collectDaemon(ctx, cfg, now)
 		metrics = append(metrics, m...)
 		instances = append(instances, dis...)
+		endpoints = append(endpoints, ep)
 	}
-	return metrics, instances
+	return metrics, instances, endpoints
 }
 
-// collectDaemon 采集一个 Docker daemon 下所有容器。
-func (c *DockerCollector) collectDaemon(ctx context.Context, cfg model.DockerInstanceConfig, now int64) ([]model.Metric, []model.DockerInstance) {
+// collectDaemon 采集一个 Docker daemon 下所有容器，并返回该 daemon 的端点记录。
+//
+// 端点记录**在所有失败路径上也要返回**（只是 Reachable 为 false）：地址是 Server 直连
+// 的唯一来源，失败就把端点从清单里抹掉，等于"这台机器的 Docker 消失了"，而不是"连不上"。
+func (c *DockerCollector) collectDaemon(ctx context.Context, cfg model.DockerInstanceConfig, now int64) ([]model.Metric, []model.DockerInstance, model.DockerEndpoint) {
+	ep := model.DockerEndpoint{Node: c.node, Name: cfg.Name, Addr: cfg.Addr}
 	client := newDockerHTTPClient(cfg.Addr)
 	if client == nil {
 		slog.Warn("Docker daemon 地址无效", "addr", cfg.Addr)
-		return nil, nil
+		return nil, nil, ep
 	}
 	// 当前 client 按采集周期创建；显式关闭连接池，避免自定义 Transport
 	// 的 keep-alive 连接被遗留到下一周期。
@@ -66,8 +82,10 @@ func (c *DockerCollector) collectDaemon(ctx context.Context, cfg model.DockerIns
 	containers, err := c.listContainers(ctx, client, cfg.Addr)
 	if err != nil {
 		slog.Warn("Docker 获取容器列表失败", "addr", cfg.Addr, "err", err)
-		return nil, nil
+		return nil, nil, ep
 	}
+	// 容器列表拿到即视为 daemon 可达（后续 /images、/stats 失败只影响单条指标）。
+	ep.Reachable = true
 
 	labels := map[string]string{
 		"node":  c.node,
@@ -166,7 +184,7 @@ func (c *DockerCollector) collectDaemon(ctx context.Context, cfg model.DockerIns
 		out = append(out, mk("docker_images_total", float64(len(images)), daemonLabels))
 	}
 
-	return out, instances
+	return out, instances, ep
 }
 
 // ---- Docker API 类型定义 ----

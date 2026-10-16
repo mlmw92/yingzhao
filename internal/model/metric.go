@@ -118,6 +118,10 @@ type ReportPayload struct {
 	NginxInstances    []NginxInstance    `json:"nginxInstances,omitempty"`    // Nginx 实例元信息
 	KafkaInstances    []KafkaInstance    `json:"kafkaInstances,omitempty"`    // Kafka 实例元信息
 	DockerInstances   []DockerInstance   `json:"dockerInstances,omitempty"`   // Docker 容器元信息
+	// DockerEndpoints 是 Docker **端点（daemon）级**清单，与 DockerInstances 是两件事：
+	// 前者一个 daemon 一条（含零容器的、含 daemon 地址），后者一个容器一条。
+	// Server 侧「容器与工作负载 → Docker」靠它拿到直连地址（见 DockerEndpoint 的注释）。
+	DockerEndpoints   []DockerEndpoint   `json:"dockerEndpoints,omitempty"`
 	RocketMQInstances []RocketMQInstance `json:"rocketmqInstances,omitempty"` // RocketMQ 实例元信息
 	K8sInstances      []K8sInstance      `json:"k8sInstances,omitempty"`      // Kubernetes 集群元信息
 	// K8sPods / K8sWorkloads 是**台账发现**用的清单（见 docs/superpowers/specs/2026-10-04-container-inventory-design.md）。
@@ -147,15 +151,15 @@ type ReportPayload struct {
 	// **刻意不用 omitempty**：null = 旧 Agent 未上报该字段，[] = 已检查且无风险——
 	// 沿用 Processes / Listeners 的既有约定。少了这个区分，界面会把"没上报"显示成"没有风险"，
 	// 而这两件事的处置完全不同（前者要去升级 Agent，后者才是安全的）。
-	GuardRisks []GuardRisk `json:"guardRisks"`
-	Capabilities           *ClientCapability       `json:"capabilities,omitempty"`           // Agent 能力声明（旧 Agent 不报此字段，前端据此判断兼容）
-	DefenseStatus          *DefenseStatus          `json:"defenseStatus,omitempty"`          // 入侵防护当前状态（由 Agent 定期采集上报）
-	DefenseResult          *DefenseCommandResult   `json:"defenseResult,omitempty"`          // 防护指令执行结果回执
-	OpsResult              *OpsResult              `json:"opsResult,omitempty"`              // 下行操作任务的执行结果回执（见 ops.go）
-	Listeners              []ListenerStat          `json:"listeners"`                        // 监听端口列表（TCP/UDP）；null 表示旧 Agent，[] 表示已采集但为空
-	FirewallRules          []FirewallRule          `json:"firewallRules"`                    // 防火墙规则列表；null 表示旧 Agent，[] 表示已采集但为空
-	FirewallStatus         *FirewallStatus         `json:"firewallStatus,omitempty"`         // 防火墙整体状态（由 Agent 定期采集上报）
-	ReportAt               int64                   `json:"reportAt"`                         // 上报时间（毫秒）
+	GuardRisks     []GuardRisk           `json:"guardRisks"`
+	Capabilities   *ClientCapability     `json:"capabilities,omitempty"`   // Agent 能力声明（旧 Agent 不报此字段，前端据此判断兼容）
+	DefenseStatus  *DefenseStatus        `json:"defenseStatus,omitempty"`  // 入侵防护当前状态（由 Agent 定期采集上报）
+	DefenseResult  *DefenseCommandResult `json:"defenseResult,omitempty"`  // 防护指令执行结果回执
+	OpsResult      *OpsResult            `json:"opsResult,omitempty"`      // 下行操作任务的执行结果回执（见 ops.go）
+	Listeners      []ListenerStat        `json:"listeners"`                // 监听端口列表（TCP/UDP）；null 表示旧 Agent，[] 表示已采集但为空
+	FirewallRules  []FirewallRule        `json:"firewallRules"`            // 防火墙规则列表；null 表示旧 Agent，[] 表示已采集但为空
+	FirewallStatus *FirewallStatus       `json:"firewallStatus,omitempty"` // 防火墙整体状态（由 Agent 定期采集上报）
+	ReportAt       int64                 `json:"reportAt"`                 // 上报时间（毫秒）
 }
 
 // RedisInstanceConfig 是 Agent 本地配置的 Redis 实例连接信息。
@@ -541,6 +545,28 @@ type DockerInstance struct {
 	Image    string `json:"image"`  // 镜像名
 	Status   string `json:"status"` // running|paused|exited
 	Up       bool   `json:"up"`
+}
+
+// DockerEndpoint 是上报给 Server 的 Docker **端点（daemon）级**信息。
+//
+// 与 DockerInstance 的两处关键差异，都是「容器与工作负载」管理面直连 daemon 所必需的：
+//   - 一条记录对应**一个 daemon**，不是一个容器 —— 因此零容器的 daemon 也在清单里
+//     （DockerInstance 是按容器产生的，空 daemon 一条都没有，选择器里会凭空少一台）；
+//   - **带上 Addr** —— Server 直连 daemon 必须知道地址（ADR-0006 修订 ADR-0005：
+//     管理面改为 Server 侧直连调接口，不再走 Agent 异步下行）。
+//
+// 凭据边界的变化要说清楚：地址从此**离开 Agent 本机**。这是「管理面要实时」的直接代价，
+// 且地址本身不是凭据（能启停容器的是 daemon 的访问控制，不是地址的保密）。
+// 但地址**只在 Server 内部使用**：任何 API 响应体都不得包含它（见 handleDockerEndpoints）。
+type DockerEndpoint struct {
+	Node string `json:"node"`
+	// Name 是 agent.yaml 里 dockerInstances[].name：界面选择器与接口参数的取值。
+	Name string `json:"name"`
+	// Addr 是 daemon 地址（unix:///var/run/docker.sock 或 tcp://host:2375）。
+	Addr string `json:"addr"`
+	// Reachable 是**采集那一刻**该 daemon 是否可达（由 Agent 采集结果决定，不是实时探测）。
+	// 它的用途是选择器上的提示：不可达时界面先说清楚，而不是等用户点进去才报错。
+	Reachable bool `json:"reachable"`
 }
 
 // ---- RocketMQ ----

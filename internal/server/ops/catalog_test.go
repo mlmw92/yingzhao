@@ -1,11 +1,8 @@
 package ops
 
 import (
-	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/nebula/monitor/internal/model"
 )
 
 // 动作目录与参数校验：这是第三道护栏的实体部分。
@@ -105,99 +102,6 @@ func TestCatalog_ReadOnlyFirstWithinGroup(t *testing.T) {
 	}
 }
 
-// 容器/K8s 只读查询：首批必须**全是只读**，且参数被钉在白名单字符集里。
-//
-// 这些参数会被拼进 apiserver 的 URL 路径，所以"能通过校验"就等于"能构造出的请求"。
-func TestValidate_ContainerActions(t *testing.T) {
-	ok := []struct {
-		name   string
-		kind   string
-		params map[string]string
-	}{
-		{"工作负载（全命名空间）", KindContainerWorkloads, map[string]string{"cluster": "prod-k8s"}},
-		{"工作负载（指定命名空间）", KindContainerWorkloads, map[string]string{"cluster": "prod-k8s", "namespace": "kube-system"}},
-		{"Pod 列表", KindContainerPods, map[string]string{"cluster": "prod-k8s", "namespace": "default"}},
-		{"对象详情", KindContainerDescribe, map[string]string{
-			"cluster": "prod-k8s", "namespace": "default", "resource": "pods", "name": "web-7d9f8c6b5-x2k4p",
-		}},
-		{"事件（全命名空间）", KindContainerEvents, map[string]string{"cluster": "prod-k8s"}},
-		{"Pod 日志（默认行数）", KindContainerLogs, map[string]string{
-			"cluster": "prod-k8s", "namespace": "default", "name": "web-7d9f8c6b5-x2k4p"}},
-		{"Pod 日志（指定容器与上限）", KindContainerLogs, map[string]string{
-			"cluster": "prod-k8s", "namespace": "default", "name": "web-7d9f8c6b5-x2k4p",
-			"container": "app", "tailLines": strconv.Itoa(model.OpsLogMaxTailLines),
-			"sinceSeconds": strconv.Itoa(model.OpsLogMaxSinceSeconds)}},
-	}
-	for _, tc := range ok {
-		t.Run(tc.name, func(t *testing.T) {
-			action, params, err := Validate(tc.kind, tc.params)
-			if err != nil {
-				t.Fatalf("合法参数不应报错: %v", err)
-			}
-			if !action.ReadOnly {
-				t.Fatalf("容器查询动作 %s 必须标记为只读", action.Kind)
-			}
-			if action.Group != "容器" {
-				t.Fatalf("动作 %s 应归入「容器」分组，实际 %q", action.Kind, action.Group)
-			}
-			// 可选参数留空时不应出现在归一化结果里（否则 Agent 会收到空串并去拼 `namespaces//pods`）
-			for k, v := range params {
-				if v == "" {
-					t.Fatalf("参数 %q 不应以空值下发", k)
-				}
-			}
-		})
-	}
-
-	reject := []struct {
-		name   string
-		kind   string
-		params map[string]string
-		wantIn string
-	}{
-		{"缺集群", KindContainerPods, map[string]string{"namespace": "default"}, "缺少必填参数"},
-		{"缺对象名", KindContainerDescribe, map[string]string{
-			"cluster": "c", "namespace": "n", "resource": "pods"}, "缺少必填参数"},
-		{"未知参数", KindContainerPods, map[string]string{"cluster": "c", "label": "app=web"}, "不支持参数"},
-		// describe 刻意不放开 secret：脱敏规则漏一个字段就是一次凭据泄露
-		{"describe 拒绝 secret", KindContainerDescribe, map[string]string{
-			"cluster": "c", "namespace": "n", "resource": "secrets", "name": "db"}, "不合法"},
-		// 路径穿越与查询串注入：这些值会被拼进 apiserver 的 URL
-		{"命名空间路径穿越", KindContainerPods, map[string]string{"cluster": "c", "namespace": "../../etc"}, "不合法"},
-		{"命名空间带斜杠", KindContainerPods, map[string]string{"cluster": "c", "namespace": "a/b"}, "不合法"},
-		{"命名空间查询串注入", KindContainerPods, map[string]string{"cluster": "c", "namespace": "a?watch=1"}, "不合法"},
-		{"对象名路径穿越", KindContainerDescribe, map[string]string{
-			"cluster": "c", "namespace": "n", "resource": "pods", "name": "../secrets"}, "不合法"},
-		{"对象名大写", KindContainerDescribe, map[string]string{
-			"cluster": "c", "namespace": "n", "resource": "pods", "name": "Web"}, "不合法"},
-		{"集群名带空格", KindContainerWorkloads, map[string]string{"cluster": "prod k8s"}, "不合法"},
-		{"集群名是选项", KindContainerWorkloads, map[string]string{"cluster": "--server"}, "不合法"},
-		// Pod 日志：命名空间与 Pod 名必填（Pod 名只在命名空间内唯一），
-		// 行数/时间窗是纯数字白名单（它们会被拼进 apiserver 的查询串）。
-		{"日志缺命名空间", KindContainerLogs, map[string]string{"cluster": "c", "name": "web-1"}, "缺少必填参数"},
-		{"日志缺 Pod 名", KindContainerLogs, map[string]string{"cluster": "c", "namespace": "n"}, "缺少必填参数"},
-		{"日志容器名带空格", KindContainerLogs, map[string]string{
-			"cluster": "c", "namespace": "n", "name": "web-1", "container": "a b"}, "不合法"},
-		{"日志行数非数字", KindContainerLogs, map[string]string{
-			"cluster": "c", "namespace": "n", "name": "web-1", "tailLines": "all"}, "不合法"},
-		{"日志行数带符号", KindContainerLogs, map[string]string{
-			"cluster": "c", "namespace": "n", "name": "web-1", "tailLines": "-1"}, "不合法"},
-		{"日志时间窗非数字", KindContainerLogs, map[string]string{
-			"cluster": "c", "namespace": "n", "name": "web-1", "sinceSeconds": "1h"}, "不合法"},
-	}
-	for _, tc := range reject {
-		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := Validate(tc.kind, tc.params)
-			if err == nil {
-				t.Fatalf("应当拒绝（%s），却通过了", tc.name)
-			}
-			if !strings.Contains(err.Error(), tc.wantIn) {
-				t.Fatalf("错误信息应包含 %q，实际 %q", tc.wantIn, err.Error())
-			}
-		})
-	}
-}
-
 // 文件分发的参数校验：目标路径会被 Agent 直接用于文件系统调用，边界逐条钉住。
 func TestValidate_FilePush(t *testing.T) {
 	ok := []struct {
@@ -262,10 +166,14 @@ func TestValidate_FilePush(t *testing.T) {
 	}
 }
 
-// 容器分组内只有只读动作（exec 属 P2，首批只放只读），且界面分组顺序与声明顺序一致。
+// 界面分组顺序与声明顺序一致，且每个分组都在 groupOrder 里声明过。
 //
 // 断言的是「顺序 == groupOrder」而不是"某个分组在最后"：后者会在新增分组时失效，
 // 而真正要守的约束是"新增一个分组不会打乱其它分组的相对位置"——那正是 groupOrder 存在的理由。
+//
+// 2026-10-10 重规划（ADR-0006）之后，「容器」分组随只读动作一起删除（那些能力改由
+// Server 直连，见 catalog.go 的 groupOrder 注释），因此这里不再断言"容器组只读"——
+// 那条承诺已经由"容器只读动作不再存在于目录里"更强地表达了。
 func TestCatalog_ContainerGroupIsReadOnlyAndGroupOrderStable(t *testing.T) {
 	groups := []string{}
 	seen := map[string]bool{}
@@ -273,9 +181,6 @@ func TestCatalog_ContainerGroupIsReadOnlyAndGroupOrderStable(t *testing.T) {
 		if !seen[a.Group] {
 			seen[a.Group] = true
 			groups = append(groups, a.Group)
-		}
-		if a.Group == "容器" && !a.ReadOnly {
-			t.Fatalf("容器分组内出现写动作 %s：exec 属 P2，首批只放只读", a.Kind)
 		}
 		// 未在 groupOrder 里声明的分组会被排到最后，顺序就不再可预期
 		if groupRank(a.Group) >= len(groupOrder) {
