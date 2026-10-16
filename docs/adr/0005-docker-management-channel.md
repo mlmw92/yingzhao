@@ -1,6 +1,14 @@
 # Docker 管理面只走 Agent 异步下行，且写操作另设本机护栏
 
-Status: proposed
+Status: **superseded by [ADR-0006](0006-direct-api-for-container-management.md)**（2026-10-10）
+
+> **本件的核心判断是错的，不要再照着它实现。** 它判定 Docker「不存在 Server 直连等价通路」，
+> 因此把全部能力（含只读列表）压进异步下行。但 `model.DockerInstanceConfig.Addr` 本来就允许
+> `tcp://host:2375`（网络可达），与 K8s 的 apiserver 地址没有本质差别；而它拒绝 Server 直连的理由
+> （「等于把能起容器的能力搬到中心」）与它同时接受的「Server 侧持有 K8s 集群凭据」自相矛盾。
+> 按用户 2026-10-10 拍板，Docker 读写都改为 Server 直连、K8s 读只留一条直连通路，
+> 本件随之作废——**其中「写操作另设本机护栏」这一条也不再成立**（直连之后 Agent 侧没有执行点）。
+> 下面保留原文仅作追溯，读的时候请配合 ADR-0006。
 
 把「容器与工作负载」从「只有 K8s 只读视图」扩为覆盖 K8s 与 Docker 的**管理面**时，Docker 没有等价于 ADR-0004 的 Server 直连通路：Docker socket / daemon 地址（`model.DockerInstanceConfig.Addr`，形如 `unix:///var/run/docker.sock` 或 `tcp://host:2375`）只在 Agent 本机或可达网段，Server 直连要求把 socket 暴露给中心。决定：**Docker 的全部能力（含只读列表）只走 ADR-0003 的统一下行通道**，接受「延迟约一个上报周期」；**不新增 Server 侧 docker 代理**。同时，Docker 写操作（启停 / 重启 / 删除容器、删除镜像）**不复用 `guards.ops.container`，另设 `guards.ops.docker{read,write}`**——与 `file.push` 不复用 `ops.write/units` 同一个取向：「愿意交出集群结构」与「愿意被启停容器」是两件不同的同意。
 

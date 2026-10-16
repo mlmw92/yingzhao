@@ -1,10 +1,25 @@
 # 容器与工作负载管理面详细设计（信息架构重规划）
 
 日期：2026-10-10
-状态：**设计件（未实施）**。本批只产出规划，不改任何代码。
+状态：**已实施（二版）**。一版只产出规划；二版按用户拍板把数据通路改为「Server 直连」，代码已落地。
 上位文档：`2026-09-30-ops-platform-evolution-design.md`（总体设计）、`2026-09-30-ops-platform-capability-map.md`（功能全景对照表 §3.8）
-决策记录：`docs/adr/0003-container-management-downlink.md`（异步下行）、`docs/adr/0004-k8s-live-proxy.md`（Server 侧实时只读代理）、`docs/adr/0005-docker-management-channel.md`（本批新增）
-相关设计件：`2026-09-30-container-observability-design.md`（D3，容器只读管理面）、`2026-10-04-container-inventory-design.md`（容器/工作负载台账清单）
+决策记录：`docs/adr/0003-container-management-downlink.md`（异步下行）、`docs/adr/0004-k8s-live-proxy.md`（Server 侧实时查询）、`docs/adr/0005-docker-management-channel.md`（**已被取代**）、`docs/adr/0006-direct-api-for-container-management.md`（二版选定）
+相关设计件：`2026-09-30-container-observability-design.md`（D3，容器管理面）、`2026-10-04-container-inventory-design.md`（容器/工作负载台账清单）
+
+## 二版修订（2026-10-10，已实施）
+
+一版把**数据通路**判断错了，二版按用户拍板改正。下面四条取代一版对应内容：
+
+| # | 一版的判断 | 二版的实际做法 |
+|---|---|---|
+| 1 | Docker「不存在 Server 直连等价通路」，全部能力（含只读）走 Agent 异步下行 | **Docker 读写都 Server 直连 daemon**。`DockerInstanceConfig.Addr` 本来就允许 `tcp://host:2375`（网络可达），与 apiserver 地址没有本质差别；ADR-0004 那句「点开即得」对它同样成立。见 ADR-0006 |
+| 2 | K8s 只读走 Server 代理，但**与异步下行并存**（5 个 `container.*` 只读动作保留） | **删掉那 5 个只读动作**，K8s 读只留一条直连通路。两条通路并存会让人分不清自己看到的是哪一条，而慢的那条只会让人以为平台卡 |
+| 3 | Docker 端点清单由运维在 Server 上另配一份 | **复用 Agent 上报**的端点（`dockerEndpoints`，含 daemon 地址）。代价是地址离开 Agent 本机；收益是运维不必维护两份配置 |
+| 4 | Docker 写操作另设本机护栏 `guards.ops.docker{read,write}` | **该护栏已删除**：直连之后 Agent 侧没有执行点，护栏无处安放。写操作的门控 = `docker:write`（仅超管）+ 界面二次确认 + 审计 |
+
+一版判断错的根因值得记下来：把「地址只在 Agent 本机」当成了**架构事实**，而它其实只是**默认部署形态**——`Addr` 从一开始就允许 tcp。K8s 那边同样的事（凭据在 Agent 本地）被 ADR-0004 正确地处理成「运维在 Server 上另配一份」，Docker 却被判成「无解」，两者不一致。
+
+因此一版的这些小节的结论已过时，**以本节的二版说法为准**：§3.3、§4.1（kind 清单）、§4.2（本机护栏）、§6（接口草案）、§9（分批）。§2.3 的「实时态口径」与 §八 的取舍说明也按二版更新。
 
 ## 意图与边界
 
@@ -18,9 +33,9 @@
 **边界**：
 
 - **不提供任意命令 / 终端**。所有管理能力都是**参数化动作**（动作白名单 + 参数正则校验），这是平台操作面的既定上限（2026-10-05 用户拍板），本设计不打开这条口子。`container.exec` 仍为 P2、需独立评估。
-- **凭据边界不放松**。K8s 凭据只在 Agent 本地（`k8sInstances`）或 Server 侧只读代理配置（ADR-0004）两处，**新增写操作只走 Agent 异步下行**，Server 代理保持只读、白名单不外扩。Docker 的 socket / daemon 地址只在 Agent 本机或可达网段，**没有 Server 直连等价通路**。
-- **写操作另设本机护栏**。Docker 写操作不复用 `guards.ops.container`，按「同意的性质」另设 `guards.ops.docker`（与 `file` 独立于 `ops.write/units` 同一个取向）。
-- **本批只出文档**。评审通过后再按 §九 分批实施。
+- **凭据边界按通路分**。K8s 凭据只在 Agent 本地（`k8sInstances`）与 Server 侧直连配置（`k8s-live.yaml`）两处，**K8s 写操作只走 Agent 异步下行**；Docker 的 daemon 地址随上报进入 Server（这是「管理面要实时」的直接代价，见 §二版修订 3），**只在 Server 内部使用、不进任何响应体**。
+- **写操作的门控按通路分**。K8s 写仍走异步下行，因此保留 Agent 本机护栏 `guards.ops.containerWrite`；Docker 写是 Server 直连，本机护栏无处安放，门控 = `docker:write`（仅超管）+ 界面二次确认 + 审计。
+- **一版只出文档、二版已实施**。一版评审通过后按 §九 分批落地；二版按上面的「二版修订」改正数据通路。
 
 ## 现状与依据
 
@@ -183,95 +198,92 @@
 
 ### 2.3 Docker 侧（全新）
 
-| 区域 | 能力 | 动作 |
+| 区域 | 能力 | 接口（二版：Server 直连） |
 |---|---|---|
-| 主机选择 | 选择 Docker 引擎所在主机（来自 `DockerInstance` 的 `Node` / `Group`） | — |
-| 引擎概览 | 版本、容器/镜像计数、CPU/内存占用、存储占用 | `docker.info` |
-| 容器列表 | 状态、镜像、端口、启动时间（实时态） | `docker.containers` |
-| 容器详情 | 白名单投影的 inspect（见 §4.3） | `docker.inspect` |
-| 容器日志 | stdout/stderr 最近 N 行 | `docker.logs` |
-| 容器启停 | start / stop / restart | `docker.start` / `docker.stop` / `docker.restart` |
-| 容器删除 | 删除容器（默认不删卷，见 §八） | `docker.rm` |
-| 镜像列表 | 仓库标签、大小、创建时间、悬空标记 | `docker.images` |
-| 镜像删除 | 删除镜像（含悬空镜像批量清理） | `docker.image.rm` |
+| 端点选择 | 选择 Docker 端点（来自 Agent 上报的 `DockerEndpoint`，定位二元组是 node + name） | `GET /container/docker/endpoints` |
+| 引擎概览 | 版本、容器/镜像计数、CPU/内存/磁盘 | `GET /container/docker/info` |
+| 容器列表 | 状态、镜像、端口、启动时间 | `GET /container/docker/containers?all=` |
+| 容器详情 | 白名单投影的 inspect（见 §4.3） | `GET /container/docker/containers/{id}` |
+| 容器日志 | stdout/stderr 最近 N 行 | `GET /container/docker/containers/{id}/logs` |
+| 容器启停 | start / stop / restart | `POST /container/docker/containers/{id}/{start\|stop\|restart}` |
+| 容器删除 | 删除容器（默认不删卷，见 §八） | `DELETE /container/docker/containers/{id}` |
+| 镜像列表 | 仓库标签、大小、创建时间、悬空标记 | `GET /container/docker/images` |
+| 镜像删除 | 删除镜像 | `DELETE /container/docker/images/{id}` |
 
-**实时态口径**：Docker 全部能力走异步下行（§3.3），因此「实时态」指**每次查询现拉**（而非 Server 直连的毫秒级）。界面必须显示「上次刷新」时间并支持手动刷新——沿用 `feedback_async_query_refresh` 的既有约定：**结果跨路由保留，只在无结果时自动查一次，其余手动刷新**。
+**实时态口径（二版改正）**：Docker 全部能力走 **Server 直连 daemon**（§3.3），因此「实时态」就是**点开即得**。界面仍显示查询时间，但那是一句如实的说明（"这份快照是几点取的"），**不是"等了一个上报周期"的免责声明**。
 
-## 三、数据通路
+**唯一要写在界面上的形态约束**：daemon 地址必须是 Server 够得着的。unix socket 只在同机时可用，跨机器要把 daemon 暴露为 `tcp://`（或挂 socket 代理）——不可达时服务端给出的正是这句可执行的提示（见 `dockerproxy.dialError`）。
+
+## 三、数据通路（二版）
 
 ```mermaid
 flowchart LR
-  W[前端] -->|只读·点开即得| SP[Server k8sproxy 直连 apiserver]
-  W -->|只读/写·参数化动作| OPS[统一下行通道 异步任务]
+  W[前端] -->|读·点开即得| SP[Server k8sproxy 直连 apiserver]
+  W -->|读·点开即得| DP[Server dockerproxy 直连 daemon]
+  W -->|写·参数化动作| OPS[统一下行通道 异步任务]
   SP --> K1[K8s 集群]
+  DP --> DK[Docker Engine API]
   OPS --> A[Agent]
   A --> K2[K8s apiserver]
-  A --> DK[Docker Engine API / socket]
 ```
 
-### 3.1 K8s 只读实时 → Server 代理（ADR-0004）
+| 能力 | 通路 | 为什么 |
+|---|---|---|
+| K8s 读（工作负载 / Pod / 事件 / 详情 / 日志） | **Server 直连 apiserver**（`internal/server/k8sproxy/`，凭据来自 `k8s-live.yaml`） | 「点开即得」（ADR-0004） |
+| K8s 写（重启工作负载 / 扩缩容 / 删除 Pod） | 异步下行（ADR-0003） | 要逐机护栏与 Agent 本地的集群凭据 |
+| Docker 读（端点 / 概览 / 容器 / 镜像 / 详情 / 日志） | **Server 直连 daemon**（`internal/server/dockerproxy/`，端点来自 Agent 上报） | 同 K8s 读；ADR-0005 判「无解」是错的（见二版修订 1） |
+| Docker 写（启停 / 重启 / 删除容器、删除镜像） | **Server 直连 daemon**（同上） | 用户 2026-10-10 拍板「读写都直连」：实时性优先，接受「Server 侧持有能启停容器的能力」这个代价 |
 
-- 实现：`internal/server/k8sproxy/`（`GetJSON`，纯 GET）+ `internal/server/api/k8s_live.go`（白名单 pods/deployments/events/nodes）。
-- 配置：运维在 Server 上手工维护 `<DataDir>/k8s-live.yaml`（含凭据，文件权限应 0600）。
-- **本设计不扩白名单、不加写动词**。写操作走 §3.2。
+**读为什么必须直连（而不是"直连也行、异步也行"）**：异步下发的延迟等于一个上报周期。对"看指标"无所谓，对"看清单再动手"很要紧——人要先看到容器在跑、才决定停哪一个，中间隔十几秒就意味着看到的状态可能已经变了。ADR-0004 为 K8s 定的就是这条。
 
-### 3.2 K8s 写操作 → 异步下行（ADR-0003）
+**K8s 只留一条读通路**：一版让直连代理与 5 个异步只读动作并存。两条路都能给出「工作负载列表」，但一条是当前态、一条是十几秒前的快照，而界面上分不出来——这种「多一条路」的退化不会报错，只会让人越来越不信界面上的数字。因此二版把那 5 个动作删了。
 
-- 写操作需要**逐机护栏**（哪台机器愿意改集群）与**凭据边界**（凭据在 Agent 本地），因此只走统一下行通道（`POST /api/v1/ops/tasks` + 轮询）。
-- 延迟约一个上报周期（默认 15s），界面语义与既有 `container.*` 只读动作一致。
+**两条直连通路的形态差异（别当成不一致）**：
 
-### 3.3 Docker 全部能力 → 只能异步下行
+- K8s 的凭据由运维在 Server 上**另配一份**（`k8s-live.yaml`）——集群凭据（token/kubeconfig）确实不该离开它被配置的地方；
+- Docker 的端点**复用 Agent 上报**——daemon 地址不是凭据（能启停容器靠的是 daemon 的访问控制，不是地址的保密），另配一份只会让运维维护两处、且必然对不上。
 
-- Docker socket / daemon 地址只在 Agent 本机或可达网段（`DockerInstanceConfig.Addr`），**不存在 Server 直连等价通路**（与 K8s 的关键差异）。
-- 因此 Docker 的**只读查询也是异步的**：点开列表要等一个上报周期。这是必须写进界面文案的预期（「提交 → 轮询 → 上次刷新」）。
-- **不新增 Server 侧 docker 代理**：那要求把 socket 暴露给 Server，等于把「能起容器」的能力搬到中心，与逐机护栏的取向相反。
+这条差异是有意的，不是漏改。
 
 ## 四、动作清单与护栏
 
-### 4.1 新增 kind 清单
+### 4.1 动作清单（二版：只剩 K8s 写操作）
 
 kind 字面量统一加在 `internal/model/ops.go`（Server 与 Agent 共用），目录登记在 `internal/server/ops/catalog.go`，Agent 分派在 `internal/agent/ops/`。
 
-| kind | 分组（建议） | 只读 | 所需域权限点 | 参数（正则/上限） |
+| kind | 分组 | 只读 | 所需域权限点 | 参数（正则/上限） |
 |---|---|---|---|---|
 | `container.restart` | 容器操作 | 否 | **`container:write`（仅超管）** | cluster、namespace、kind、name |
 | `container.scale` | 容器操作 | 否 | **`container:write`（仅超管）** | cluster、namespace、kind、name、replicas（0 ~ 上限，整数） |
 | `container.delete` | 容器操作 | 否 | **`container:write`（仅超管）** | cluster、namespace、pod |
-| `docker.info` | Docker | 是 | `docker:read` | host |
-| `docker.containers` | Docker | 是 | `docker:read` | host、all（可选） |
-| `docker.inspect` | Docker | 是 | `docker:read` | host、id |
-| `docker.logs` | Docker | 是 | `docker:read` | host、id、tail（默认 200 / 最多 500）、since（最多 24h） |
-| `docker.start` | Docker 操作 | 否 | **`docker:write`（仅超管）** | host、id |
-| `docker.stop` | Docker 操作 | 否 | **`docker:write`（仅超管）** | host、id、timeout（可选） |
-| `docker.restart` | Docker 操作 | 否 | **`docker:write`（仅超管）** | host、id、timeout（可选） |
-| `docker.rm` | Docker 操作 | 否 | **`docker:write`（仅超管）** | host、id、force（可选） |
-| `docker.images` | Docker | 是 | `docker:read` | host、dangling（可选） |
-| `docker.image.rm` | Docker 操作 | 否 | **`docker:write`（仅超管）** | host、id、force（可选） |
 
-> 「所需域权限点」这一列就是 **D4** 的落地形态：它写在动作目录的 `Action` 上（见 §六），提交时统一校验——**新增动作只改目录一处**。
+**Docker 的 10 个动作与 K8s 的 5 个只读动作已全部删除**（ADR-0006）：
 
-**分组命名与既有守卫冲突（必须处理）**：`catalog_test.go:269-299` 断言「容器分组内不得出现写动作」且 `Group` 必须在 `groupOrder` 中声明。因此：
+- Docker 那 10 个（`docker.info/containers/inspect/logs/images` + `docker.start/stop/restart/rm/image.rm`）改由 `internal/server/dockerproxy/` 的同步接口承担；
+- K8s 那 5 个（`container.workloads/pods/describe/events/logs`）改由 `internal/server/k8sproxy/query.go` 承担；
+- 删除后「容器」「Docker」「Docker 操作」三个分组随之清空。目录里**不留没有动作的分组**——那会让界面上出现一个点不开的标签页。`groupOrder` 收敛为 `节点 / 服务 / 容器操作 / 文件`；
+- 有一条守卫专门钉住「它们不得回来」：`internal/server/ops/catalog_removed_actions_test.go`。
 
-- 只读 Docker 动作可归入新分组 `Docker`；
-- 写动作（K8s 与 Docker）**另开分组**（如 `容器操作` / `Docker 操作`），并同步扩展 `internal/server/ops/catalog.go:217` 的 `groupOrder`；
-- **不改** `TestCatalog_ContainerGroupIsReadOnlyAndGroupOrderStable` 的断言（它守的是「容器分组只读」这条既有承诺，改写等于放松护栏）。实施时若分组粒度与界面观感冲突，优先保守卫。
+> 「所需域权限点」这一列是 **D4** 的落地形态：写在动作目录的 `Action` 上，提交时统一校验——**新增动作只改目录一处**。Docker 的权限点不走这里，它们由路由层的 `a.permit` 表达（`internal/server/api/query.go`）。
 
-### 4.2 本机护栏
+**分组命名与既有守卫**：`catalog_test.go` 断言「容器分组内不得出现写动作」且每个 `Group` 都必须在 `groupOrder` 中声明。二版之后「容器」分组已不存在，那条断言不再约束任何东西——它守的承诺（容器只读）已经由「容器只读动作根本不在目录里」更强地表达了。
 
-沿用四道护栏（本机护栏 → 能力协商 → 中心授权与审计 → 超时作废），新增一个独立开关：
+### 4.2 本机护栏（二版：只剩 K8s 写那一道）
+
+沿用四道护栏（本机护栏 → 能力协商 → 中心授权与审计 → 超时作废）：
 
 ```yaml
 guards:
   ops:
-    container: true        # 既有：容器/K8s 只读查询（三态 *bool，默认放行）
-    docker:                # 新增：Docker 管理面（三态 *bool，默认放行只读）
-      read: true
-      write: false         # 默认关闭；开启后才放行 docker.start/stop/restart/rm/image.rm
+    containerWrite: true   # K8s 排障写操作（重启工作负载 / 扩缩容 / 删除 Pod）。默认 false
 ```
 
-- 语义对齐 `guards.ops.file{write,dirs}`：**「愿意交出集群结构」与「愿意被启停容器」是两件事**，不复用 `container` 开关。
-- 三态：`nil` = 默认（只读放行、写关闭）；显式 `false` 整体关闭；`read: true` 只开只读。
-- **能力协商**：`Supported()` 只列本机放行的动作（`internal/agent/ops/executor.go:85-106` 的既有做法）。未配 `dockerInstances` 或未放行的机器**不声明** `docker.*` 能力，界面显示「该节点未放行 / 不支持」，而不是下发一条注定失败的任务。
+- **`guards.ops.docker.{read,write}` 已删除**：直连之后 Agent 侧没有执行点，护栏无处安放；留着它就是一个看起来能用、实际什么都不挡的**空开关**（比没有更坏——运维会以为自己挡住了一件其实挡不住的事）。
+- **`guards.ops.container`（只读开关）同样删了**：K8s 读改由 Server 直连，本机再留一个只读开关只会误导。
+- 存量配置里的 `container:` / `docker:` 键会被解析器忽略（不报错）。升级后**行为不变**，但运维该知道那两个键已经不起作用了。
+- **能力协商**：`Supported()` 只列本机放行的动作（`internal/agent/ops/executor.go` 的既有做法）。未开 `containerWrite` 的机器**不声明** `container.*` 写能力，界面显示「该节点未放行」，而不是下发一条注定失败的任务。
+
+**Docker 写操作的门控换成了什么**（必须写清楚，因为它少了一道门）：一版是「权限点 + 逐机护栏 + 二次确认 + 审计」四道；二版直连之后逐机护栏不存在了，剩下三道——`docker:write`（仅超管）、界面二次确认、审计。这不是"忘了补"，而是**用户明确选了实时性**：Server 侧配置里确实因此持有「能启停容器」的能力，中心被攻破即全网容器可被启停。把这条代价写在 ADR-0006 里，比藏在护栏清单里好。
 
 ### 4.3 脱敏与上限
 
@@ -288,9 +300,11 @@ guards:
 
 **`docker.logs`**：行数默认 200 / 最多 500，时间窗最多 24h，单次正文预算与 `container.logs` 同口径（96 KiB），超出即截断并显式标注；**不提供全量下载**（与 `container.logs` 一致：要看全量应上机器或走日志后端）。
 
-### 4.4 结果形态
+### 4.4 结果形态（二版）
 
-复用 `model.ContainerQueryResult`（列名 + 行的通用表格形态，`internal/model/ops.go:192-206`）承载 `docker.containers` / `docker.images` / `docker.info`；`docker.inspect` 用 `OpsResult.JSON`（结构化载荷）。
+**所有容器查询（K8s 与 Docker）都复用 `model.ContainerQueryResult`**（列名 + 行的通用表格形态）——包括 `inspect` / `describe` 这类"详情"：它们也是两列（字段 / 值）的表，前端因此只需要一套渲染代码。
+
+一版曾写「`docker.inspect` 用 `OpsResult.JSON`」，那是异步下行的产物（结构化载荷得搭在回执里）；二版直连之后没有回执，直接返回同一个结构。**前端与用例因此几乎不用改**——这也是选这个形态的理由之一。
 
 ## 五、权限点与角色
 
@@ -323,26 +337,39 @@ guards:
 
 **刻意不给只读 / 告警 / 安全 / 审计角色**：与 `container:read` / `logs:read` / `ops:exec` 的既有取舍一致。
 
-**与既有取舍的一处刻意偏离（实施时写进注释）**：两个写权限点**都没有**沿用「给运维管理员、靠本机护栏兜底」这条对 `ops:exec` 的惯例——用户明确要求只给超管。含义是**两道门独立**：即使目标机器的 `guards.ops.docker.write` / `guards.ops.container` 已放行，运维管理员也下不了这些动作（权限点先拦）；反过来超管下发了，仍需那台机器自己放行。若将来运维反馈「重启容器/工作负载也得用超管账号」成为负担，再评估放宽（改动只在 `BuiltinRoles()` 与 `superAdminOnlyKeys` 两处）。
+**与既有取舍的一处刻意偏离（实施时写进注释）**：两个写权限点**都没有**沿用「给运维管理员、靠本机护栏兜底」这条对 `ops:exec` 的惯例——用户明确要求只给超管。二版之后两者的门控层数不同：**K8s 写**是两道门（权限点 + Agent 本机护栏 `guards.ops.containerWrite`），**Docker 写**只有一道（权限点）——直连之后 Agent 侧没有执行点，那道本机护栏已删除。若将来运维反馈「重启容器 / 工作负载也得用超管账号」成为负担，再评估放宽（改动只在 `BuiltinRoles()` 与 `superAdminOnlyKeys` 两处）。
 
-## 六、接口草案
+## 六、接口（二版：实际落地的形态）
 
 ```
-# 管理面（新增；既有接口不动）
-GET    /api/v1/container/k8s/clusters          # 既有：K8s 可选集群清单（container:read）
-GET    /api/v1/container/k8s/live-configs      # 既有：实时查询可用集群（container:read）
-GET    /api/v1/container/k8s/live/{cluster}/{resource}   # 既有：只读白名单代理
-GET    /api/v1/container/docker/hosts          # 新增：Docker 可选主机清单（docker:read）
-POST   /api/v1/ops/tasks                       # 既有：提交动作（container:write / docker:write 由 kind 判定）
-GET    /api/v1/ops/tasks/{id}                  # 既有：查询任务
-POST   /api/v1/ops/tasks/cancel                # 既有：撤回（仅 queued）
+# 只读（全部 Server 直连，同步返回；权限点见行尾）
+GET    /api/v1/container/k8s/clusters                          # 集群清单（container:read）
+GET    /api/v1/container/k8s/live-configs                      # Server 侧配了直连凭据的集群名（container:read）
+GET    /api/v1/container/k8s/live/{cluster}/{cap}              # cap ∈ workloads|pods|events|object|logs（container:read）
+GET    /api/v1/container/docker/endpoints                      # 端点清单（docker:read）——**不含 daemon 地址**
+GET    /api/v1/container/docker/info                           # 引擎概览（docker:read）
+GET    /api/v1/container/docker/containers                     # 容器列表（docker:read）
+GET    /api/v1/container/docker/containers/{id}                 # 容器详情（白名单投影，docker:read）
+GET    /api/v1/container/docker/containers/{id}/logs            # 容器日志（docker:read）
+GET    /api/v1/container/docker/images                          # 镜像列表（docker:read）
+# 写
+POST   /api/v1/container/docker/containers/{id}/{start|stop|restart}   # docker:write（仅超管）
+DELETE /api/v1/container/docker/containers/{id}                        # docker:write（仅超管）
+DELETE /api/v1/container/docker/images/{id}                            # docker:write（仅超管）
+POST   /api/v1/ops/tasks                                        # K8s 写操作仍走这里（ops:exec + container:write）
 ```
+
+**Docker 端点用 (node, name) 二元组定位**，不是只用 name：`dockerInstances[].name` 是每台机器各自起的名，不同机器上叫同一个名字完全可能（都叫 "local"）。只按 name 找会命中错的那台机器，而「在 A 机器上停掉了 B 机器的容器」是这类接口最不能犯的错。
+
+**地址不进响应体**：`/docker/endpoints` 只返回 node / name / reachable / unixSocket，**不返回 daemon 地址**。地址随上报到了 Server（见二版修订 3），但不该再往浏览器走一步——它只在 Server 内部用于直连。
+
+**K8s 的 `{cap}` 是能力名而不是资源名**：能查什么由白名单钉死（`k8sLiveCaps`），换个资源名试不出来。列表 / 单对象 / 子资源三种层级因此收敛成同一条路由族，而不是一版设想的三条并列模式。
 
 **权限点如何按 kind 判定（D4，已定）**：`POST /ops/tasks` 的既有入口权限点是 `ops:exec`。本设计**不改变**这条通道的入口权限（改它会波及全部动作），而是在**动作目录的 `Action` 结构体上增加 `Perm` 字段**——每个动作自带「除 `ops:exec` 之外还需要哪个域权限点」，提交时统一校验：
 
 - `container.restart` / `container.scale` / `container.delete` → `container:write`（仅超管）
-- `docker.*` 只读 → `docker:read`
-- `docker.*` 写 → `docker:write`（仅超管）
+
+Docker 的权限点**不走这条通道**（它现在是直连接口），由路由层的 `a.permit` 表达。
 
 **D4 到底在问什么、三种做法对比**（问的是「服务端在哪一步知道『这个动作需要哪个域权限点』」）：
 
@@ -364,29 +391,45 @@ POST   /api/v1/ops/tasks/cancel                # 既有：撤回（仅 queued）
 
 | 风险 | 取舍 |
 |---|---|
-| Docker 全部走异步，点开列表要等一个上报周期 | 明确定义为异步语义，界面显示「上次刷新」+ 手动刷新；不做「假装实时」的轮询轰炸 |
-| 写操作误删容器 / 误删镜像 | 写动作默认被本机护栏挡下（`guards.ops.docker.write` 默认 false）；界面二次确认；`docker.rm` 默认**不删卷**（`-v` 需显式参数，本设计不提供）；`docker.image.rm` 默认不 `force` |
-| 扩缩容把副本数改成 0（服务下线） | `container.scale` 的 `replicas` 参数设下限校验；界面提示「0 副本等于停止服务」并要求确认 |
-| `docker.inspect` 泄露凭据 | 白名单投影 + 凭据类键占位；`docker.logs` 行数与预算硬上限 |
-| 新增权限点漏授内置角色 | 由 `TestEveryCatalogKeyIsGrantedBySomeRole` 守卫兜住（`ops:read/ops:exec` 曾漏授，见 `docs/guides/permission-matrix.md:85-89`） |
-| 容器分组写动作破坏既有守卫 | 写动作另开分组；**不改** `TestCatalog_ContainerGroupIsReadOnlyAndGroupOrderStable` |
+| **Server 侧因此持有「能启停容器」的能力**（Docker 读写都直连的代价） | 用户 2026-10-10 明确选了实时性。代价写进 ADR-0006：中心被攻破即全网容器可被启停。剩下的门控 = `docker:write`（仅超管）+ 界面二次确认 + 审计 |
+| 跨机器的 unix socket 连不上 | 这是**部署形态**问题、不是故障：`dockerproxy.dialError` 把它翻译成可执行的建议（暴露为 `tcp://` 或挂 socket 代理），界面在选择器上先用 `unixSocket` 标出来 |
+| Docker 端点清单依赖 Agent 上报 | 地址因此离开 Agent 本机。它只在 Server 内部使用、不进任何响应体；且未配 `dockerInstances` 的机器本来就没有端点 |
+| 写操作误删容器 / 误删镜像 | `docker.rm` 默认**不删卷**（不带 `v=1`，本设计不提供）；`docker.image.rm` 默认不 `force`；界面二次确认；`docker:write` 仅超管 |
+| 扩缩容把副本数改成 0（服务下线） | `container.scale` 的 `replicas` 参数有上下限校验；界面提示「0 副本等于停止服务」并要求确认 |
+| `docker.inspect` / K8s 对象详情泄露凭据 | 白名单投影（Docker：环境变量只给**变量名**、标签只给白名单键；K8s：逐资源类型投影，不做"脱敏后原样透出"）+ 日志行数与预算硬上限。**投影留在服务端**——它是安全边界，不能下放给浏览器 |
+| 新增权限点漏授内置角色 | 由 `TestEveryCatalogKeyIsGrantedBySomeRole` 守卫兜住（`ops:read/ops:exec` 曾漏授）；只给超管的两个写权限点在 `superAdminOnlyKeys` 里逐条写明理由 |
 | 有人以「去重」为名合并两条集群清单接口 | §1.4 消解① 写明「同源不冗余」的理由，并在两条 handler 的注释里交叉引用本设计件 |
 | 把中间件 Tab 的节点列表也当对象面移除 | §1.4 争议项① 明确保留；若将来加 cordon/drain 按钮则必须迁到管理面 |
+| **删掉的 15 个动作被人顺手加回来** | `catalog_removed_actions_test.go` 钉住。理由写在那里：同一个页面两条数据通路（一条实时、一条延迟一个上报周期）而使用者分不出来 |
 
 ## 九、分批实施与验收口径
 
-| 批次 | 内容 | 验收口径（建议） |
+**一版的 A~D 已实施（见 §十），二版追加了 E 改正数据通路。** 下表保留一版批次便于追溯，但 A / B 的动作清单已被 E 取代。
+
+| 批次 | 内容 | 状态 |
 |---|---|---|
-| **A** | Docker **只读**管理面：`docker.info/containers/inspect/logs/images` + 护栏 `guards.ops.docker.read` + 权限点 `docker:read` + 容器页平台切换与 Docker 面板 | 未配 `dockerInstances` 的机器不声明能力、界面显示「未开启」；inspect 白名单投影用真值反向断言（env 值不出现）；logs 行数上限与截断标注 |
-| **B** | Docker **写**操作：`docker.start/stop/restart/rm/image.rm` + `guards.ops.docker.write`（默认关闭）+ 权限点 `docker:write`（**仅超管**）+ 二次确认 | 未开写护栏时任务被拒且文案指向 `agent.yaml`；`docker.rm` 不删卷；审计留痕；写动作排在只读之后；**非超管提交一律 403**（即使本机已放行） |
-| **C** | K8s **写**操作：`container.restart/scale/delete` + 新分组 + `container:write`（**仅超管**，三项共用）+ 二次确认 | 扩缩容下限校验；删除 Pod 后由控制器重建；`groupOrder` 与守卫测试全绿；**运维管理员下三项写操作都得 403、超管可下发** |
-| **D** | 中间件 Tab 收窄：移除异常 Pod 明细与 Docker 容器列表/详情，加跳转入口 | 两 Tab 不再有对象明细；跳转带上预筛；`DockerTab` 不再调 `/query/range`；组件用例覆盖跳转 |
+| **A** | Docker 只读管理面（异步下行动作 + `guards.ops.docker.read`） | 已实施，**已被 E 取代** |
+| **B** | Docker 写操作（异步下行动作 + `guards.ops.docker.write`） | 已实施，**已被 E 取代** |
+| **C** | K8s 排障写操作（`container.restart/scale/delete`） | 已实施，二版沿用 |
+| **D** | 中间件 Tab 收窄（移除异常 Pod 明细与容器列表/详情，加跳转） | 已实施，二版沿用 |
+| **E** | **改正数据通路**：Docker 读写都 Server 直连 + 删除 5 个 K8s 只读动作 + 删除 Docker 那 10 个动作与 `guards.ops.docker` | 已实施（二版） |
+
+**E 的验收口径**：
+
+- 容器页**不再用 `POST /ops/tasks` 做任何读**——用例直接断言 `createOpsTask` 零调用。退化成"又走回上报"不会报错，只会让页面莫名其妙地慢十几秒，所以必须钉住；
+- Docker 端点清单来自 Agent 上报，且**响应体里没有 daemon 地址**（反向断言）；
+- Docker 直连**真的把请求打到了 daemon 上**：用假 daemon 做端到端，而不是打桩——打桩会把要验的那一步跳过去；
+- 不可达的 unix socket 给出可执行建议，且**不复述地址**；
+- 15 个被删动作不得回到目录；
+- K8s 读的五条能力都走投影，`secrets` 不在可选资源内；
+- 写操作（K8s 与 Docker）成功后都必须重拉列表——否则界面还显示着旧状态。
 
 **实施前置（跨批通用）**：
 
-- 新增动作后必须同步：`internal/model/ops.go`（kind 常量）→ `internal/server/ops/catalog.go`（目录 + `groupOrder`）→ `internal/agent/ops/executor.go`（`Supported()` + 分派）→ Agent 侧实现。**Agent 改动必须与 Server 同步升级并重分发**（否则不声明能力，界面显示「未放行」）。
+- **Agent 改动必须与 Server 同步升级并重分发**。二版删掉了 `guards.ops.container` / `guards.ops.docker` 两个配置项与 Agent 侧的 Docker 执行代码；旧 Agent 仍会上报 `docker.*` 能力，Server 侧已不认这些动作，**不会因此出错**（只是能力清单里多几条用不上的），但仍应同步升级以免误导。
 - 权限点新增后必须同步 `auth.PermissionCatalog()` 与 `auth.BuiltinRoles()` 两处。
 - 涉及落盘 / socket 的 Agent 改动，验证要在 Linux 上跑（Windows 会跳过 POSIX 路径用例），用 dev-server（见 `reference_dev_server_k8s.md` / `reference_devserver_mw_test.md`）。
+- **Docker 直连的实机验证需要一台 daemon 可达的机器**（tcp 暴露或与 Server 同机）。纯开发机上只能验到「错误信息对不对」——这已经覆盖了最常见的失败形态（跨机 unix socket），但不能替代一次真实查询。
 
 ## 十、实施记录（按批次追加）
 
@@ -404,3 +447,113 @@ POST   /api/v1/ops/tasks/cancel                # 既有：撤回（仅 queued）
 | **D4** 按 kind 叠加域权限点的落点 | **在动作目录的 `Action` 上加 `Perm` 字段**（不在 handler 里维护第二份映射） | §4.1、§六 |
 
 **待评审：无**（四个决策点已定）。实施前只需确认 §九 的分批顺序与 A/B/C/D 四批的边界。
+
+### 批次 A（2026-10-10）：Docker 只读管理面
+
+| 层 | 改动 |
+|---|---|
+| 协议 | `internal/model/ops.go`：5 个 `OpsKindDocker*` 常量 + `OpsDockerHostPattern` / `OpsDockerIDPattern`（**不含 `/` 与 `:`**——这两个值会被拼进 Docker Engine API 的 URL 路径） |
+| Server | `internal/server/ops/catalog.go`：`Action` 新增 **`Perm`** 字段（D4 的落点）+ 5 个只读动作（新分组 `Docker`，`groupOrder` 同步扩展）；`internal/server/auth/model.go`：权限点 `docker:read`（授予运维管理员）；`internal/server/api/docker_api.go`（新）：`GET /api/v1/container/docker/hosts`；`ops_api.go`：单条与批量下发都按 `Action.Perm` 叠加域权限点校验（权限不足当场 403） |
+| Agent | `internal/agent/config/config.go`：`guards.ops.docker{read,write}`（独立于 `container`）；`internal/agent/ops/docker.go`（新）：`DockerQuerier` 接口 + 护栏 + 参数复校 + 分派；`internal/agent/collector/docker_query.go`（新）：5 个只读查询 + **白名单投影** + 日志多路复用帧去头；`executor.go` 的 `Supported()` 与 `run()` 接入；`cmd/agent/main.go` 注入 `coll.Docker()` |
+| 前端 | `web/src/components/container/DockerPanel.vue`（新）：端点选择 / 引擎概览 / 容器 / 镜像 + 详情与日志抽屉；`ContainerView.vue`：平台切换（无 `docker:read` 时不渲染开关）+ `?platform=` 深链 |
+
+**关键实现取舍**：
+
+1. **在线判定用 `docker_containers_total` 的存在性，不用它的值、也不用 `docker_container_up`**：前者是 daemon 级汇总（零容器的 daemon 也有），后者是容器级（空 daemon 一条都没有）。用值 `> 0` 会把空 daemon 误判成离线。
+2. **端点清单取 instancereg 与 daemon 指标的并集**：instancereg 的一条记录是**一个容器**（要按 `node|name` 去重）且 Agent 停报后仍保留，缺口是零容器的 daemon；指标补齐这一缺口。
+3. **`docker.inspect` 是白名单投影**：环境变量只给**变量名**、标签只给来源类白名单键（**非白名单键连键名都不给**——键名本身可能泄露内部约定）。用真值 `SHOULD_NOT_LEAK_2026` 做反向断言。
+4. **日志去帧只在「整段都能按帧解析」时生效**，否则原样返回：误判会把正文前 8 字节吃掉，比多几个二进制字节更糟。
+5. 写操作**不在本批**：`dockerReadKinds` 里出现任何写动作都由用例拦下。
+
+**验证**：`go build ./...` 与 `go test ./... -p 1` 通过；前端 `npm test` **48 文件 / 405 用例**通过（新增 5 例：无 `docker:read` 时不渲染开关、切到 Docker 下发 `docker.info`、容器行「详情」下发 `docker.inspect`、`?platform=docker` 深链生效/不生效）。**用例抓到一个真缺陷**：Docker 面板的 Tab 切换漏绑 `@tab-change`，切到「容器」不会下发查询——这类"点了没反应"的缺陷只能靠点出来。
+
+### 批次 B（2026-10-10）：Docker 写操作
+
+| 层 | 改动 |
+|---|---|
+| 协议 | `internal/model/ops.go`：5 个 `OpsKindDocker*` 写常量 + `OpsDockerTimeoutPattern` / `OpsDockerMaxTimeoutSeconds` |
+| Server | `catalog.go`：`PermDockerWrite = "docker:write"` + 5 个写动作（**新分组「Docker 操作」**，`groupOrder` 同步扩展）；`auth/model.go` 加 `docker:write`，并进 `catalog_test.go` 的 `superAdminOnlyKeys`（**仅超管**，刻意不沿用 `ops:exec`「给运维管理员 + 本机护栏兜底」那条惯例） |
+| Agent | `collector/docker_query.go`：`dockerDo`（POST / DELETE）+ 启停重启 / 删容器 / 删镜像；`ops/docker.go`：护栏**按只读 / 写分叉**（写只认 `guards.ops.docker.write`，与只读总开关无关）+ 分派；`executor.go` 的 `Supported()` 按写护栏声明写能力 |
+| 前端 | `DockerPanel.vue`：容器行按状态给「停止 / 重启」或「启动」+「删除」，镜像行给「删除」；全部 `docker:write` 门控（**无权时按钮完全不出现**）+ `ElMessageBox` 二次确认 + 审批分支（`res.pending` 明确说"尚未下发"） |
+
+**四条实现取舍**：
+
+1. **`docker.rm` 刻意不带 `v=1`**：卷里是数据、删掉不可逆，而"顺手删容器"的人多半没打算连数据一起删；结果里也如实写明"未删卷"。用例断言请求串里不出现 `v`。
+2. **`docker.image.rm` 的标识只接受镜像 ID**（不接受含 registry 路径的镜像名）：那个值里有斜杠，会改变 URL 路径。
+3. **Docker 的 304 要翻译成人话**：它用 304 表达"目标已处于该状态"，而 RFC 7230 规定 304 不允许带正文（Go 会把正文丢掉），原样报状态码对用户等于什么都没说。**这条是用例抓出来的**。
+4. **写按钮按状态给**：运行中给「停止 / 重启」，已停止给「启动」——比两个都摆出来更不容易点错。
+
+**验证**：`go build ./...` 与 `go test ./... -p 1` 通过；前端 `npm test` **48 文件 / 409 用例**通过（新增 4 例：无 `docker:write` 时写按钮全不出现、超管点「停止」需先确认再下发并在成功后重拉列表、运行中/已停止两种状态各自的按钮集合）。**测试踩到的一个坑（写进用例注释）**：Element Plus 会把列的插槽在 `.hidden-columns` 里用 `row=undefined` 再渲染一次（测列宽用），那里同样产出按钮节点——按整棵树取按钮会让"运行中不该有启动"这类断言假失败，必须收敛到 `.el-table__row button`。
+
+### 批次 C（2026-10-10）：K8s 排障写操作
+
+| 层 | 改动 |
+|---|---|
+| 协议 | `internal/model/ops.go`：3 个 `OpsKindContainer*` 写常量 + `OpsReplicasPattern` / `OpsMaxReplicas` / `OpsWorkloadKindPattern` / `OpsScalableKindPattern` |
+| Server | `catalog.go`：`PermContainerWrite = "container:write"` + 3 个写动作（**新分组「容器操作」**，`groupOrder` 同步扩展）；`auth/model.go` 加 `container:write` 并进 `superAdminOnlyKeys`（**仅超管**） |
+| Agent | `collector/k8s_write.go`（新）：`doJSON`（PATCH / DELETE）+ 滚动重启 / 扩缩容 / 删 Pod；`ops/container.go`：护栏**按只读 / 写分叉**（写只认新增的 `guards.ops.containerWrite`，默认 false）+ 要求写动作必带命名空间 + 分派；`executor.go` 按写护栏声明写能力 |
+| 前端 | `ContainerView.vue`：工作负载行给「重启 / 扩缩容」、Pod 行给「删除」；`container:write` 门控（无权时按钮完全不出现）+ 二次确认 + 扩缩容用 `prompt` 收副本数（**填 0 再单独确认一次**）+ 审批分支 |
+
+**五条实现取舍**：
+
+1. **滚动重启靠打注解，不靠删 Pod**（与 `kubectl rollout restart` 完全一致）：删 Pod 会让副本数瞬间不足；打注解则由控制器按 maxSurge / maxUnavailable 逐个替换，滚动期间服务不中断。**这正是"重启工作负载"与"删除 Pod"该分成两个动作的原因**。
+2. **时间戳必须带时区（RFC3339 UTC）**：否则不同节点按本地时区解释同一个注解，会出现"注解看着没变、控制器也没重启"的静默失败。
+3. **扩缩容走 `/scale` 子资源**：它是 K8s 为"只改副本数"提供的窄接口，语义最清楚。
+4. **`containerWrite` 是独立字段，不把 `Container` 改成结构体**：存量配置里 `guards.ops.container` 是标量，改成结构体会让老配置解析失败。
+5. **副本数正则卡 3 位、范围（0-500）由 Agent 再校**：正则表达不了"≤500"，这与 `container.logs` 的 tailLines 是同一分工（Server 保证形状干净、Agent 保证取值合理）；位数卡 3 位是为了让 9999 这类明显笔误在**提交时**就失败。
+
+**验证**：`go build ./...` 与 `go test ./... -p 1` 通过；前端 `npm test` **48 文件 / 414 用例**通过（新增 5 例：无 `container:write` 时写按钮全不出现、超管点「重启」需先确认再下发并在成功后重拉列表、Job 行不给重启/扩缩容、DaemonSet 行给重启但不给扩缩容、Pod 行「删除」下发 `container.delete`）。
+**测试踩到的第二个坑（已写进夹具注释）**：`ElMessageBox` 是**单例**、弹窗挂在 body 上且**不随组件卸载移除**——上一个用例残留的框会让本用例的 `confirm` 永远拿不到自己的 promise，症状是"按钮点了、确认也点了，但动作没下发"。夹具改为取**最后一个**弹窗并在 `afterEach` 清掉残留节点。
+
+### 批次 D（2026-10-10）：中间件 Tab 收窄
+
+| 层 | 改动 |
+|---|---|
+| K8s Tab | `K8sTab.vue`：**移除「异常 Pod」明细表**；KPI 的「异常 Pod」卡改为**可点击**（计数留在这里，明细去管理面）；页头加「进入容器与工作负载」按钮；原明细位置改为一句说明 + 跳转（否则用户会以为"功能没了"）。节点列表**保留**（见 §1.4 争议项①：它是"指标按节点展开"） |
+| Docker Tab | `DockerTab.vue`：**移除「容器列表」与「容器详情抽屉」**（含 `/api/v1/query/range` 趋势查询）；KPI 与「实例拓扑」保留（按主机聚合计数）；页头加跳转按钮 + 一句说明。顺带删掉随之无用的排序/分页/趋势图代码与 `data.containers` 的归并 |
+
+**两处口径**：
+
+1. **移除的是"对象标识"，不是"计数"**：`异常 Pod` 的计数（有多少）留在这两页，Pod 名 / 状态 / 容器名 / 镜像（是哪个）去管理面。定界规则见 §1.1。
+2. **跳转带平台参数**（`?platform=k8s` / `?platform=docker`），容器页认领后落在对应平台——两个平台的通路不同，不该让用户落地后再自己切。
+
+**验证**：前端 `npm test` **50 文件 / 419 用例**通过（新增 5 例：K8s Tab 不出现 Pod 名/状态但保留计数与说明、页头跳转带 `platform=k8s`、异常 Pod 计数卡可点；Docker Tab 不出现容器名/镜像但保留聚合计数与说明、页头跳转带 `platform=docker`）。本批**未改后端**。
+
+### 批次 E（2026-10-10）：改正数据通路（二版）
+
+| 层 | 改动 |
+|---|---|
+| **新增** | `internal/server/dockerproxy/`：`dockerproxy.go`（端点解析 + unix/tcp 客户端 + 请求封装）、`engine.go`（查询与写操作 + 白名单投影，从 Agent 侧 `collector/docker_query.go` 整体搬来） |
+| **新增** | `internal/server/k8sproxy/query.go`：5 条 K8s 只读查询与投影，从 Agent 侧 `collector/k8s_query.go` 整体搬来（含 `podStatus` 与容器状态类型） |
+| **上报协议** | `model.DockerEndpoint` + `ReportPayload.DockerEndpoints`（端点级清单，**含 daemon 地址**）；`instancereg.SetDockerEndpoints` / `DockerEndpoints`；`receiver` 落库 |
+| **Agent** | `collector/docker.go`：采集时一并产出端点清单（**失败路径也要返回**，否则选择器会凭空少一台）；`config.go` 删 `guards.ops.container` 与 `guards.ops.docker`；**删除** `collector/docker_query.go`、`ops/docker.go` 与各自用例；`ops/container.go` 收敛为只管写；`collector/k8s_query.go` 瘦身为 `k8s_common.go` |
+| **Server API** | `api/docker_api.go` 重写（9 个同步接口）；`api/k8s_live.go` 重写（`live/{cluster}/{cap}` 五条能力）；`query.go` 路由同步；`k8sproxy.GetJSON` / `GetText` 删除（原样透传已无调用方） |
+| **动作目录** | 删除 15 个动作与「容器」「Docker」「Docker 操作」三个分组；`groupOrder` 收敛为 `节点/服务/容器操作/文件`；新增守卫 `catalog_removed_actions_test.go` |
+| **前端** | `ContainerView.vue`：读改直连（删掉轮询 / 认领回执 / 撤回那一整套），写保留轮询；`DockerPanel.vue` 重写为同步直连；`queryCache.js` 去掉 `task` 字段 |
+
+**六条实现取舍**：
+
+1. **投影留在服务端**（K8s 的搬到 Server、Docker 的本来就在 Server）：投影是**安全边界**——`env[].value`、ConfigMap 的 `data`、注解里的 `last-applied-configuration` 都可能含明文密钥。下放给浏览器就等于数据已经到过浏览器了。
+2. **Docker 端点复用上报、K8s 凭据仍另配一份**：daemon 地址不是凭据（能启停容器靠 daemon 的访问控制，不是地址的保密），另配一份只会让运维维护两处、且必然对不上；而集群 token / kubeconfig 确实不该离开它被配置的地方。
+3. **端点定位用 (node, name) 二元组**：`dockerInstances[].name` 是每台机器各自起的名，只按 name 找会命中错的那台机器。
+4. **地址不进响应体**：`/docker/endpoints` 只给 node / name / reachable / unixSocket；`unixSocket` 是**静态**判断（看 scheme），列表页不对每台机器发探测请求——真实可达性由具体查询给出（直连是同步的，反馈即时）。
+5. **错误信息不复述地址**：`dialError` 把「跨机 unix socket」翻译成可执行建议，原始错误只进 Server 日志。
+6. **`docker.rm` 不删卷、`docker.image.rm` 默认不 force**：沿用批次 B 的取舍，搬到 `dockerproxy` 后原样保留。
+
+**踩到并写进用例的坑**：PowerShell 的 `Out-File` 会把文件写成 CRLF + BOM，脚本里按 `\n` 拼的锚点会**静默匹配不上**（不报错，只是插入/删除都没发生）。移植时先归一化换行再处理。
+
+**验证**：`go build ./...`、`go vet ./...`、`go test ./... -p 1` 通过（唯一失败是 `TestZooKeeperCollect_EqualsSeparatorStillWorks`——本机负载下的既有易抖用例，单跑通过，与本次改动无关）；前端 `npm test` **50 文件 / 416 用例**通过；`npm run build` 通过。
+
+> **本批未做实机验证**：Docker 直连需要一台 daemon 可达的机器。开发机上验到的是「端点不可达时错误信息可执行、且不泄露地址」，真实查询待 dev-server 或现场。
+
+## 实施总览（五批已完成）
+
+| 批次 | 内容 | 关键提交点 | 状态 |
+|---|---|---|---|
+| **A** | Docker 只读管理面（异步下行动作 + `guards.ops.docker.read`） | `Action.Perm`（D4 落点）、inspect 白名单投影、日志帧去头 | **已被 E 取代** |
+| **B** | Docker 写操作（异步下行动作 + `guards.ops.docker.write`） | 删容器不删卷、304 翻译成人话 | **已被 E 取代** |
+| **C** | K8s 排障写操作（3 个动作 + `guards.ops.containerWrite` + `container:write` **仅超管**） | 重启靠打注解不删 Pod、扩缩容走 `/scale` | 沿用 |
+| **D** | 中间件 Tab 收窄（只留指标 + 跳转入口） | 计数留、对象标识去 | 沿用 |
+| **E** | 改正数据通路：**Server 直连**（Docker 读写 + K8s 读） | 删 15 个动作、投影留在服务端、端点复用上报 | 二版 |
+
+**全程验证**：`go build ./...` 与 `go test ./... -p 1` 通过；前端 `npm test` 由 400 例增至 **416 例**全通过；`npm run build` 通过。

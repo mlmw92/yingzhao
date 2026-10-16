@@ -4,7 +4,9 @@
 上位文档：`2026-09-30-ops-platform-evolution-design.md`（总体设计）、`2026-09-30-ops-platform-capability-map.md`（全景对照表 §3.8、§3.9、§3.10）
 决策记录：`docs/adr/0002-log-backend-abstraction.md`、`docs/adr/0003-container-management-downlink.md`
 
-> **2026-10-10 重规划（本件部分内容已被取代）**：本件 §3 的「**只读**管理面」已扩为覆盖 K8s 与 Docker 的**管理面**，并把「指标展示（中间件监控 K8s/Docker Tab）」与「对象管理（容器与工作负载）」两个菜单定界。新信息架构、Docker 管理动作/通路/护栏、K8s 排障写操作见 `2026-10-10-container-workload-management-design.md` 与 `docs/adr/0005-docker-management-channel.md`。**凡本件与新设计件冲突处，以新设计件为准**；本件 §3.2 的 kind 表与 §3.3 的护栏命名保留为历史设计记录（下方已就地加注）。
+> **2026-10-10 重规划（本件部分内容已被取代）**：本件 §3 的「**只读**管理面」已扩为覆盖 K8s 与 Docker 的**管理面**，并把「指标展示（中间件监控 K8s/Docker Tab）」与「对象管理（容器与工作负载）」两个菜单定界。新信息架构、数据通路、K8s 排障写操作见 `2026-10-10-container-workload-management-design.md` 与 `docs/adr/0006-direct-api-for-container-management.md`（**取代了同日先出的 ADR-0005**）。**凡本件与新设计件冲突处，以新设计件为准**；本件 §3.2 的 kind 表与 §3.3 的护栏命名保留为历史设计记录（下方已就地加注）。
+>
+> **同日二版改正（重要）**：本件下方几处「就地加注」写于当天的**一版**，其中关于 Docker 的判断（「socket 只在 Agent 本机，只走异步下行」「新增独立子护栏 `docker{read,write}`」）**已被推翻**。二版把 Docker 读写都改成 **Server 直连 daemon**，因此那 10 个 `docker.*` 动作与那两个护栏开关**都不存在**。下面保留了原文并逐处补注，但**不要照着它们实现**。
 
 ## 意图与边界
 
@@ -77,7 +79,11 @@ sequenceDiagram
 | `container.logs` | 拉取 Pod/容器日志（tail 行数、since、上一实例） | ✅ | 与集中日志的边界见 §4.4 |
 | `container.exec` | 交互式终端 | ❌（P2） | 需显式开启 + 独立权限点 + 审计 + 会话时长限制 |
 
-> **2026-10-10 就地加注**：上表是「首批只读」的原始设计记录。重规划后 kind 清单扩为：**K8s 排障写操作** `container.restart` / `container.scale` / `container.delete`（走异步下行，权限点 `container:write`），以及**一整套 Docker 动作** `docker.info` / `docker.containers` / `docker.inspect` / `docker.logs` / `docker.images` + 写 `docker.start` / `docker.stop` / `docker.restart` / `docker.rm` / `docker.image.rm`（Docker socket 只在 Agent 本机，只走异步下行，见 ADR-0005）。完整清单与参数见 `2026-10-10-container-workload-management-design.md` §4.1。`container.exec` 的「不做」结论**不变**。
+> **2026-10-10 就地加注（含同日二版改正）**：上表是「首批只读」的原始设计记录。重规划后 kind 清单只**新增** K8s 排障写操作 `container.restart` / `container.scale` / `container.delete`（走异步下行，权限点 `container:write`）；本表原有的 5 个只读动作（`container.workloads/pods/describe/events/logs`）在二版**被删除**——K8s 读改由 Server 直连（`internal/server/k8sproxy/query.go`）提供。
+>
+> 一版曾在此处加入**一整套 Docker 动作**（`docker.info` 等 10 个，理由是「socket 只在 Agent 本机，只走异步下行」）。**这条已被 ADR-0006 推翻**：Docker 读写都改为 Server 直连 daemon（`internal/server/dockerproxy/`），那 10 个动作**一个都不存在**。
+>
+> 完整清单见 `2026-10-10-container-workload-management-design.md` §4.1（二版：只剩 3 个 K8s 写动作）。`container.exec` 的「不做」结论**不变**。
 
 ### 3.3 安全边界（四道护栏）
 
@@ -90,7 +96,11 @@ sequenceDiagram
 
 **脱敏规则**：`container.describe` 返回的 YAML 中，`Secret`、`ServiceAccount` token、`dockerconfigjson` 等敏感字段一律以占位符替换；日志拉取不返回环境变量全文。
 
-> **2026-10-10 就地加注（护栏命名与落点）**：本节描述的抽象在实现中落地为 `internal/agent/config/config.go` 的 `OpsGuards`——`readOnly *bool`、`write bool`、`units []string`、`container *bool`（三态，默认放行）、`file{write,dirs}`。重规划后**再增一个独立子护栏 `docker{read,write}`**（写默认关闭），**不复用** `container`：与 `file.push` 不复用 `ops.write/units` 同一个取向（「愿意交出集群结构」与「愿意被启停容器」是两件不同的同意）。`container.describe` 的**白名单投影**原则（不做原始 YAML）**不变**，`docker.inspect` 沿用同一原则。
+> **2026-10-10 就地加注（护栏命名与落点，含二版改正）**：本节描述的抽象在实现中落地为 `internal/agent/config/config.go` 的 `OpsGuards`——`readOnly *bool`、`write bool`、`units []string`、`file{write,dirs}`。
+>
+> 一版曾在此处加了两个开关：`container *bool`（K8s 只读）与 `docker{read,write}`（Docker 管理面）。**二版把它们都删了**（ADR-0006）：K8s 读与 Docker 读写都改由 Server 直连，Agent 侧没有执行点，本机护栏无处安放——留着就是**空开关**（运维会以为自己挡住了一件其实挡不住的事）。现在 `guards.ops` 里与容器相关的只剩 `containerWrite`（K8s 排障写操作，仍走异步下行）。
+>
+> `container.describe` 的**白名单投影**原则**不变**，只是换了位置与名字：K8s 侧是 `k8sproxy.QueryObject`，Docker 侧是 `dockerproxy.QueryInspect`。**投影必须留在服务端**——它是安全边界，下放给浏览器就等于数据已经到过浏览器了。
 
 ### 3.4 前端信息架构（借 headlamp，不抄代码）
 
@@ -336,20 +346,22 @@ ADR-0002 的"接口与第二适配器同时落地"：本批把日志存储抽成
 时跳过去看到的空态文案、以及多节点下同名 Pod 会被一并命中（`pods=` 不含节点维度——这是刻意的
 "宁可多给也不漏"，但未实测）。
 
-### 批次 5（2026-10-10）：信息架构重规划（**设计件，未实施**）
+### 批次 5（2026-10-10）：信息架构重规划 + 数据通路改正（**已实施**）
 
 本件此前把「容器与可观测」的容器侧定为**只读**管理面，且只覆盖 K8s；Docker 只在「中间件监控」里以指标形式存在。用户 2026-10-10 要求把两个菜单的职责切开，并让容器与工作负载同时管理 K8s 与 Docker。
 
-本批**只产出规划，未改任何代码**：
+当天先出了一版**规划**（只改文档），随后落地四批代码，接着按用户反馈**改正数据通路**（二版）。产物：
 
 | 产物 | 位置 |
 |---|---|
-| 新设计件 | `2026-10-10-container-workload-management-design.md`（定界规则与定界表、新信息架构、两条数据通路、动作清单与护栏、脱敏、权限点、分批实施与验收） |
-| 新决策 | `docs/adr/0005-docker-management-channel.md`（Docker 只走 Agent 异步下行、写操作另设 `guards.ops.docker`） |
-| 本件就地加注 | 顶部重规划提示 + §3.2 kind 表、§3.3 护栏命名、§前端与菜单 三处 |
+| 新设计件 | `2026-10-10-container-workload-management-design.md`（定界规则与定界表、新信息架构、数据通路、动作清单与护栏、脱敏、权限点、分批实施与验收；顶部有「二版修订」） |
+| 决策 | `docs/adr/0005-docker-management-channel.md`（一版：Docker 只走异步下行）**已被** `docs/adr/0006-direct-api-for-container-management.md`（二版：Docker 读写都 Server 直连）**取代** |
+| 本件就地加注 | 顶部重规划提示 + §3.2 kind 表、§3.3 护栏命名、§前端与菜单 三处（均含二版改正） |
 | 全景表 | §3.8 新增两个功能点（Docker 管理面、K8s 排障写操作），合计 99/70/4/25 → **101/70/4/27** |
 | 术语 | `CONTEXT.md` 的「容器只读管理面」扩为「容器管理面」并新增「Docker 管理面」 |
 
-**四条待评审决策点**（见新设计件 §十）：D1 写操作是否进双人复核；D2 删除 Pod 的门控强度；D3 `docker:write` 是否只给超管；D4「按 kind 叠加域权限点」的落点（倾向给 `Action` 加 `Perm` 字段，保持「新增动作只改目录」）。
+**四个决策点已由用户 2026-10-10 拍板**：D1 写操作**不进**双人复核；D2 K8s 三项写操作全部**仅超管**（`container:write` 一个权限点）；D3 `docker:write` **仅超管**；D4 按 kind 叠加域权限点走动作目录的 `Action.Perm` 字段。
 
-**实施时的三条不变量**（评审通过后按 §九 分批）：① 操作面上限仍是**参数化动作白名单**，不开任意命令 / 终端；② K8s 的 Server 侧实时代理（ADR-0004）**保持只读、白名单不外扩**，写操作只走异步下行；③ 写动作**另开动作分组**——`internal/server/ops/catalog_test.go:269-299` 断言「容器」分组内不得含写动作，这条守卫**不放松**。
+**二版改正（同一批）**：一版把 Docker 判成「无 Server 直连通路」而全走异步下行，用户指出「**还是采用上报的方式，没有采用调接口的方式**」——这个反馈是对的。二版改为：Docker 读写都 Server 直连 daemon、K8s 读只留一条直连通路（5 个只读动作删除）、`guards.ops.docker` 与 `guards.ops.container` 一并删除。详见 ADR-0006。
+
+**实施时守住的三条不变量**：① 操作面上限仍是**参数化动作白名单**，不开任意命令 / 终端（`container.exec` 的「不做」结论不变）；② K8s 的 Server 侧直连**保持只读**，写操作只走异步下行（要逐机护栏与 Agent 本地的凭据）；③ **投影留在服务端**——Docker 的 inspect 与 K8s 的对象详情都是白名单投影而非原始 JSON，下放给浏览器就等于数据已经到过浏览器了。

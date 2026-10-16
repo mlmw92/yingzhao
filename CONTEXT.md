@@ -92,9 +92,9 @@ Server 自身指标以 `self_*` 前缀、代理模式指标以 `proxy_*` 前缀�
 
 ### 演进中术语（部分已落地）
 
-本组术语来自《一体化运维平台》设计（`docs/superpowers/specs/2026-09-30-ops-platform-*`、`docs/adr/0001-0005`）。
+本组术语来自《一体化运维平台》设计（`docs/superpowers/specs/2026-09-30-ops-platform-*`、`docs/adr/0001-0006`）。
 
-**落地状态（2026-10-04）**：`资产`、`资产类型`、`配置项`、`资产关联`、`人工优先`、`关系抑制`、`发现来源`、`配置快照` **已实现**（`internal/server/asset` + `GET /api/v1/assets`，见 `2026-09-30-asset-cmdb-design.md` 的「实施记录」）；**`容器`、`工作负载`、`短命资产` 与资产关联的自动来源（`runs_on` / `member_of`）已实现**（批次 17，`2026-10-04-container-inventory-design.md`）；`差异巡检` **已实现**（`inspect_runs` / `inspect_findings` / `inspect_baselines`）；`下行操作`、`高危操作护栏` **已实现**（`internal/server/ops` 动作目录与任务状态机 + `internal/agent/ops` 本机护栏与执行器；容器只读查询即 `container.*`，见 `2026-09-30-container-observability-design.md` 的「实施记录」）；`日志后端` **已实现**（`LogStore` 接口 + VictoriaLogs 适配器，ADR-0002）。**2026-10-10**：`容器管理面` 由「只读」扩为覆盖 K8s 与 Docker 的管理面（`Docker 管理面` 与 K8s 排障写操作**仍是规划**，设计件 `2026-10-10-container-workload-management-design.md`、ADR-0005，未实施）。全部落地后，把条目移入上方对应分组。
+**落地状态（2026-10-04）**：`资产`、`资产类型`、`配置项`、`资产关联`、`人工优先`、`关系抑制`、`发现来源`、`配置快照` **已实现**（`internal/server/asset` + `GET /api/v1/assets`，见 `2026-09-30-asset-cmdb-design.md` 的「实施记录」）；**`容器`、`工作负载`、`短命资产` 与资产关联的自动来源（`runs_on` / `member_of`）已实现**（批次 17，`2026-10-04-container-inventory-design.md`）；`差异巡检` **已实现**（`inspect_runs` / `inspect_findings` / `inspect_baselines`）；`下行操作`、`高危操作护栏` **已实现**（`internal/server/ops` 动作目录与任务状态机 + `internal/agent/ops` 本机护栏与执行器；容器只读查询即 `container.*`，见 `2026-09-30-container-observability-design.md` 的「实施记录」）；`日志后端` **已实现**（`LogStore` 接口 + VictoriaLogs 适配器，ADR-0002）。**2026-10-10**：`容器管理面` 由「只读」扩为覆盖 K8s 与 Docker 的管理面；同日**二版**按用户反馈改正数据通路——Docker 读写与 K8s 读都改为 **Server 直连**（设计件 `2026-10-10-container-workload-management-design.md`、ADR-0006，取代 ADR-0005）。**Docker 直连尚未实机验证**（需要一台 daemon 可达的机器）。全部落地后，把条目移入上方对应分组。
 
 **资产（Asset）**
 一个被管理的对象实例：一台主机、一个中间件实例、一个容器、一个服务端点。_避免_：资源、对象（均已被其他含义占用）。
@@ -148,6 +148,7 @@ Server 经**上报响应**下发给 Agent 执行的结构化指令（与既有�
 
 **高危操作护栏**
 对可能改变被监控对象状态的操作（终端、配置下发等）的四道门控：① 本机护栏（`agent.yaml` 开关，机器自己掌握）→ ② 能力协商（Agent 只上报已开启的能力）→ ③ 中心授权与审计（专属权限点 + 审计留痕）→ ④ 超时作废。默认**只读**。
+**这道四道式只适用于走「下行操作」的能力**。2026-10-10（ADR-0006）之后 Docker 管理面改为 Server 直连 daemon，Agent 侧没有执行点，① 与 ② 无处安放——它的门控是**三道**：权限点（`docker:write`，仅超管）+ 界面二次确认 + 审计。别拿"四道护栏"去核对 Docker 那条通路。
 
 **日志后端（Log Backend）**
 日志的存储实现：默认自研分片落盘，可选外部后端（如 VictoriaLogs）。与「时序库」并列的另一个存储角色，勿混。
@@ -166,10 +167,11 @@ _避免_：把它当成「功能没做完」。
 
 **Docker 管理面（Docker Console）**
 「容器与工作负载」里面向 Docker 引擎（而非 K8s 集群）的那一半：引擎概览、容器与镜像、容器日志、
-容器启停 / 重启 / 删除。与 K8s 管理面的关键差异：Docker 运行时地址只在被监控机器本机，
-**没有** Server 侧直连通路，因此它的**只读列表也是异步的**（延迟约一个上报周期）；
-写操作由**独立**的本机护栏把守，不复用容器查询的开关。
-_避免_：把它当作 K8s 管理面的对称物。
+容器启停 / 重启 / 删除。**由 Server 直连 daemon**（ADR-0006）：读与写都是同步的，点开即得。
+端点清单**复用 Agent 上报**（含 daemon 地址），运维不必在 Server 上另配一份。
+与 K8s 管理面的关键差异：daemon 地址可能是 Server 够不着的 unix socket——**那是部署形态问题**，
+跨机器要把 daemon 暴露为 `tcp://` 或挂 socket 代理（界面会给出这句建议）。
+_避免_：把它当作 K8s 管理面的对称物（K8s 读的凭据由运维在 Server 上另配，Docker 的端点复用上报——差异是有意的）。
 
 ---
 
