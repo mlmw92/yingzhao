@@ -255,7 +255,26 @@ function metricValue(row, key, format) {
 function formatValue(v, format) {
   if (format === 'mb') return formatMB(v)
   if (format === 'compact') return formatCompact(v)
+  if (format === 'bytes') return formatBytes(v)
+  if (format === 'pct') return formatPercent(v)
   return v
+}
+// formatBytes 把原始字节换算成 B/KB/MB/GB/TB。
+// 与 'mb' 的区别：'mb' 用于服务端已换算成 MB 的指标，'bytes' 用于仍以字节返回的指标。
+function formatBytes(b) {
+  if (!b) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let n = Number(b)
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i++
+  }
+  return n.toFixed(1) + ' ' + units[i]
+}
+function formatPercent(v) {
+  if (v === null || v === undefined || v === '') return '-'
+  return Number(v).toFixed(1) + '%'
 }
 // formatCompact 用于请求数这类大整数：1.5K / 2.3M，避免表格被长数字撑开
 function formatCompact(n) {

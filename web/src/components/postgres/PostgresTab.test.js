@@ -25,6 +25,7 @@ const PAYLOAD = {
     metrics: [
       { key: 'postgres_numbackends', label: '连接数', value: 7 },
       { key: 'postgres_cache_hit_ratio', label: '缓存命中率', value: 99 },
+      { key: 'postgres_database_size_bytes', label: '数据库大小', value: 7699479 },
     ],
   }],
 }
@@ -62,5 +63,8 @@ describe('PostgresTab 声明式实例页', () => {
     expect(text).toContain('总连接数')
     expect(text).toContain('缓存命中率')
     expect(text).toContain('7')
+    // 百分比与字节都要带单位：原始值 99 / 7699479 不可读
+    expect(text).toContain('99.0%')
+    expect(text).toContain('7.3 MB')
   })
 })

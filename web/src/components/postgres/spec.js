@@ -16,10 +16,10 @@ export default {
   ],
   columns: [
     { key: 'postgres_numbackends', label: '连接数' },
-    { key: 'postgres_cache_hit_ratio', label: '缓存命中率' },
+    { key: 'postgres_cache_hit_ratio', label: '缓存命中率', format: 'pct' },
     { key: 'postgres_deadlocks', label: '死锁' },
-    { key: 'postgres_replication_lag_bytes', label: '复制延迟(B)' },
-    { key: 'postgres_database_size_bytes', label: '数据库大小' },
+    { key: 'postgres_replication_lag_bytes', label: '复制延迟', format: 'bytes' },
+    { key: 'postgres_database_size_bytes', label: '数据库大小', format: 'bytes' },
   ],
   trends: [
     { name: '连接数', metric: 'postgres_numbackends', unit: '个' },
