@@ -102,7 +102,42 @@ func TestPromQLTruncatesAtLimit(t *testing.T) {
 	}
 }
 
-// TestPromQLEventCarriesExpressionAsMetric 告警事件的「触发条件」取自 Metric 字段；
+// TestPromQLTruncationDoesNotResolveOverflowedSeries 截断只影响本轮的评估范围，
+// 不改变已有状态：被本轮截掉的序列即使曾经 firing，也不能因此被当成「已消失」。
+func TestPromQLTruncationDoesNotResolveOverflowedSeries(t *testing.T) {
+	h := newEvalHarness(t, false, nil)
+	add := func(prefix string, from, to int) {
+		for i := from; i < to; i++ {
+			h.store.promql = append(h.store.promql, model.Series{
+				Labels: map[string]string{"instance": fmt.Sprintf("%s%03d", prefix, i)},
+				Points: []model.Point{{Timestamp: model.NowMillis(), Value: 1}},
+			})
+		}
+	}
+
+	// 第一轮：201 条，按标识排序后处理前 200 条（i200..i399）。
+	add("i", 200, 401)
+	h.addRule(promqlRule())
+	h.eval()
+	if h.firingCount() != maxPromQLSeries {
+		t.Fatalf("第一轮应触发 %d 条，实际 %d", maxPromQLSeries, h.firingCount())
+	}
+
+	// 第二轮：加入 101 条排序更靠前的序列，把原来的尾部（i299..i399）挤出前 200。
+	h.alerts.writes = nil
+	add("a", 0, 101)
+	h.eval()
+
+	for _, w := range h.alerts.writes {
+		if w.Labels["state"] == "resolved" {
+			t.Fatalf("被截断的序列不应被恢复：%v", w.Labels["message"])
+		}
+	}
+	if h.firingCount() == 0 {
+		t.Fatal("第二轮应保持已有 firing 状态")
+	}
+}
+
 // PromQL 规则没有 Metric，必须把表达式写进去，否则详情页这一行是空的。
 func TestPromQLEventCarriesExpressionAsMetric(t *testing.T) {
 	h := newEvalHarness(t, false, nil)

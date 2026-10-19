@@ -792,7 +792,7 @@ const (
 	// RuleTypeSecurityEvent 安全事件规则。
 	RuleTypeSecurityEvent string = "security_event"
 	// RuleTypePromQL PromQL 表达式规则。
-	RuleTypePromQL string = "promql" // 安全事件
+	RuleTypePromQL string = "promql"
 )
 
 // AlertRule 告警规则（阈值 + 场景化类型共用）。

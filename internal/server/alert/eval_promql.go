@@ -26,6 +26,14 @@ func (promQLEvaluator) Evaluate(c *evalContext) {
 		slog.Warn("PromQL 规则评估失败，保持上一轮状态", "rule", r.Name, "err", err)
 		return
 	}
+	// 先记录**完整结果**里出现过的序列，再做截断。
+	// 被截掉的序列只是本轮没被评估，不能当成「已消失」而恢复——
+	// 否则多条序列争抢前 200 个名额时，告警会随着排序结果反复触发/恢复。
+	seen := make(map[string]bool, len(series))
+	for _, s := range series {
+		seen[r.ID+"|"+s.Labels["node"]+"|"+seriesIdentity(s.Labels)] = true
+	}
+
 	if len(series) > maxPromQLSeries {
 		// 截断前先排序：保证每轮截掉的都是同一批序列，避免状态随机抖动。
 		sort.Slice(series, func(i, j int) bool {
@@ -36,7 +44,6 @@ func (promQLEvaluator) Evaluate(c *evalContext) {
 		series = series[:maxPromQLSeries]
 	}
 
-	seen := make(map[string]bool, len(series))
 	for _, s := range series {
 		node := s.Labels["node"]
 		if node != "" {
@@ -49,7 +56,6 @@ func (promQLEvaluator) Evaluate(c *evalContext) {
 		}
 		id := seriesIdentity(s.Labels)
 		key := r.ID + "|" + node + "|" + id
-		seen[key] = true
 		st := c.State(key)
 		if st.aboveSince == 0 {
 			st.aboveSince = c.now
