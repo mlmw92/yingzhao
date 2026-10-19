@@ -363,20 +363,11 @@ func (e *Engine) evaluate() {
 		if inQuietPeriod(r.QuietPeriods, now) {
 			continue
 		}
-		switch r.Type {
-		case RuleTypeNodeOffline:
-			e.evalNodeOffline(r, nodes, now)
-		case RuleTypeServiceDown:
-			e.evalServiceDown(r, nodes, now)
-		case RuleTypeRoleChange:
-			e.evalRoleChange(r, nodes, now)
-		case RuleTypeClusterFault:
-			e.evalClusterFault(r, nodes, now)
-		case RuleTypeSecurityEvent:
+		if r.Type == RuleTypeSecurityEvent {
 			e.evalSecurityEvents(r, nodes, now)
-		default:
-			e.evalThreshold(r, nodes, now)
+			continue
 		}
+		evaluatorFor(r.Type).Evaluate(&evalContext{e: e, rule: r, nodes: nodes, now: now})
 	}
 	e.cleanupInactiveRulesLocked(rules, now)
 }
@@ -516,44 +507,6 @@ func parseHHMM(s string) int {
 		return -1
 	}
 	return h*60 + m
-}
-
-// evalThreshold 传统阈值规则评估：逐节点 × 实例，指标与阈值比较，持续 For 后触发。
-func (e *Engine) evalThreshold(r model.AlertRule, nodes []model.Node, now int64) {
-	for _, n := range nodes {
-		if !matchesGroup(r.Group, n.Group) {
-			continue
-		}
-		if !matchesScope(r.Scope, r.Nodes, n.Hostname) {
-			continue
-		}
-		for _, sample := range e.latestMetricSamples(n.Hostname, r.Metric, nil) {
-			key := r.ID + "|" + n.Hostname + "|" + sample.instance
-			st := e.getState(key)
-			cond := Compare(r.Operator, sample.value, r.Threshold)
-			if cond {
-				if st.aboveSince == 0 {
-					st.aboveSince = now
-				}
-				forSec := parseFor(r.For)
-				if !st.firing && now-st.aboveSince >= forSec*1000 {
-					st.firing = true
-					st.firedAt = now
-					st.escalated = false
-					st.lastRepeat = 0
-					e.fire(r, n.Hostname, sample.instance, sample.value, now)
-				} else {
-					e.maybeEscalate(r, n.Hostname, sample.instance, sample.value, st, now)
-				}
-			} else {
-				if st.firing {
-					st.firing = false
-					e.resolve(r, n.Hostname, sample.instance, sample.value, now)
-				}
-				st.aboveSince = 0
-			}
-		}
-	}
 }
 
 // getState 获取（或创建）规则状态项。调用方须持有 e.mu。
