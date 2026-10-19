@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------------
 # yingzhao（英招）离线发布包组装脚本
-#   产出两种 tarball 到 dist/release/：
+#   产出三种 tarball 到 dist/release/：
 #     1) -full       首次部署用（bin + web + deploy + packages + install.sh）
 #     2) -upgrade    增量升级用（bin + web + deploy/agent-install.sh + VERSION + SHA256SUMS + UPGRADE.md）
+#     3) -exporters  配套中间件 exporter（独立部署，三架构二进制 + 说明）
 #
 # 用法: ./build/release.sh
 # 前置:
@@ -559,10 +560,40 @@ fi
 # 立即清理 stage-full（~240MB），避免后续步骤占空间
 rm -rf "$STAGE_FULL"
 
+# ============================ 配套 exporter 包（独立发布） ============================
+# 与 full/upgrade 分开：exporter 独立部署、独立升级，用户不必为了一个 8MB 的
+# exporter 去下载 200MB 的 full 包。
+OUT_EXPORTERS="${STAGE_ROOT}/${NAME}-exporters.tar.gz"
+if [[ -d "$BIN_DIR/exporters" ]]; then
+  c_info "组装 $(basename "$OUT_EXPORTERS" .tar.gz)"
+  STAGE_EXPORTERS="${STAGE_ROOT}/${NAME}-exporters"
+  rm -rf "$STAGE_EXPORTERS"
+  mkdir -p "$STAGE_EXPORTERS"
+  cp -a "$BIN_DIR/exporters"/. "$STAGE_EXPORTERS"/
+  cp -a "$ROOT/exporters/README.md" "$STAGE_EXPORTERS/README.md"
+  # 每个 exporter 的部署说明放到 docs/ 下（二进制目录只放可执行文件）
+  mkdir -p "$STAGE_EXPORTERS/docs"
+  for f in "$ROOT"/exporters/*/README.md; do
+    [[ -f "$f" ]] || continue
+    cp -a "$f" "$STAGE_EXPORTERS/docs/$(basename "$(dirname "$f")").md"
+  done
+  chmod +x "$STAGE_EXPORTERS/linux/"*"/*" 2>/dev/null || true
+  ( cd "$STAGE_EXPORTERS" && find linux -type f -print0 | xargs -0 sha256sum > SHA256SUMS )
+  rm -f "$OUT_EXPORTERS"
+  if ! tar -czf "$OUT_EXPORTERS" -C "$STAGE_ROOT" "${NAME}-exporters"; then
+    echo "::error::tar 打包 exporters 失败"
+    ls -la "$STAGE_EXPORTERS" 2>&1 | head -20
+    exit 1
+  fi
+  rm -rf "$STAGE_EXPORTERS"
+else
+  c_warn "未找到 ${BIN_DIR}/exporters，跳过配套 exporter 包"
+fi
+
 # ============================ 报告 ============================
 echo
 c_ok "发布物已生成："
-ls -lh "$OUT_FULL" "$OUT_UPGRADE"
+ls -lh "$OUT_FULL" "$OUT_UPGRADE" ${OUT_EXPORTERS:+"$OUT_EXPORTERS"} 2>/dev/null
 echo
 # 末尾的 tar -tzf 是只读列出，awk 在 16 行后 exit 会关 stdin，
 # tar 仍会因 SIGPIPE 退出码非零，触发 set -euo pipefail 失败。

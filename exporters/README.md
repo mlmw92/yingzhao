@@ -12,6 +12,15 @@
 
 平台仍然支持 `exporterURL` 指向任意第三方 exporter；本目录只是提供一套「开箱即用」的实现。
 
+## 获取二进制
+
+发布物里已经包含三架构编译结果，**用户不需要安装 Go 或自行编译**：
+
+- 独立包：`yingzhao-v<版本>-exporters.tar.gz`（约 14 MB，含 `linux/{amd64,arm64,arm}/<name>`、`README.md`、`docs/` 与 `SHA256SUMS`）；
+- 或 full 包内的 `exporters/linux/<arch>/`。
+
+仓库本身只提交源码，不提交二进制。
+
 ## 目录约定
 
 ```
