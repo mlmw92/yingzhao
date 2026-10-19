@@ -132,6 +132,10 @@ func (s *PromStorage) QueryInstantWithLookback(node, name string, labels map[str
 	return series, nil
 }
 
+func (s *PromStorage) QueryPromQL(expr string) ([]model.Series, error) {
+	return s.queryExpr(expr)
+}
+
 func (s *PromStorage) queryExpr(expr string) ([]model.Series, error) {
 	q := url.Values{}
 	q.Set("query", expr)

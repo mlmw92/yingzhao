@@ -79,6 +79,15 @@ func (s *Storage) QueryAllLatest(name string, labels map[string]string) ([]model
 	return out, err
 }
 
+// QueryPromQL 原始表达式查询并计数。
+func (s *Storage) QueryPromQL(expr string) ([]model.Series, error) {
+	out, err := s.inner.QueryPromQL(expr)
+	if s.mon != nil {
+		s.mon.AddQuery(err)
+	}
+	return out, err
+}
+
 // Close 释放底层存储。
 func (s *Storage) Close() error { return s.inner.Close() }
 

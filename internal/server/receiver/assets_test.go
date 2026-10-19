@@ -35,6 +35,7 @@ func (s *assetTestStorage) QueryInstantWithLookback(string, string, map[string]s
 func (s *assetTestStorage) QueryAllLatest(string, map[string]string) ([]model.Series, error) {
 	return nil, nil
 }
+func (s *assetTestStorage) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 func (s *assetTestStorage) Close() error    { return nil }
 func (s *assetTestStorage) Backend() string { return "test" }
 

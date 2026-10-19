@@ -120,6 +120,9 @@ type Storage interface {
 	QueryInstantWithLookback(node, name string, labels map[string]string, lookback time.Duration) ([]model.Series, error)
 	// QueryAllLatest 对单一指标跨所有节点做即时查询，返回按节点标签分组的全部序列（用于主机列表聚合）。
 	QueryAllLatest(name string, labels map[string]string) ([]model.Series, error)
+	// QueryPromQL 执行一条原始 PromQL 表达式，返回即时查询的向量结果。
+	// 仅供规则评估与试运行使用；调用方负责表达式来源的可信性。
+	QueryPromQL(expr string) ([]model.Series, error)
 	// Close 释放资源。
 	Close() error
 	// Backend 返回后端类型名（用于日志/诊断）。

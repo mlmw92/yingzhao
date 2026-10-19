@@ -26,6 +26,7 @@ func (s *grTestStore) QueryInstantWithLookback(_, name string, _ map[string]stri
 func (s *grTestStore) QueryAllLatest(string, map[string]string) ([]model.Series, error) {
 	return nil, nil
 }
+func (s *grTestStore) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 func (s *grTestStore) Close() error    { return nil }
 func (s *grTestStore) Backend() string { return "fake" }
 

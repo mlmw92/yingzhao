@@ -50,6 +50,7 @@ func (f *fakeStorage) QueryInstantWithLookback(string, string, map[string]string
 func (f *fakeStorage) QueryAllLatest(string, map[string]string) ([]model.Series, error) {
 	return nil, f.queryErr
 }
+func (f *fakeStorage) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 
 func (f *fakeStorage) Close() error {
 	f.mu.Lock()

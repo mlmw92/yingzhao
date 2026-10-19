@@ -27,6 +27,7 @@ func (s *clusterStore) QueryInstantWithLookback(_, name string, _ map[string]str
 func (s *clusterStore) QueryAllLatest(string, map[string]string) ([]model.Series, error) {
 	return nil, nil
 }
+func (s *clusterStore) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 func (s *clusterStore) Close() error    { return nil }
 func (s *clusterStore) Backend() string { return "fake" }
 

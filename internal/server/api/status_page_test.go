@@ -46,6 +46,7 @@ func (s *statusFakeStore) QueryAllLatest(name string, labels map[string]string) 
 	}
 	return s.latest[name], nil
 }
+func (s *statusFakeStore) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 func (s *statusFakeStore) Close() error    { return nil }
 func (s *statusFakeStore) Backend() string { return "fake" }
 

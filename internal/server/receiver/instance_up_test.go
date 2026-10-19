@@ -33,6 +33,7 @@ func (s *recordingStorage) QueryInstantWithLookback(string, string, map[string]s
 func (s *recordingStorage) QueryAllLatest(string, map[string]string) ([]model.Series, error) {
 	return nil, nil
 }
+func (s *recordingStorage) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 func (s *recordingStorage) Close() error    { return nil }
 func (s *recordingStorage) Backend() string { return "test" }
 

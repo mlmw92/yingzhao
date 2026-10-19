@@ -39,6 +39,7 @@ func (f *fakeStore) QueryInstantWithLookback(string, string, map[string]string, 
 func (f *fakeStore) QueryAllLatest(name string, _ map[string]string) ([]model.Series, error) {
 	return f.series[name], nil
 }
+func (f *fakeStore) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 
 func (f *fakeStore) Close() error    { return nil }
 func (f *fakeStore) Backend() string { return "fake" }

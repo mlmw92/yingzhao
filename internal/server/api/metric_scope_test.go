@@ -36,6 +36,7 @@ func (s *metricScopeStore) QueryAllLatest(name string, labels map[string]string)
 	s.allLatestCalls++
 	return s.series, nil
 }
+func (s *metricScopeStore) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 
 func metricScopeFixture(t *testing.T) (*API, *metricScopeStore) {
 	t.Helper()

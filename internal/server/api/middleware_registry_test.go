@@ -36,6 +36,7 @@ func (s *seriesStore) QueryAllLatest(name string, _ map[string]string) ([]model.
 	}
 	return s.series[name], nil
 }
+func (s *seriesStore) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 func (s *seriesStore) Close() error    { return nil }
 func (s *seriesStore) Backend() string { return "fake" }
 

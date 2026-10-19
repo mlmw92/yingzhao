@@ -40,6 +40,7 @@ func (s *healthTestStore) QueryInstantWithLookback(string, string, map[string]st
 func (s *healthTestStore) QueryAllLatest(string, map[string]string) ([]model.Series, error) {
 	return nil, s.queryErr
 }
+func (s *healthTestStore) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 
 func (s *healthTestStore) Close() error { return nil }
 

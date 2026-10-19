@@ -20,6 +20,7 @@ type containerStore struct {
 func (s *containerStore) QueryAllLatest(name string, _ map[string]string) ([]model.Series, error) {
 	return s.all[name], nil
 }
+func (s *containerStore) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 
 // GET /api/v1/container/k8s/clusters 的三条底线：
 //  1. 权限点是 container:read，**不能**被 middleware:read 顶替（两个信息面刻意分开）；

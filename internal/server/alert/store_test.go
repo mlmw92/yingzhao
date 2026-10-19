@@ -31,6 +31,7 @@ func (s *captureAlertStorage) QueryInstantWithLookback(string, string, map[strin
 func (s *captureAlertStorage) QueryAllLatest(string, map[string]string) ([]model.Series, error) {
 	return nil, nil
 }
+func (s *captureAlertStorage) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
 func (s *captureAlertStorage) Close() error    { return nil }
 func (s *captureAlertStorage) Backend() string { return "test" }
 
