@@ -33,6 +33,7 @@ type mwGenericMetricDef struct {
 // mwGenericRegistryRef 是注册表条目的统一投影（避免为每类写一套转换）。
 type mwGenericRegistryRef struct {
 	Node, Instance, Name, Group, Role, Version string
+	Topology, Database                         string
 	Uptime                                     float64
 	Up                                         bool
 }
@@ -60,6 +61,8 @@ type mwGenericInstanceInfo struct {
 	Group    string             `json:"group"`
 	Role     string             `json:"role,omitempty"`
 	Version  string             `json:"version,omitempty"`
+	Topology string             `json:"topology,omitempty"`
+	Database string             `json:"database,omitempty"`
 	Uptime   float64            `json:"uptime,omitempty"`
 	Up       bool               `json:"up"`
 	Metrics  []mwGenericMetricT `json:"metrics,omitempty"`
@@ -113,6 +116,12 @@ func (a *API) handleGenericMWInstances(spec mwGenericSpec) http.HandlerFunc {
 			if src.Version != "" {
 				dst.Version = src.Version
 			}
+			if src.Topology != "" {
+				dst.Topology = src.Topology
+			}
+			if src.Database != "" {
+				dst.Database = src.Database
+			}
 			if src.Uptime != 0 {
 				dst.Uptime = src.Uptime
 			}
@@ -157,6 +166,8 @@ func (a *API) handleGenericMWInstances(spec mwGenericSpec) http.HandlerFunc {
 				Group:    ref.Group,
 				Role:     ref.Role,
 				Version:  ref.Version,
+				Topology: ref.Topology,
+				Database: ref.Database,
 				Uptime:   ref.Uptime,
 				Up:       false,
 			}, false)
@@ -175,10 +186,12 @@ func (a *API) handleGenericMWInstances(spec mwGenericSpec) http.HandlerFunc {
 				Instance: instance,
 				// 只用 labels 里真实存在的 name；group 兜底放到合并之后做，
 				// 否则兜底出来的非空值会覆盖注册表里的真名。
-				Name:    s.Labels["name"],
-				Group:   s.Labels["group"],
-				Role:    s.Labels["role"],
-				Version: s.Labels["version"],
+				Name:     s.Labels["name"],
+				Group:    s.Labels["group"],
+				Role:     s.Labels["role"],
+				Version:  s.Labels["version"],
+				Topology: s.Labels["topology"],
+				Database: s.Labels["database"],
 				Up:      last.Value > 0,
 			}, true)
 		}
@@ -394,6 +407,100 @@ func (a *API) handleRocketMQInstances(w http.ResponseWriter, r *http.Request) {
 			{Name: "rocketmq_consumer_tps", Label: "消费 TPS"},
 			{Name: "rocketmq_broker_tps", Label: "Broker TPS"},
 			{Name: "rocketmq_message_accumulation", Label: "消息积压"},
+		},
+	})(w, r)
+}
+
+// handleKafkaInstances Kafka 实例列表。
+func (a *API) handleKafkaInstances(w http.ResponseWriter, r *http.Request) {
+	refs := make([]mwGenericRegistryRef, 0)
+	for _, ki := range instancereg.Default.KafkaInstances() {
+		refs = append(refs, mwGenericRegistryRef{
+			Node: ki.Node, Instance: ki.Instance, Name: ki.Name, Group: ki.Group,
+			Role: ki.Role, Version: ki.Version,
+		})
+	}
+	a.handleGenericMWInstances(mwGenericSpec{
+		Type:     "kafka",
+		Label:    "Kafka",
+		UpMetric: "kafka_instance_up",
+		Registry: func() []mwGenericRegistryRef { return refs },
+		Metrics: []mwGenericMetricDef{
+			{Name: "kafka_broker_count", Label: "Broker 数"},
+			{Name: "kafka_topic_count", Label: "Topic 数"},
+			{Name: "kafka_partition_count", Label: "分区数"},
+			{Name: "kafka_under_replicated_partitions", Label: "欠副本分区"},
+			{Name: "kafka_offline_partitions", Label: "离线分区"},
+			{Name: "kafka_consumer_group_count", Label: "消费组"},
+			{Name: "kafka_consumer_lag", Label: "消费延迟"},
+			{Name: "kafka_consumer_lag_max", Label: "最大消费延迟"},
+			{Name: "kafka_active_controller_count", Label: "Controller 数"},
+		},
+	})(w, r)
+}
+
+// handlePostgresInstances PostgreSQL 实例列表。
+func (a *API) handlePostgresInstances(w http.ResponseWriter, r *http.Request) {
+	refs := make([]mwGenericRegistryRef, 0)
+	for _, pi := range instancereg.Default.PostgresInstances() {
+		refs = append(refs, mwGenericRegistryRef{
+			Node: pi.Node, Instance: pi.Instance, Name: pi.Name, Group: pi.Group,
+			Role: pi.Role, Version: pi.Version, Topology: pi.Topology, Database: pi.Database,
+		})
+	}
+	a.handleGenericMWInstances(mwGenericSpec{
+		Type:         "postgres",
+		Label:        "PostgreSQL",
+		UpMetric:     "postgres_instance_up",
+		UptimeMetric: "postgres_uptime_seconds",
+		Registry:     func() []mwGenericRegistryRef { return refs },
+		Metrics: []mwGenericMetricDef{
+			{Name: "postgres_numbackends", Label: "连接数"},
+			{Name: "postgres_max_connections", Label: "最大连接数"},
+			{Name: "postgres_xact_commit", Label: "事务提交"},
+			{Name: "postgres_xact_rollback", Label: "事务回滚"},
+			{Name: "postgres_cache_hit_ratio", Label: "缓存命中率", Unit: "%"},
+			{Name: "postgres_deadlocks", Label: "死锁数"},
+			{Name: "postgres_replication_lag_bytes", Label: "复制延迟", Unit: "B"},
+			{Name: "postgres_database_size_bytes", Label: "数据库大小", Unit: "B"},
+		},
+	})(w, r)
+}
+
+// handleMongoDBInstances MongoDB 实例列表。
+func (a *API) handleMongoDBInstances(w http.ResponseWriter, r *http.Request) {
+	refs := make([]mwGenericRegistryRef, 0)
+	for _, mi := range instancereg.Default.MongoDBInstances() {
+		refs = append(refs, mwGenericRegistryRef{
+			Node: mi.Node, Instance: mi.Instance, Name: mi.Name, Group: mi.Group,
+			Role: mi.Role, Version: mi.Version, Topology: mi.Topology,
+		})
+	}
+	const toMB = 1.0 / 1024 / 1024
+	a.handleGenericMWInstances(mwGenericSpec{
+		Type:         "mongodb",
+		Label:        "MongoDB",
+		UpMetric:     "mongodb_up",
+		UptimeMetric: "mongodb_uptime_seconds",
+		Registry:     func() []mwGenericRegistryRef { return refs },
+		Metrics: []mwGenericMetricDef{
+			{Name: "mongodb_connections_current", Label: "连接数"},
+			{Name: "mongodb_connections_available", Label: "可用连接"},
+			{Name: "mongodb_mem_resident_bytes", Label: "常驻内存", Unit: "MB", Scale: toMB},
+			{Name: "mongodb_mem_virtual_bytes", Label: "虚拟内存", Unit: "MB", Scale: toMB},
+			{Name: "mongodb_opcounters_insert", Label: "插入次数"},
+			{Name: "mongodb_opcounters_query", Label: "查询次数"},
+			{Name: "mongodb_opcounters_update", Label: "更新次数"},
+			{Name: "mongodb_opcounters_delete", Label: "删除次数"},
+			{Name: "mongodb_opcounters_command", Label: "命令次数"},
+			{Name: "mongodb_db_dataSize_bytes", Label: "数据大小", Unit: "MB", Scale: toMB},
+			{Name: "mongodb_db_storageSize_bytes", Label: "存储大小", Unit: "MB", Scale: toMB},
+			{Name: "mongodb_db_indexSize_bytes", Label: "索引大小", Unit: "MB", Scale: toMB},
+			{Name: "mongodb_db_objects", Label: "文档数"},
+			{Name: "mongodb_db_indexes", Label: "索引数"},
+			{Name: "mongodb_repl_state", Label: "副本状态"},
+			{Name: "mongodb_repl_health", Label: "副本健康"},
+			{Name: "mongodb_repl_lag", Label: "复制延迟", Unit: "s"},
 		},
 	})(w, r)
 }

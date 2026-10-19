@@ -48,7 +48,7 @@
               v-for="i in g.list"
               :key="i.instance"
               class="rel-node"
-              :class="{ 'is-down': !i.up }"
+              :class="[roleClass(i), { 'is-down': !i.up }]"
               @click="openDetail(i)"
             >
               <div class="rel-node-name" :title="i.instance">{{ i.name || i.instance }}</div>
@@ -170,7 +170,7 @@ const props = defineProps({
 })
 
 const metaColumns = computed(() => props.spec.metaColumns || [])
-const META_LABELS = { role: '角色', group: '分组', version: '版本' }
+const META_LABELS = { role: '角色', group: '分组', version: '版本', topology: '拓扑', database: '数据库' }
 function metaLabel(key) {
   return META_LABELS[key] || key
 }
@@ -196,6 +196,15 @@ const topoGroups = computed(() => {
 // 超过阈值的指标在详情里标红（如 RocketMQ 的消息积压）
 function isBad(m) {
   return (props.spec.badMetrics || []).includes(m.key) && m.value > 0
+}
+
+// 拓扑节点按角色着色：主库/从库一眼可分。角色文案各中间件不同
+// （master/primary/leader vs replica/standby/slave/secondary），统一按关键字判断。
+function roleClass(i) {
+  const r = String(i.role || '').toLowerCase()
+  if (r.includes('master') || r.includes('primary') || r.includes('leader')) return 'rel-master'
+  if (r.includes('replica') || r.includes('standby') || r.includes('slave') || r.includes('secondary')) return 'rel-replica'
+  return 'rel-standalone'
 }
 
 // 空状态图标：保留原有"扫描靶心"造型（内联 SVG，避免为一个空态引入图片资源）
@@ -396,6 +405,9 @@ onMounted(load)
 .rel-node.is-down { opacity: 0.6; }
 .rel-node-name { font-size: var(--fs-base); font-weight: 600; color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rel-node-meta { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--t2); margin-top: 6px; }
+.rel-standalone { border-left: 4px solid var(--chart-blue); }
+.rel-master { border-left: 4px solid var(--chart-orange); }
+.rel-replica { border-left: 4px solid var(--chart-green); }
 :deep(.row-down) { opacity: 0.55; }
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .metric-cell { background: var(--fill-1); border-radius: var(--r-md); padding: 10px 12px; }
