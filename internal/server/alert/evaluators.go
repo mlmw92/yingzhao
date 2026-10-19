@@ -54,6 +54,10 @@ func (c *evalContext) ClusterMembers(service string, nodeNames []string) []Clust
 	return LoadClusterMembers(c.e.store, service, nodeNames)
 }
 
+func (c *evalContext) QueryPromQL(expr string) ([]model.Series, error) {
+	return c.e.store.QueryPromQL(expr)
+}
+
 // StatesWithPrefix 返回本规则相关的状态项（key 以 prefix 开头）。
 // PromQL 评估器用它找出「上一轮 firing、本轮未出现」的序列。
 func (c *evalContext) StatesWithPrefix(prefix string) map[string]*ruleState {
@@ -72,6 +76,7 @@ var periodicEvaluators = map[string]evaluator{
 	model.RuleTypeServiceDown:  serviceDownEvaluator{},
 	model.RuleTypeRoleChange:   roleChangeEvaluator{},
 	model.RuleTypeClusterFault: clusterFaultEvaluator{},
+	model.RuleTypePromQL:       promQLEvaluator{},
 }
 
 // evaluatorFor 对未知/空类型回退到阈值评估，保持现有行为。
