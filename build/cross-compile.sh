@@ -17,12 +17,17 @@ OUT_DIR="dist/artifacts/bin"
 mkdir -p "$OUT_DIR"
 
 ARCHS=("amd64" "arm64" "arm")
+# 配套 exporter（独立部署，不编译进 Agent）；新增 exporter 时在这里登记
+EXPORTERS=("fastdfs-exporter")
 
 for ARCH in "${ARCHS[@]}"; do
   echo "==> 交叉编译 linux/$ARCH (version=$VERSION)"
-  mkdir -p "$OUT_DIR/agent/linux/$ARCH" "$OUT_DIR/server/linux/$ARCH"
+  mkdir -p "$OUT_DIR/agent/linux/$ARCH" "$OUT_DIR/server/linux/$ARCH" "$OUT_DIR/exporters/linux/$ARCH"
   GOOS=linux GOARCH=$ARCH CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT_DIR/agent/linux/$ARCH/agent" ./cmd/agent
   GOOS=linux GOARCH=$ARCH CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o "$OUT_DIR/server/linux/$ARCH/server" ./cmd/server
+  for exp in "${EXPORTERS[@]}"; do
+    GOOS=linux GOARCH=$ARCH CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o "$OUT_DIR/exporters/linux/$ARCH/$exp" "./exporters/$exp"
+  done
 done
 
 echo "完成：产物在 $OUT_DIR/agent/linux/<arch>/ 与 $OUT_DIR/server/linux/<arch>/"

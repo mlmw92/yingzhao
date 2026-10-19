@@ -546,6 +546,8 @@ fastdfsInstances:
 | `fastdfs_disk_read_bytes` / `fastdfs_disk_write_bytes` | 累计磁盘读写（字节） |
 | `fastdfs_net_recv_bytes` / `fastdfs_net_sent_bytes` | 累计网络收发（字节） |
 
+> 平台离线包自带 `exporters/fastdfs-exporter`（独立可执行程序，不编译进 Agent、不随 Agent 升级），支持本机 `fdfs_monitor` 与 `docker exec` 两种模式，指标名与上表一致；用法见包内 `exporters/fastdfs-exporter/README.md`。也可以继续使用任意第三方 exporter，但需保证指标名与上表一致。
+
 **Kubernetes 字段说明**
 
 | 字段 | 必填 | 说明 |

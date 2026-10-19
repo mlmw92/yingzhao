@@ -88,6 +88,15 @@ cp -a "$BIN_DIR/server" "$STAGE_FULL/bin/"
 cp -a "$BIN_DIR/agent"  "$STAGE_FULL/bin/"
 chmod +x "$STAGE_FULL/bin/server/linux/"*"/server" "$STAGE_FULL/bin/agent/linux/"*"/agent"
 
+# 配套 exporter（可选组件，独立部署；不参与 Server/Agent 升级，因此只进 full 包）
+if [[ -d "$BIN_DIR/exporters" ]]; then
+  cp -a "$BIN_DIR/exporters" "$STAGE_FULL/"
+  chmod +x "$STAGE_FULL/exporters/linux/"*"/*"
+  c_ok "已打入配套 exporter: $(ls "$STAGE_FULL/exporters/linux/amd64" 2>/dev/null | tr '\n' ' ')"
+else
+  c_warn "未找到 ${BIN_DIR}/exporters（full 包将不含配套 exporter）"
+fi
+
 # 2) 前端（web 已平铺，直接把所有内容复制到 stage/web/）
 cp -a "$WEB_DIR"/. "$STAGE_FULL/web/"
 
