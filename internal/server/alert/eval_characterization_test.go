@@ -39,6 +39,7 @@ func (s *evalStore) Backend() string                           { return "fake" }
 type evalHarness struct {
 	engine *Engine
 	store  *evalStore
+	alerts *captureAlertStorage
 }
 
 func newEvalHarness(t *testing.T, offline bool, series map[string][]model.Series) *evalHarness {
@@ -53,8 +54,9 @@ func newEvalHarness(t *testing.T, offline bool, series map[string][]model.Series
 	}
 	store := &evalStore{instant: series}
 	rules := &RulesStore{rules: map[string]model.AlertRule{}}
-	eng := NewEngine(store, mgr, rules, NewVMAlertStore(&captureAlertStorage{}), nil, nil, nil, 15, nil, nil, nil)
-	return &evalHarness{engine: eng, store: store}
+	alertStorage := &captureAlertStorage{}
+	eng := NewEngine(store, mgr, rules, NewVMAlertStore(alertStorage), nil, nil, nil, 15, nil, nil, nil)
+	return &evalHarness{engine: eng, store: store, alerts: alertStorage}
 }
 
 func (h *evalHarness) addRule(r model.AlertRule) {

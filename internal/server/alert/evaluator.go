@@ -45,9 +45,18 @@ func matchesScope(scope string, nodes []string, node string) bool {
 	return true
 }
 
+// conditionMetric 是事件的「触发条件」展示文本：PromQL 规则用表达式，
+// 其它类型用指标名。前端详情页直接展示事件的 Metric 字段。
+func conditionMetric(r model.AlertRule) string {
+	if r.Type == model.RuleTypePromQL {
+		return r.Expr
+	}
+	return r.Metric
+}
+
 // triggerMessage 构造告警描述。
 func triggerMessage(r model.AlertRule, node string, value float64) string {
-	return "节点 " + node + " 指标 " + r.Metric + " = " + formatFloat(value) +
+	return "节点 " + node + " 指标 " + conditionMetric(r) + " = " + formatFloat(value) +
 		" " + r.Operator + " 阈值 " + formatFloat(r.Threshold) + "（规则：" + r.Name + "）"
 }
 

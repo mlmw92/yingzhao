@@ -100,3 +100,27 @@ func TestPromQLTruncatesAtLimit(t *testing.T) {
 		t.Fatalf("应截断到 %d，实际 %d", maxPromQLSeries, h.firingCount())
 	}
 }
+
+// TestPromQLEventCarriesExpressionAsMetric 告警事件的「触发条件」取自 Metric 字段；
+// PromQL 规则没有 Metric，必须把表达式写进去，否则详情页这一行是空的。
+func TestPromQLEventCarriesExpressionAsMetric(t *testing.T) {
+	h := newEvalHarness(t, false, nil)
+	h.store.promql = []model.Series{{Labels: map[string]string{"node": "node-1", "instance": "i1"},
+		Points: []model.Point{{Timestamp: model.NowMillis(), Value: 91}}}}
+	h.addRule(promqlRule())
+	h.eval()
+
+	// firing 索引里保存的是引擎产生的原始事件。
+	var ev model.AlertEvent
+	found := false
+	for _, fe := range h.engine.firing {
+		ev = fe.event
+		found = true
+	}
+	if !found {
+		t.Fatal("未产生 firing 事件")
+	}
+	if ev.Metric != `cpu_usage > 85` {
+		t.Fatalf("事件 Metric = %q，want 表达式（前端详情页的触发条件读这个字段）", ev.Metric)
+	}
+}
