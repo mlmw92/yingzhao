@@ -34,6 +34,7 @@
                 <el-option value="role_change" label="主从切换" />
                 <el-option value="cluster_fault" label="集群损坏" />
                 <el-option value="security_event" label="安全事件" />
+                <el-option value="promql" label="PromQL 规则" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -119,6 +120,48 @@
                 <el-input-number v-model="form.threshold" :step="0.1" :min="0" :precision="2" controls-position="right" placeholder="阈值" style="width: 100%" />
               </el-form-item>
             </el-col>
+            <el-col :xs="24" :sm="8" :md="9">
+              <el-form-item label="持续时间" label-width="62px" prop="for">
+                <el-select v-model="form.for" style="width: 100%">
+                  <el-option value="0" label="立即触发" />
+                  <el-option value="1m" label="1 分钟" />
+                  <el-option value="5m" label="5 分钟" />
+                  <el-option value="10m" label="10 分钟" />
+                  <el-option value="15m" label="15 分钟" />
+                  <el-option value="30m" label="30 分钟" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </template>
+
+        <!-- PromQL 规则：条件写在表达式里，结果每条序列单独触发 -->
+        <template v-else-if="form.type === 'promql'">
+          <el-form-item label="表达式" prop="expr">
+            <el-input
+              v-model="form.expr"
+              type="textarea"
+              :rows="4"
+              class="promql-input"
+              placeholder="cpu_usage > 85"
+            />
+            <div class="field-hint">
+              表达式返回的每条序列都会单独触发，序列消失即恢复。条件写在表达式里，无需再填运算符与阈值。
+            </div>
+          </el-form-item>
+          <div class="promql-preview-row">
+            <el-button size="small" :loading="previewing" @click="runPreview">试运行</el-button>
+            <span v-if="previewResult" class="preview-text">
+              命中 {{ previewResult.count }} 条<span v-if="previewResult.truncated">（仅显示前 20 条）</span>
+            </span>
+          </div>
+          <el-alert v-if="previewError" type="error" :closable="false" :title="previewError" />
+          <ul v-if="previewResult && previewResult.series.length" class="preview-series">
+            <li v-for="(s, i) in previewResult.series" :key="i" class="mono">
+              {{ formatLabels(s.labels) }} = {{ s.value }}
+            </li>
+          </ul>
+          <el-row :gutter="12">
             <el-col :xs="24" :sm="8" :md="9">
               <el-form-item label="持续时间" label-width="62px" prop="for">
                 <el-select v-model="form.for" style="width: 100%">
@@ -400,8 +443,32 @@ const advancedOpen = ref([])
 // 保存中态：没有它时按钮可重复点击，一次误触会创建多条同名规则。
 const saving = ref(false)
 
+// 试运行：保存前用当前表达式查一次，确认语法与命中范围。
+// 错误就地展示，不走 ElMessage——用户在改表达式时不该被全局弹窗打断。
+const previewing = ref(false)
+const previewResult = ref(null)
+const previewError = ref('')
+
+async function runPreview() {
+  previewing.value = true
+  previewError.value = ''
+  previewResult.value = null
+  try {
+    previewResult.value = await http.post('/api/v1/rules/promql/preview', { expr: form.expr })
+  } catch (e) {
+    previewError.value = e?.message || '试运行失败'
+  } finally {
+    previewing.value = false
+  }
+}
+
+function formatLabels(labels) {
+  return Object.entries(labels || {}).map(([k, v]) => `${k}=${v}`).join(', ')
+}
+
 const TYPE_HINTS = {
   '': '基于指标阈值触发的传统规则，适用于 CPU / 内存 / 磁盘等数值指标。',
+  promql: '用 PromQL 表达式定义告警：结果里的每条序列都会单独触发，序列消失即恢复。',
   node_offline: '当主机心跳超时被服务端判定为离线时立即触发。',
   service_down: '当中间件探测不可达（*_instance_up = 0）时触发。',
   role_change: '监测数据库主从角色变化（PRIMARY ↔ SECONDARY），发生切换即告警。',
@@ -433,6 +500,7 @@ const triggerSummary = computed(() => {
     ].filter(Boolean).join(' · ')
   }
   if (t === 'node_offline') return `离线持续 ${form.for || '—'}`
+  if (t === 'promql') return form.expr ? `PromQL · 持续 ${form.for || '立即'}` : '未填写表达式'
   if (t === 'security_event') return form.category ? '指定安全类别' : '全部安全类别'
   const mw = form.service || '—'
   if (t === 'service_down') return `${mw} · ${op} ${form.threshold ?? '—'} · 持续 ${form.for || '—'}`
@@ -450,7 +518,7 @@ function goNotifyConfig() {
 }
 
 const form = reactive({
-  id: '', name: '', type: '', metric: '', operator: '>', threshold: null, for: '5m',
+  id: '', name: '', type: '', metric: '', expr: '', operator: '>', threshold: null, for: '5m',
   severity: '', group: '', scope: 'all', nodes: [], enabled: true, notify: [],
   silenced: false, silenceUntil: 0,
   service: 'mysql', topology: 'cluster', category: '',
@@ -473,6 +541,7 @@ watch(() => props.rule, (r) => {
   form.name = r?.name ?? ''
   form.type = r?.type ?? ''
   form.metric = r?.metric ?? ''
+  form.expr = r?.expr ?? ''
   form.operator = r?.operator ?? '>'
   form.threshold = r?.threshold ?? null
   form.for = r?.for || '5m'
@@ -504,7 +573,7 @@ watch(() => props.rule, (r) => {
 // ---- 脏数据检测（关闭确认用）----
 function formSig() {
   return JSON.stringify({
-    name: form.name, type: form.type, metric: form.metric, operator: form.operator,
+    name: form.name, type: form.type, metric: form.metric, expr: form.expr, operator: form.operator,
     threshold: form.threshold, for: form.for, severity: form.severity, group: form.group,
     scope: form.scope, nodes: form.nodes, enabled: form.enabled, notify: form.notify,
     silenced: form.silenced, silenceUntil: form.silenceUntil, service: form.service,
@@ -522,6 +591,7 @@ const rules = computed(() => ({
   name: [{ required: true, message: '请填写规则名称', trigger: 'blur' }],
   severity: [{ required: true, message: '请选择告警级别', trigger: 'change' }],
   metric: form.type === '' ? [{ required: true, message: '请选择监控指标', trigger: 'change' }] : [],
+  expr: form.type === 'promql' ? [{ required: true, message: '请填写 PromQL 表达式', trigger: 'blur' }] : [],
   threshold: form.type === '' ? [{ required: true, message: '请填写阈值', trigger: 'blur' }] : [],
   for: ['node_offline', 'service_down', 'cluster_fault'].includes(form.type)
     ? [{ required: true, message: '请选择持续时长', trigger: 'change' }]
@@ -539,6 +609,7 @@ const rules = computed(() => ({
 // 仍会随 body 发出去，后端可能据此产生一条永不触发的规则。
 function clearOtherTypeFields(t) {
   if (t !== 'security_event') form.category = ''
+  if (t !== 'promql') form.expr = ''
   if (t !== '') {
     // 非阈值规则不使用指标/运算符/阈值
     form.metric = ''
@@ -650,7 +721,7 @@ async function submit() {
     return
   }
   const body = {
-    name: form.name, type: form.type || '', metric: form.metric, category: form.category || '', operator: form.operator,
+    name: form.name, type: form.type || '', metric: form.metric, category: form.category || '', operator: form.operator, expr: form.expr || '',
     threshold: form.threshold == null ? 0 : Number(form.threshold), for: form.for || '5m',
     severity: form.severity, group: form.group, scope: form.scope || 'all',
     nodes: form.scope === 'specified' ? form.nodes : [], enabled: form.enabled,
@@ -710,6 +781,11 @@ async function submit() {
   margin-top: -4px;
   padding-left: 4px;
 }
+/* PromQL 表达式：等宽字体让括号与运算符对齐，便于肉眼检查语法 */
+.promql-input :deep(textarea) { font-family: var(--mono); }
+.promql-preview-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.preview-text { color: var(--t2); font-size: var(--fs-sm); }
+.preview-series { margin: 8px 0 0; padding-left: 18px; color: var(--t2); font-size: var(--fs-sm); }
 .field-hint {
   font-size: var(--fs-sm);
   color: var(--t2);
