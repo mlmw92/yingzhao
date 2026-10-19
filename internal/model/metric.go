@@ -860,6 +860,7 @@ type AlertEvent struct {
 	ID           string     `json:"id"`                     // 事件 ID
 	RuleID       string     `json:"ruleId"`                 // 规则 ID
 	RuleName     string     `json:"ruleName"`               // 规则名称
+	RuleType     string     `json:"ruleType,omitempty"`     // 规则类型，供前端区分 PromQL 与阈值规则
 	Node         string     `json:"node"`                   // 节点名
 	NodeIP       string     `json:"nodeIp,omitempty"`       // 节点 IP（便于在通知渠道中展示）
 	Instance     string     `json:"instance,omitempty"`     // Redis 等多实例指标的实例标签

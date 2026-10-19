@@ -233,6 +233,7 @@
           <el-option label="主从切换" value="role_change" />
           <el-option label="集群损坏" value="cluster_fault" />
           <el-option label="安全事件" value="security_event" />
+          <el-option label="PromQL" value="promql" />
         </el-select>
         <span class="muted">共 {{ filteredRules.length }} 条</span>
       </div>
@@ -519,7 +520,11 @@
         <div class="ev-field" v-if="ackInfo(detail)?.closeReason">
           <span>关闭原因</span><span>{{ ackInfo(detail).closeReason }}</span>
         </div>
-        <div class="ev-field"><span>触发条件</span><span class="mono">{{ detail.metric }} {{ detail.operator }} {{ detail.threshold }}</span></div>
+        <div class="ev-field">
+          <span>触发条件</span>
+          <span v-if="detail.ruleType === 'promql'" class="mono">{{ detail.metric }}</span>
+          <span v-else class="mono">{{ detail.metric }} {{ detail.operator }} {{ detail.threshold }}</span>
+        </div>
         <div class="ev-field"><span>触发值</span><span class="mono">{{ detail.value }}</span></div>
         <div class="ev-field"><span>详情</span><span>{{ detail.message }}</span></div>
         <div class="ev-field"><span>开始</span><span>{{ fmt(detail.startsAt) }}</span></div>
@@ -1167,6 +1172,7 @@ function onTemplateCmd(cmd) {
 // 正是"不知道该怎么配"的人放弃的地方。
 function templateCondition(t) {
   if (!t) return ''
+  if (t.type === 'promql') return `PromQL：${t.expr}，持续 ${t.for || '立即'}`
   if (!t.type) {
     const unit = ''
     return `指标 ${t.metric} ${t.operator} ${t.threshold}${unit}，持续 ${t.for || '立即'}`
@@ -1229,7 +1235,8 @@ const TYPE_LABELS = {
   service_down: '服务离线',
   role_change: '主从切换',
   cluster_fault: '集群损坏',
-  security_event: '安全事件',}
+  security_event: '安全事件',
+  promql: 'PromQL',}
 const SERVICE_LABELS = {
   mysql: 'MySQL', postgres: 'PostgreSQL', redis: 'Redis', nginx: 'Nginx',
   kafka: 'Kafka', rocketmq: 'RocketMQ', docker: 'Docker', k8s: 'Kubernetes',
@@ -1274,6 +1281,8 @@ function conditionText(row) {
       )
     case 'security_event':
       return '安全事件：' + (row.category || '全部类别') + '，收到事件即触发'
+    case 'promql':
+      return 'PromQL：' + (row.expr || '')
     default:
       return row.metric + ' ' + (row.operator || '') + ' ' + (row.threshold != null ? row.threshold : '')
   }

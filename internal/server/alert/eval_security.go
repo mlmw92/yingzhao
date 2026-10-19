@@ -66,6 +66,7 @@ func (e *Engine) emitRuleSecurityEvent(r model.AlertRule, source model.SecurityE
 		ID:        "security-rule-" + source.ID,
 		RuleID:    r.ID,
 		RuleName:  r.Name,
+		RuleType:  r.Type,
 		Node:      source.Node,
 		NodeIP:    source.NodeIP,
 		Instance:  source.ID,
