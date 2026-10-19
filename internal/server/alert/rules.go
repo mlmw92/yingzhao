@@ -581,6 +581,10 @@ func ValidateRule(r model.AlertRule) error {
 		if r.Category != "" && !validSecurityCategory(r.Category) {
 			return fmt.Errorf("无效安全事件类别: %q", r.Category)
 		}
+	case model.RuleTypePromQL:
+		if strings.TrimSpace(r.Expr) == "" {
+			return fmt.Errorf("PromQL 规则必须填写表达式")
+		}
 	default:
 		return fmt.Errorf("无效规则类型: %q", r.Type)
 	}

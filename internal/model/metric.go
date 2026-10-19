@@ -790,7 +790,9 @@ const (
 	// RuleTypeClusterFault 集群状态损坏规则。
 	RuleTypeClusterFault string = "cluster_fault" // 集群状态损坏
 	// RuleTypeSecurityEvent 安全事件规则。
-	RuleTypeSecurityEvent string = "security_event" // 安全事件
+	RuleTypeSecurityEvent string = "security_event"
+	// RuleTypePromQL PromQL 表达式规则。
+	RuleTypePromQL string = "promql" // 安全事件
 )
 
 // AlertRule 告警规则（阈值 + 场景化类型共用）。
@@ -814,6 +816,7 @@ type AlertRule struct {
 	Service      string        `json:"service,omitempty"`      // 服务离线/主从切换/集群损坏的中间件类型：mysql|postgres|redis|nginx|kafka|rocketmq|docker|k8s
 	Topology     string        `json:"topology,omitempty"`     // 主从切换/集群损坏的拓扑：cluster|replication
 	Category     string        `json:"category,omitempty"`     // 安全事件规则类别：见 SecurityCat*；为空表示全部安全类别
+	Expr         string        `json:"expr,omitempty"`         // PromQL 表达式（type=promql 时必填）
 	QuietPeriods []QuietPeriod `json:"quietPeriods,omitempty"` // 按周重复的静默时段（与单次静默、全局维护窗口构成三层静默）
 	Escalation   *Escalation   `json:"escalation,omitempty"`   // 告警升级策略（持续未恢复时升级级别/渠道并重复提醒）
 	// TemplateGroup / Desc 只服务于「从模板新建」：前者是模板分组（界面上归类展示），
