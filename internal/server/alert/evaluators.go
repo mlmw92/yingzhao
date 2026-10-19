@@ -81,28 +81,3 @@ func evaluatorFor(t string) evaluator {
 	}
 	return periodicEvaluators[model.RuleTypeThreshold]
 }
-
-// 以下四种评估器在 Task 3 迁移为真实实现；先以占位保证本任务可编译、行为不变。
-type nodeOfflineEvaluator struct{}
-
-func (nodeOfflineEvaluator) Evaluate(c *evalContext) {
-	c.e.evalNodeOffline(c.rule, c.nodes, c.now)
-}
-
-type serviceDownEvaluator struct{}
-
-func (serviceDownEvaluator) Evaluate(c *evalContext) {
-	c.e.evalServiceDown(c.rule, c.nodes, c.now)
-}
-
-type roleChangeEvaluator struct{}
-
-func (roleChangeEvaluator) Evaluate(c *evalContext) {
-	c.e.evalRoleChange(c.rule, c.nodes, c.now)
-}
-
-type clusterFaultEvaluator struct{}
-
-func (clusterFaultEvaluator) Evaluate(c *evalContext) {
-	c.e.evalClusterFault(c.rule, c.nodes, c.now)
-}
