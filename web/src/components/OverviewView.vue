@@ -70,7 +70,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, markRaw } from 'vue'
 import { RefreshRight, Monitor, Bell, Connection, FirstAidKit } from '@element-plus/icons-vue'
 import http from '../api/http'
-import { middlewareTypes } from './overview/middlewareConfig'
+import { middlewareTypes, instMetric } from './overview/middlewareConfig'
 // 模板派生类型的通用图标（内置类型用各自的品牌图标）
 import templateIcon from '../assets/img/template.svg'
 import { formatMetric } from './overview/format'
@@ -297,12 +297,12 @@ const mwSummaries = computed(() => {
     const offline = total - online
     const up = inst.filter((i) => i.up)
     const top = [...up]
-      .sort((a, b) => (Number(b[t.topKey]) || 0) - (Number(a[t.topKey]) || 0))
+      .sort((a, b) => (Number(instMetric(b, t.topKey)) || 0) - (Number(instMetric(a, t.topKey)) || 0))
       .slice(0, 3)
       .map((i) => ({
         label: i.name || i.instance || i.node,
-        valueText: formatMetric(t.fmt, i[t.topKey]),
-        subText: t.subKey ? formatMetric(t.subFmt, i[t.subKey]) : '',
+        valueText: formatMetric(t.fmt, instMetric(i, t.topKey)),
+        subText: t.subKey ? formatMetric(t.subFmt, instMetric(i, t.subKey)) : '',
       }))
     return { ...t, total, online, offline, topN: top }
   })

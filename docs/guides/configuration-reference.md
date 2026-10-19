@@ -509,11 +509,11 @@ fastdfsInstances:
     role: "tracker"                 # tracker / storage
     addr: "10.0.0.20:22122"
     group: ""                       # tracker 留空
-    # exporterURL: "http://127.0.0.1:9300/metrics"  # 建议；完整指标依赖 fastdfs_exporter
   - name: "storage-1"
     role: "storage"
     addr: "10.0.0.21:23000"
     group: "group1"
+    exporterURL: "http://127.0.0.1:9300/metrics"  # 完整指标依赖 fastdfs_exporter
 ```
 
 **FastDFS 字段说明**
@@ -526,7 +526,25 @@ fastdfsInstances:
 | `fastdfsInstances[].group` | 否 | storage 所属 group 名称；tracker 留空 |
 | `fastdfsInstances[].exporterURL` | 否 | fastdfs_exporter 的 `/metrics` 地址；完整空间/IO/Storage 状态依赖它，未配置时仅做端口存活探测 |
 
-> **提示**：FastDFS 无标准直连接口，建议部署社区 `fastdfs_exporter` 并填写 `exporterURL` 以获取 Group/Storage 数量、空间使用、磁盘读写、网络收发等完整指标；仅做 TCP 存活探测时只能看到在线/离线状态。
+> **提示**：FastDFS 无标准直连接口，建议部署社区 `fastdfs_exporter` 并填写 `exporterURL` 以获取 Group/Storage 数量、空间使用、磁盘读写、网络收发等完整指标；仅做 TCP 存活探测时只能看到在线/离线状态。exporter 与 FastDFS 本身一样由用户部署，容器化与宿主机部署都可使用。
+
+> **只在一个实例上配置 `exporterURL`**：fastdfs_exporter 返回的是**整个 group** 的总量，不是单个 tracker/storage 的。若同一份 exporter 挂到多个实例上，首页 KPI 会按实例重复累加（总空间正好翻倍）。推荐只挂在 storage 实例上——tracker 本来就没有存储空间。
+
+**exporter 指标契约**
+
+平台按以下指标名读取（单位均为字节，展示时自动换算 MB/GB）。exporter 名称不一致时，需在 exporter 侧做重命名或加一层映射：
+
+| 指标 | 含义 |
+|---|---|
+| `fastdfs_up` | 实例可达（1/0）；缺失时只要解析到其它 `fastdfs_*` 指标也视为在线 |
+| `fastdfs_group_count` | group 数 |
+| `fastdfs_storage_count` | storage 节点总数 |
+| `fastdfs_storage_online_count` | 在线 storage 数 |
+| `fastdfs_storage_offline_count` | 离线 storage 数 |
+| `fastdfs_total_space` / `fastdfs_free_space` / `fastdfs_used_space` | 总/空闲/已用空间（字节） |
+| `fastdfs_trunk_free_space` | trunk 空闲空间（字节） |
+| `fastdfs_disk_read_bytes` / `fastdfs_disk_write_bytes` | 累计磁盘读写（字节） |
+| `fastdfs_net_recv_bytes` / `fastdfs_net_sent_bytes` | 累计网络收发（字节） |
 
 **Kubernetes 字段说明**
 

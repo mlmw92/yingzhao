@@ -12,8 +12,8 @@
     <EmptyState
       v-if="!loading && !error && instances.length === 0"
       :icon="EmptyIcon"
-      :title="`尚未采集到 ${spec.label} 实例`"
-      :hints="[
+      :title="spec.emptyTitle || `尚未采集到 ${spec.label} 实例`"
+      :hints="spec.emptyHints || [
         `在运行 Agent 的节点上配置 ${spec.label} 地址（agent.yaml 对应实例段），并确认服务可达`,
         '配置完成后约 15-30 秒数据将出现在此页面',
       ]"
@@ -31,10 +31,37 @@
         <KpiCard label="离线实例" :value="stats.down" :tone="stats.down > 0 ? 'down' : 'total'">
           <template #icon><el-icon :size="20"><CircleClose /></el-icon></template>
         </KpiCard>
-        <KpiCard v-for="k in spec.kpis" :key="k.metric + k.agg" :label="k.label" :value="formatNum(kpiValue(k))" :tone="k.tone || 'ops'">
+        <KpiCard v-for="k in spec.kpis" :key="k.metric + k.agg" :label="k.label" :value="formatKpi(kpiValue(k), k.format)" :tone="k.tone || 'ops'">
           <template #icon><el-icon :size="20"><DataLine /></el-icon></template>
         </KpiCard>
       </div>
+
+      <!-- 实例拓扑（按 group 聚合；未分组的归入「独立实例」） -->
+      <SectionCard v-if="spec.showTopology && topoGroups.length" title="实例拓扑" class="mw-block">
+        <div v-for="g in topoGroups" :key="g.name" class="topo-group">
+          <div class="topo-group-header">
+            <span class="topo-group-title"><strong>{{ g.name }}</strong></span>
+            <span class="dim">共 {{ g.list.length }} 个</span>
+          </div>
+          <div class="topo-grid">
+            <div
+              v-for="i in g.list"
+              :key="i.instance"
+              class="rel-node"
+              :class="{ 'is-down': !i.up }"
+              @click="openDetail(i)"
+            >
+              <div class="rel-node-name" :title="i.instance">{{ i.name || i.instance }}</div>
+              <div class="rel-node-meta">
+                <MwStatusDot :status="i.up ? 'normal' : 'abnormal'" :label="i.up ? '在线' : '离线'" />
+                <span class="dim">·</span>
+                <span class="mono">{{ displayAddr(i) }}</span>
+              </div>
+              <div v-if="i.role" class="rel-node-meta"><span>角色：{{ i.role }}</span></div>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
 
       <!-- 实例列表 -->
       <SectionCard title="实例列表" dense>
@@ -42,7 +69,7 @@
           <el-table-column label="实例" min-width="170" show-overflow-tooltip>
             <template #default="{ row }">
               <MwStatusDot :status="row.up ? 'normal' : 'abnormal'" dot-only class="cell-dot" />
-              <span class="mono">{{ row.instance }}</span>
+              <span class="mono">{{ displayAddr(row) }}</span>
             </template>
           </el-table-column>
           <el-table-column label="状态" min-width="90">
@@ -51,6 +78,12 @@
             </template>
           </el-table-column>
           <el-table-column prop="name" label="名称" min-width="110" show-overflow-tooltip />
+          <el-table-column v-for="m in metaColumns" :key="m" :label="metaLabel(m)" min-width="90" show-overflow-tooltip>
+            <template #default="{ row }">
+              <MwRoleTag v-if="m === 'role'" :role="row.role" />
+              <span v-else>{{ row[m] || '-' }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="node" label="节点" min-width="140" show-overflow-tooltip />
           <el-table-column
             v-for="col in spec.columns"
@@ -60,7 +93,7 @@
             sortable
             :sort-method="(a, b) => sortByMetric(a, b, col.key)"
           >
-            <template #default="{ row }">{{ metricValue(row, col.key) }}</template>
+            <template #default="{ row }">{{ metricValue(row, col.key, col.format) }}</template>
           </el-table-column>
           <!-- 类型专属列（如某中间件特有的状态标签/操作按钮）从这里扩展 -->
           <slot name="extra-columns" />
@@ -83,14 +116,18 @@
           v-model:range="range"
         />
         <div class="metric-grid">
-          <div v-for="m in selected.metrics" :key="m.key" class="metric-cell">
+          <div v-for="m in selected.metrics" :key="m.key" class="metric-cell" :class="{ 'metric-bad': isBad(m) }">
             <div class="mc-label">{{ m.label }}</div>
             <div class="mc-value">{{ m.value }}<small v-if="m.unit"> {{ m.unit }}</small></div>
+          </div>
+          <div v-if="selected.uptime" class="metric-cell">
+            <div class="mc-label">运行时长</div>
+            <div class="mc-value">{{ formatUptime(selected.uptime) }}</div>
           </div>
         </div>
         <!-- 类型专属详情区（如专属图表/子表）从这里扩展 -->
         <slot name="detail-extra" :instance="selected" />
-        <div v-for="(t, i) in trendData" :key="t.metric" class="trend-block">
+        <div v-for="(t, i) in trendData" :key="t.name + '-' + i" class="trend-block">
           <div class="trend-title">{{ t.name }}（{{ rangeLabel }}）</div>
           <TrendChart
             :option="t.option"
@@ -114,6 +151,7 @@ import KpiCard from '../KpiCard.vue'
 import SectionCard from '../common/SectionCard.vue'
 import EmptyState from '../common/EmptyState.vue'
 import MwStatusDot from './MwStatusDot.vue'
+import MwRoleTag from './MwRoleTag.vue'
 import MwDetailHeader from './MwDetailHeader.vue'
 import TrendChart from './TrendChart.vue'
 import { mwTrendOption } from '../../charts/echarts'
@@ -121,13 +159,44 @@ import { rangeToWindow, rangeToStep, MW_RANGE_OPTIONS } from './mwRange'
 import './mw.css'
 
 // spec 结构：
-//   label   类型展示名（空状态文案用）
-//   kpis    跨实例聚合的 KPI 卡：[{ label, metric, agg: sum|max|avg, unit?, tone? }]
-//   columns 实例表指标列：[{ key, label }]（key 为实例 metrics 里的指标名）
-//   trends  详情抽屉趋势图：[{ name, metric, unit? }]
+//   label        类型展示名（空状态文案用）
+//   emptyTitle/emptyHints  空状态文案（可选，缺省按 label 生成）
+//   kpis         跨实例聚合的 KPI 卡：[{ label, metric, agg: sum|max|avg, format?, tone? }]
+//   metaColumns  实例元信息列（role / group），渲染在「名称」之后
+//   columns      实例表指标列：[{ key, label, format? }]（key 为实例 metrics 里的指标名）
+//   trends       详情抽屉趋势图：[{ name, unit?, metric }] 或 [{ name, unit?, metrics: [{ name, metric, scale? }] }]
 const props = defineProps({
   spec: { type: Object, required: true },
 })
+
+const metaColumns = computed(() => props.spec.metaColumns || [])
+const META_LABELS = { role: '角色', group: '分组', version: '版本' }
+function metaLabel(key) {
+  return META_LABELS[key] || key
+}
+
+// 实例地址的展示口径：默认展示 instance；Nginx 这类用 nodeIp 更可读的
+// 类型在 spec 里声明 instanceDisplay: 'nodeIp'。
+function displayAddr(i) {
+  if (!i) return '-'
+  return props.spec.instanceDisplay === 'nodeIp' ? i.nodeIp || i.instance || '-' : i.instance || '-'
+}
+
+// 拓扑按 group 聚合，未分组归入「独立实例」。
+const topoGroups = computed(() => {
+  const map = new Map()
+  for (const i of instances.value) {
+    const g = String(i.group || '').trim() || '独立实例'
+    if (!map.has(g)) map.set(g, [])
+    map.get(g).push(i)
+  }
+  return [...map.entries()].map(([name, list]) => ({ name, list }))
+})
+
+// 超过阈值的指标在详情里标红（如 RocketMQ 的消息积压）
+function isBad(m) {
+  return (props.spec.badMetrics || []).includes(m.key) && m.value > 0
+}
 
 // 空状态图标：保留原有"扫描靶心"造型（内联 SVG，避免为一个空态引入图片资源）
 const EmptyIcon = () =>
@@ -168,9 +237,36 @@ function metricOf(row, key) {
   const hit = (row.metrics || []).find((m) => m.key === key)
   return hit ? hit.value : null
 }
-function metricValue(row, key) {
+function metricValue(row, key, format) {
   const v = metricOf(row, key)
-  return v === null ? '-' : v
+  return v === null ? '-' : formatValue(v, format)
+}
+// formatValue 只做展示口径转换：服务端给的是基础单位（如 MB），
+// 这里按人读的单位换档（MB/GB/TB）。未知 format 原样返回，避免静默改数。
+function formatValue(v, format) {
+  if (format === 'mb') return formatMB(v)
+  if (format === 'compact') return formatCompact(v)
+  return v
+}
+// formatCompact 用于请求数这类大整数：1.5K / 2.3M，避免表格被长数字撑开
+function formatCompact(n) {
+  if (!n) return '0'
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
+  return n.toFixed(0)
+}
+// formatUptime 把秒数转成「X天Y小时」；不足 1 小时按小时显示
+function formatUptime(s) {
+  if (!s) return '-'
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  return d > 0 ? `${d}天${h}小时` : `${h}小时`
+}
+function formatMB(n) {
+  if (!n && n !== 0) return '-'
+  if (n < 1024) return n.toFixed(1) + ' MB'
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' GB'
+  return (n / 1024 / 1024).toFixed(2) + ' TB'
 }
 function sortByMetric(a, b, key) {
   const va = metricOf(a, key), vb = metricOf(b, key)
@@ -180,6 +276,10 @@ function formatNum(v) {
   if (v === null || v === undefined) return '-'
   if (typeof v !== 'number') return v
   return v.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+}
+function formatKpi(v, format) {
+  if (typeof v !== 'number') return v
+  return format ? formatValue(v, format) : formatNum(v)
 }
 function kpiValue(k) {
   const vals = instances.value.map((i) => metricOf(i, k.metric)).filter((v) => v !== null)
@@ -220,26 +320,40 @@ function openDetail(row) {
   loadTrends()
 }
 
+// 一张趋势图可以画一条或多条曲线：单指标的旧写法 {name, metric} 仍可用，
+// 多指标写法 {name, metrics:[{name, metric, scale}]} 用于同量纲对比（如总空间 vs 已用）。
+function trendMetrics(t) {
+  return t.metrics || [{ name: t.name, metric: t.metric }]
+}
+
 async function loadTrends() {
   const row = selected.value
   if (!row) return
   const trends = props.spec.trends || []
-  trendData.value = trends.map((t) => ({ metric: t.metric, name: t.name, option: null, loading: true, error: '' }))
+  trendData.value = trends.map((t) => ({ name: t.name, option: null, loading: true, error: '' }))
   const { start, end } = rangeToWindow(range.value)
   const step = rangeToStep(range.value)
   // 并行拉取（此前是串行 await，8~9 个指标逐个等，抽屉打开明显卡顿）
   await Promise.all(
     trends.map(async (t, i) => {
       try {
-        const data = await http.get(
-          `/api/v1/query/range?node=${encodeURIComponent(row.node)}&metric=${encodeURIComponent(t.metric)}&start=${start}&end=${end}&step=${step}`
+        const parts = await Promise.all(
+          trendMetrics(t).map(async (m) => {
+            const data = await http.get(
+              `/api/v1/query/range?node=${encodeURIComponent(row.node)}&metric=${encodeURIComponent(m.metric)}&start=${start}&end=${end}&step=${step}`
+            )
+            const acc = []
+            for (const s of data.series || []) {
+              if (s.labels?.instance !== row.instance) continue
+              acc.push({
+                name: m.name,
+                data: (s.points || []).map((p) => [p.timestamp, m.scale ? p.value * m.scale : p.value]),
+              })
+            }
+            return acc
+          })
         )
-        const series = []
-        for (const s of data.series || []) {
-          if (s.labels?.instance !== row.instance) continue
-          series.push({ name: t.name, data: (s.points || []).map((p) => [p.timestamp, p.value]) })
-        }
-        trendData.value[i].option = mwTrendOption(series, { unit: t.unit })
+        trendData.value[i].option = mwTrendOption(parts.flat(), { unit: t.unit })
       } catch (e) {
         console.error('趋势查询失败', e)
         trendData.value[i].error = '趋势数据加载失败'
@@ -266,6 +380,22 @@ onMounted(load)
 .cell-dot { margin-right: 8px; vertical-align: middle; }
 .pager { margin-top: 10px; display: flex; justify-content: flex-end; }
 .mono { font-family: var(--mono); }
+.dim { color: var(--t3); font-size: var(--fs-sm); }
+.mw-block { margin-bottom: 16px; }
+.metric-bad .mc-value { color: var(--danger); }
+
+/* 实例拓扑 */
+.topo-group { margin-bottom: 16px; }
+.topo-group:last-child { margin-bottom: 0; }
+.topo-group + .topo-group { padding-top: 16px; border-top: 1px dashed var(--bd); }
+.topo-group-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.topo-group-title { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-base); color: var(--t1); }
+.topo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.rel-node { padding: 12px 14px; border-radius: var(--r-lg); cursor: pointer; border: 1px solid var(--bd); background: var(--s1); transition: transform 0.15s, box-shadow 0.15s; }
+.rel-node:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+.rel-node.is-down { opacity: 0.6; }
+.rel-node-name { font-size: var(--fs-base); font-weight: 600; color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rel-node-meta { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--t2); margin-top: 6px; }
 :deep(.row-down) { opacity: 0.55; }
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .metric-cell { background: var(--fill-1); border-radius: var(--r-md); padding: 10px 12px; }

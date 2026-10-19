@@ -81,6 +81,19 @@ func (c *FastDFSCollector) collectExporter(ctx context.Context, cfg model.FastDF
 		return nil, inst
 	}
 	metrics := parsePrometheusTextWithPrefix(body, c.node, inst.Instance, "fastdfs_", now)
+	// 实例配置里的 role / group / addr 要写进 labels：receiver 只给**缺失 group**
+	// 的指标补节点分组，不补的话实例分组会被静默改成节点分组。
+	for i := range metrics {
+		if metrics[i].Labels["role"] == "" {
+			metrics[i].Labels["role"] = cfg.Role
+		}
+		if metrics[i].Labels["group"] == "" {
+			metrics[i].Labels["group"] = cfg.Group
+		}
+		if metrics[i].Labels["addr"] == "" {
+			metrics[i].Labels["addr"] = cfg.Addr
+		}
+	}
 	inst.Up = exporterHealth(body, len(metrics) > 0, "fastdfs_up")
 	for _, m := range metrics {
 		switch m.Name {

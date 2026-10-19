@@ -11,6 +11,17 @@ import k8sIcon from '../../assets/img/kubernetes.svg'
 import mongodbIcon from '../../assets/img/mongoDB.svg'
 import fastdfsIcon from '../../assets/img/fastdfs.svg'
 
+// instMetric 读取实例上的一个指标值：优先 metrics 数组，回退扁平字段。
+//
+// 两种形状并存是过渡期的现实：已声明化的类型返回 { metrics: [{ key, value }] }，
+// 尚未改造的类型仍返回扁平字段。取值收敛在这里，调用方不必知道是哪一种。
+export function instMetric(inst, key) {
+  if (!key) return undefined
+  const hit = (inst.metrics || []).find((m) => m.key === key)
+  if (hit) return hit.value
+  return inst[key]
+}
+
 export const middlewareTypes = [
   {
     key: 'redis',
@@ -57,10 +68,10 @@ export const middlewareTypes = [
     icon: nginxIcon,
     tab: 'nginx',
     endpoint: '/api/v1/middleware/nginx/instances',
-    topKey: 'requests',
+    topKey: 'nginx_requests',
     topLabel: '请求数',
     fmt: 'num0',
-    subKey: 'activeConnections',
+    subKey: 'nginx_active_connections',
     subLabel: '活跃连接',
     subFmt: 'num0',
   },
@@ -96,10 +107,10 @@ export const middlewareTypes = [
     icon: rocketmqIcon,
     tab: 'rocketmq',
     endpoint: '/api/v1/middleware/rocketmq/instances',
-    topKey: 'messageAccumulation',
+    topKey: 'rocketmq_message_accumulation',
     topLabel: '消息堆积',
     fmt: 'num0',
-    subKey: 'brokerCount',
+    subKey: 'rocketmq_broker_count',
     subLabel: 'Broker',
     subFmt: 'num0',
   },
@@ -135,10 +146,10 @@ export const middlewareTypes = [
     icon: fastdfsIcon,
     tab: 'fastdfs',
     endpoint: '/api/v1/middleware/fastdfs/instances',
-    topKey: 'usedSpaceMB',
+    topKey: 'fastdfs_used_space',
     topLabel: '已用空间(MB)',
     fmt: 'num0',
-    subKey: 'storageOnline',
+    subKey: 'fastdfs_storage_online_count',
     subLabel: '在线Storage',
     subFmt: 'num0',
   },
