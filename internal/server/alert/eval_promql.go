@@ -74,7 +74,7 @@ func (promQLEvaluator) Evaluate(c *evalContext) {
 		node, id := splitRuleKey(key)
 		st.firing = false
 		st.aboveSince = 0
-		c.Resolve(node, id, 0, "PromQL 规则「"+r.Name+"」已恢复："+id)
+		c.Resolve(node, id, 0, "PromQL 规则「"+r.Name+"」已恢复："+displaySeriesID(id))
 	}
 }
 
@@ -86,7 +86,16 @@ func lastValue(s model.Series) float64 {
 }
 
 func promQLMessage(r model.AlertRule, id string, value float64) string {
-	return "PromQL 规则「" + r.Name + "」命中：" + id + " = " + formatFloat(value)
+	return "PromQL 规则「" + r.Name + "」命中：" + displaySeriesID(id) + " = " + formatFloat(value)
+}
+
+// displaySeriesID 给无标签序列（聚合表达式的结果）一个人能读的占位，
+// 否则消息会写成「命中： = 4.00」。
+func displaySeriesID(id string) string {
+	if id == "" {
+		return "(全局)"
+	}
+	return id
 }
 
 // seriesIdentity 用排序后的 k=v 串标识一条序列。

@@ -3,6 +3,7 @@ package alert
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/nebula/monitor/internal/model"
@@ -122,5 +123,28 @@ func TestPromQLEventCarriesExpressionAsMetric(t *testing.T) {
 	}
 	if ev.Metric != `cpu_usage > 85` {
 		t.Fatalf("事件 Metric = %q，want 表达式（前端详情页的触发条件读这个字段）", ev.Metric)
+	}
+}
+
+// TestPromQLGlobalSeriesMessageUsesPlaceholder 聚合表达式（如 count(...)）的结果没有标签，
+// 序列标识为空；消息里必须显示占位，否则会读成「命中： = 4.00」。
+func TestPromQLGlobalSeriesMessageUsesPlaceholder(t *testing.T) {
+	h := newEvalHarness(t, false, nil)
+	h.store.promql = []model.Series{{Labels: map[string]string{},
+		Points: []model.Point{{Timestamp: model.NowMillis(), Value: 4}}}}
+	h.addRule(promqlRule())
+	h.eval()
+
+	var ev model.AlertEvent
+	found := false
+	for _, fe := range h.engine.firing {
+		ev = fe.event
+		found = true
+	}
+	if !found {
+		t.Fatal("未产生 firing 事件")
+	}
+	if !strings.Contains(ev.Message, "(全局)") {
+		t.Fatalf("全局序列的消息应显示占位，实际 %q", ev.Message)
 	}
 }
