@@ -327,6 +327,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/rules/export", a.permit(a.handleRulesExport, "alerts:read"))
 	mux.HandleFunc("POST /api/v1/rules/import", a.permit(a.handleRulesImport, "alerts:write"))
 	mux.HandleFunc("GET /api/v1/rules/templates", a.permit(a.handleRuleTemplates, "alerts:read"))
+	mux.HandleFunc("POST /api/v1/rules/promql/preview", a.permit(a.handlePromQLPreview, "alerts:write"))
 	mux.HandleFunc("POST /api/v1/rules", a.permit(a.handleRuleCreate, "alerts:write"))
 	mux.HandleFunc("PUT /api/v1/rules/{id}", a.permit(a.handleRuleUpdate, "alerts:write"))
 	mux.HandleFunc("POST /api/v1/rules/{id}/toggle", a.permit(a.handleRuleToggle, "alerts:write"))
@@ -1334,6 +1335,12 @@ func (a *API) handleRuleCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if rule.Type == model.RuleTypePromQL {
+		if err := a.validatePromQL(rule.Expr); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	rule.ID = ""
 	created := a.rules.Create(rule)
 	RecordChangeAudit(a.audit, r, "create_rule", nil, created)
@@ -1352,6 +1359,12 @@ func (a *API) handleRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := alert.ValidateRule(rule); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if rule.Type == model.RuleTypePromQL {
+		if err := a.validatePromQL(rule.Expr); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	if err := a.rules.Update(rule); err != nil {
 		http.Error(w, "rule not found", http.StatusNotFound)
