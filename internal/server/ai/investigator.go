@@ -66,26 +66,29 @@ func (i *Investigator) sweep(ctx context.Context) {
 		return
 	}
 	for _, ref := range i.src.ActiveCritical() {
-		key := ref.RuleID + "|" + ref.Node
-		if !i.claim(key) {
-			continue
-		}
+		// 先抢并发名额，再记去重：忙碌只是「本轮跳过」，
+		// 不能吃掉 30 分钟名额，否则一次短暂繁忙会让真实告警半小时内不再被调查。
 		select {
 		case i.sem <- struct{}{}:
-			go func(r AlertRef) {
-				defer func() {
-					// 工具或模型代码里的 panic 不能把整个进程带走
-					if p := recover(); p != nil {
-						slog.Error("AI 自动调查 panic", "rule", r.RuleID, "node", r.Node, "panic", p)
-					}
-					<-i.sem
-				}()
-				i.runOne(ctx, r)
-			}(ref)
 		default:
-			// 并发已满：直接跳过，不排队（告警风暴时排队只会更慢）
 			slog.Info("AI 自动调查跳过：并发已满", "rule", ref.RuleID, "node", ref.Node)
+			continue
 		}
+		key := ref.RuleID + "|" + ref.Node
+		if !i.claim(key) {
+			<-i.sem
+			continue
+		}
+		go func(r AlertRef) {
+			defer func() {
+				// 工具或模型代码里的 panic 不能把整个进程带走
+				if p := recover(); p != nil {
+					slog.Error("AI 自动调查 panic", "rule", r.RuleID, "node", r.Node, "panic", p)
+				}
+				<-i.sem
+			}()
+			i.runOne(ctx, r)
+		}(ref)
 	}
 }
 

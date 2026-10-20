@@ -1304,6 +1304,7 @@ func (a *API) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 	// 资源范围：受限用户只能看到范围内节点产生的告警。
 	events = filterByNodeScope(a, Principal(r), events, func(e model.AlertEvent) string { return e.Node })
+	events = withStableIDs(events)
 	writeJSON(w, 200, map[string]interface{}{"alerts": events})
 }
 

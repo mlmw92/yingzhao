@@ -62,7 +62,7 @@ func (a *API) handleWorkbenchSummary(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 				alertSeg.Items = append(alertSeg.Items, workbenchTodoItem{
-					ID: e.ID, Title: e.RuleName, Node: e.Node, Instance: e.Instance,
+					ID: alertEventID(e), Title: e.RuleName, Node: e.Node, Instance: e.Instance,
 					Severity: e.Severity, Message: e.Message, CreatedAt: e.StartsAt,
 				})
 			}

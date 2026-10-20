@@ -49,7 +49,7 @@ func (s apiAlertSource) ActiveCritical() []ai.AlertRef {
 			continue
 		}
 		out = append(out, ai.AlertRef{
-			ID: e.ID, RuleID: e.RuleID, RuleName: e.RuleName,
+			ID: alertEventID(e), RuleID: e.RuleID, RuleName: e.RuleName,
 			Node: e.Node, Message: e.Message, StartsAt: e.StartsAt,
 		})
 	}

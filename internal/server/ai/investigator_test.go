@@ -44,6 +44,35 @@ func TestInvestigatorRecoversFromPanic(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 }
 
+// 并发已满时只是「本轮跳过」，不能吃掉 30 分钟去重名额：
+// 否则一次短暂的忙碌会让真实告警半小时内不再被调查。
+func TestInvestigatorBusyDoesNotConsumeDedupe(t *testing.T) {
+	cfg := config.AIConfig{Enabled: true, BaseURL: "http://127.0.0.1:1", Model: "m", AutoInvestigate: true}
+	inv := NewInvestigator(
+		func() config.AIConfig { return cfg },
+		fakeSource{refs: []AlertRef{{ID: "e1", RuleID: "r1", Node: "n1"}}},
+		nil,
+		nil,
+	)
+	inv.now = func() time.Time { return time.Unix(1000, 0) }
+
+	// 占满并发（容量 2）
+	inv.sem <- struct{}{}
+	inv.sem <- struct{}{}
+	inv.sweep(context.Background())
+	<-inv.sem
+	<-inv.sem
+
+	done := make(chan struct{})
+	inv.runOne = func(context.Context, AlertRef) { close(done) }
+	inv.sweep(context.Background())
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("并发恢复后应重新触发（忙碌不应消耗去重名额）")
+	}
+}
+
 func TestInvestigatorDisabledDoesNothing(t *testing.T) {
 	cfg := config.AIConfig{Enabled: true, AutoInvestigate: false}
 	ran := 0
