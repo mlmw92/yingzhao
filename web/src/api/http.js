@@ -189,6 +189,12 @@ const api = {
   testAIConfig: () => api.post('/api/v1/ai/config/test', {}),
   // 诊断：上下文由服务端按调用者的资源范围组装（前端只传对象标识）。
   diagnoseAI: (payload) => api.post('/api/v1/ai/diagnose', payload),
+  // 告警自动调查结果：按告警的稳定 ID 查最近一次。
+  getAIInvestigation: (alertId) =>
+    request('/api/v1/ai/investigations?alertId=' + encodeURIComponent(alertId)),
+  // 重跑：服务端先落一条 running 记录再返回 202，模型调用在后台继续。
+  retryAIInvestigation: (alertId) =>
+    api.post('/api/v1/ai/investigations/retry', { alertId }),
 }
 
 export default api

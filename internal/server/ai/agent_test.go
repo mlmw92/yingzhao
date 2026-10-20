@@ -277,6 +277,33 @@ func TestRunTimeoutProducesIncompleteAnswer(t *testing.T) {
 	}
 }
 
+// 预算必须写进系统提示：实机上模型会在信息够了之后继续调工具，
+// 把 8 次预算用满，最后只剩一句「调查未完成」。
+func TestRunSystemPromptStatesBudget(t *testing.T) {
+	var system string
+	srv := fakeChat(t, func(_ int, body map[string]any) map[string]any {
+		msgs, _ := body["messages"].([]any)
+		if len(msgs) > 0 {
+			if m, ok := msgs[0].(map[string]any); ok && m["role"] == "system" {
+				system, _ = m["content"].(string)
+			}
+		}
+		return map[string]any{"choices": []any{map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "结论：正常"},
+		}}}
+	})
+	cfg := config.AIConfig{Enabled: true, BaseURL: srv.URL, Model: "m", ToolMode: "native"}
+	if _, err := Run(context.Background(), cfg, "基础提示", "user", testToolbox(),
+		Budget{MaxRounds: 4, MaxToolCalls: 8, MaxTokens: 8000}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, want := range []string{"基础提示", "4 轮", "8 次工具调用", "8000", "足够就立即给出结论"} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("系统提示缺少 %q：%s", want, system)
+		}
+	}
+}
+
 func TestRunJSONParseFailureBecomesAnswer(t *testing.T) {
 	srv := fakeChat(t, func(int, map[string]any) map[string]any {
 		return map[string]any{"choices": []any{map[string]any{

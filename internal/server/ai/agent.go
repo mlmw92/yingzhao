@@ -97,9 +97,23 @@ type jsonEnvelope struct {
 	Answer string         `json:"answer"`
 }
 
+// budgetPrompt 把本次调查的预算写进系统提示。
+//
+// 实机上模型常在信息已经足够后继续调工具，把 8 次预算用满，最后只剩一句
+// 「调查未完成」。把上限和收束要求提前告诉它，让它自己权衡「再查一次」还是「下结论」。
+func budgetPrompt(system string, b Budget) string {
+	var sb strings.Builder
+	sb.WriteString(system)
+	fmt.Fprintf(&sb, "\n\n本次调查预算：最多 %d 轮对话、%d 次工具调用、%d tokens。", b.MaxRounds, b.MaxToolCalls, b.MaxTokens)
+	sb.WriteString("请先说明排查思路，再按需调用工具；每拿到一次工具结果就判断信息是否足够，")
+	sb.WriteString("足够就立即给出结论，不要为了用满预算而继续调用。")
+	return sb.String()
+}
+
 // Run 跑一次带工具的调查。
 func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox Toolbox, budget Budget) (Outcome, error) {
 	budget = normalizeBudget(budget)
+	system = budgetPrompt(system, budget)
 	cfg = cfg.Normalize()
 	tools := toolbox.Tools()
 	mode := strings.ToLower(strings.TrimSpace(cfg.ToolMode))
