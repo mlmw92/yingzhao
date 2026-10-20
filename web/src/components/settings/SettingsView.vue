@@ -49,6 +49,7 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../common/PageHeader.vue'
 import BrandSettingsSubView from './BrandSettingsSubView.vue'
+import ModuleSettingsSubView from './ModuleSettingsSubView.vue'
 import AlertPipelineSubView from './AlertPipelineSubView.vue'
 import SelfMonitorSubView from './SelfMonitorSubView.vue'
 import RetentionSubView from './RetentionSubView.vue'
@@ -59,6 +60,7 @@ const router = useRouter()
 
 const panes = [
   { name: 'brand', label: '站点与品牌', comp: BrandSettingsSubView },
+  { name: 'modules', label: '功能开关', comp: ModuleSettingsSubView },
   { name: 'pipeline', label: '告警管道', comp: AlertPipelineSubView },
   { name: 'selfmon', label: '系统自监控', comp: SelfMonitorSubView },
   { name: 'retention', label: '数据保留', comp: RetentionSubView },

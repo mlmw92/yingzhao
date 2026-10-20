@@ -75,7 +75,7 @@ describe('SettingsView 容器层', () => {
     await flushPromises()
 
     const tabs = w.findAll('button[role="tab"]')
-    expect(tabs.length).toBe(5)
+    expect(tabs.length).toBe(6)
     // 默认选中第一个
     expect(tabs[0].attributes('aria-selected')).toBe('true')
     expect(tabs[1].attributes('aria-selected')).toBe('false')
@@ -93,7 +93,7 @@ describe('SettingsView 容器层', () => {
     await flushPromises()
 
     expect(rtr.replace).toHaveBeenCalledTimes(1)
-    expect(rtr.replace.mock.calls[0][0].query.tab).toBe('selfmon')
+    expect(rtr.replace.mock.calls[0][0].query.tab).toBe('pipeline')
   })
 
   it('子页 dirty 时显示吸底「未保存改动」条，保存 / 放弃走子页契约', async () => {
