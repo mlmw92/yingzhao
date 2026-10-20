@@ -72,7 +72,7 @@ func (a *API) handleWorkbenchSummary(w http.ResponseWriter, r *http.Request) {
 
 	// 段 2：待我审批（别人提交、仍 pending）
 	approvalSeg := workbenchTodo{Kind: "approval", Items: []workbenchTodoItem{}}
-	if (p != nil && !p.HasPermission("approval:read")) || a.approval == nil {
+	if (p != nil && !p.HasPermission("approval:read")) || a.approval == nil || !a.approvalConfig().Enabled {
 		approvalSeg.Available = false
 	} else {
 		approvalSeg.Available = true

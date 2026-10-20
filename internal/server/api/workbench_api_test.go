@@ -4,9 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/nebula/monitor/internal/model"
+	"github.com/nebula/monitor/internal/server/approval"
 )
 
 // alertStoreErrStub 模拟时序库查询失败。
@@ -77,6 +79,25 @@ func TestWorkbenchSummary_ApprovalOnlyUserNotBlocked(t *testing.T) {
 	alert := todos[0].(map[string]any)
 	if alert["available"] != false {
 		t.Fatalf("无 alerts:read 时告警段应 available=false，实际 %v", alert)
+	}
+}
+
+// 审批功能未启用时显示「未启用」而不是「0 条待批」。
+func TestWorkbenchSummary_ApprovalDisabledStillUnavailable(t *testing.T) {
+	a := scopeTestAPI(t)
+	a.alerts = &alertStoreStub{}
+	a.approval = approval.NewStore(filepath.Join(t.TempDir(), "approvals.json"))
+	a.approvalCfg = approval.NewConfigStore("") // 默认 Enabled=false
+	rec := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(rec, reqWith(globalPrincipal("alerts:read", "approval:read"), http.MethodGet,
+		"/api/v1/workbench/summary", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d（body=%s）", rec.Code, rec.Body.String())
+	}
+	todos := decodeBody(t, rec)["todos"].([]any)
+	approvalSeg := todos[1].(map[string]any)
+	if approvalSeg["available"] != false {
+		t.Fatalf("审批未启用时应 available=false，实际 %v", approvalSeg)
 	}
 }
 
