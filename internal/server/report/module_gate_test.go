@@ -13,4 +13,10 @@ func TestReportTickSkipsWhenModuleDisabled(t *testing.T) {
 	if s.moduleDisabled() {
 		t.Fatal("模块开启时不应跳过")
 	}
+
+	// 整域关闭也要停任务：关闭「告警运维」域时只写 alerting
+	s.SetModuleGate(func(key string) bool { return key == "alerting" })
+	if !s.moduleDisabled() {
+		t.Fatal("所属域被关闭时应跳过自动报告")
+	}
 }

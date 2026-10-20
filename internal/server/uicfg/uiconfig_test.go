@@ -50,3 +50,25 @@ func TestOldConfigWithoutDisabledIsAllEnabled(t *testing.T) {
 		t.Fatalf("缺字段应解析为空（=全开），实际 %v", m.Get().Disabled)
 	}
 }
+
+// Disabled 会被拨测调度器每秒调用，而 Web 保存可能同时写配置：
+// 读写必须串行化，否则整个结构体赋值会撕裂 slice header（-race 可复现）。
+func TestManagerConcurrentReadWrite(t *testing.T) {
+	m, err := New(filepath.Join(t.TempDir(), "ui.yaml"), DefaultUIConfig())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			cfg := m.Get()
+			cfg.Disabled = []string{"assets"}
+			_ = m.Save(cfg)
+		}
+	}()
+	for i := 0; i < 200; i++ {
+		_ = m.Disabled("assets")
+	}
+	<-done
+}

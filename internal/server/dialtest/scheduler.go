@@ -37,6 +37,9 @@ type Scheduler struct {
 
 	// moduleGate 查询「该模块是否被关闭」；nil 表示不限制（测试与旧调用方）。
 	moduleGate func(string) bool
+	// skipLogged 记录「已打过跳过日志」：runOnce 每秒被调用，
+	// 不开这个闸的话关闭期间一天会写八万多行日志，真问题会被淹掉。
+	skipLogged bool
 }
 
 // NewScheduler 创建调度器。
@@ -102,13 +105,22 @@ func (s *Scheduler) SetModuleGate(g func(string) bool) {
 func (s *Scheduler) moduleDisabled() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.moduleGate != nil && s.moduleGate("dialtest")
+	// 页面或所属域被关闭都算关闭：整域关闭时只写域 key
+	disabled := s.moduleGate != nil && (s.moduleGate("dialtest") || s.moduleGate("monitoring"))
+	if disabled {
+		if !s.skipLogged {
+			slog.Info("模块已关闭，跳过执行", "module", "dialtest")
+			s.skipLogged = true
+		}
+	} else {
+		s.skipLogged = false
+	}
+	return disabled
 }
 
 // runOnce 执行到期任务。
 func (s *Scheduler) runOnce() {
 	if s.moduleDisabled() {
-		slog.Info("模块已关闭，跳过执行", "module", "dialtest")
 		return
 	}
 	s.runDue(time.Now())

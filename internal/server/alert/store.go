@@ -110,12 +110,13 @@ func (s *VMAlertStore) Recent(limit int) []model.AlertEvent {
 	return out
 }
 
-// Active 返回当前活跃（firing）告警。对于同一规则、节点和实例，只保留最新状态仍为 firing 的事件。
-func (s *VMAlertStore) Active() []model.AlertEvent {
+// ActiveWithError 与 Active 相同，但把查询失败如实返回给调用方。
+// 值班台需要区分「没有待办」与「查不到」——把后者显示成 0 条是在撒谎。
+func (s *VMAlertStore) ActiveWithError() ([]model.AlertEvent, error) {
 	series, err := s.store.QueryInstantWithLookback("system", alertMetric, nil, 30*24*time.Hour)
 	if err != nil {
 		slog.Warn("活跃告警查询失败", "err", err)
-		return nil
+		return nil, err
 	}
 	latest := map[string]model.AlertEvent{}
 	for _, ser := range series {
@@ -140,6 +141,12 @@ func (s *VMAlertStore) Active() []model.AlertEvent {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return eventTime(out[i]) > eventTime(out[j]) })
+	return out, nil
+}
+
+// Active 返回当前活跃（firing）告警。对于同一规则、节点和实例，只保留最新状态仍为 firing 的事件。
+func (s *VMAlertStore) Active() []model.AlertEvent {
+	out, _ := s.ActiveWithError()
 	return out
 }
 

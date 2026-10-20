@@ -44,28 +44,35 @@ func (a *API) handleWorkbenchSummary(w http.ResponseWriter, r *http.Request) {
 
 	// 段 1：待确认告警（活跃且未认领）
 	alertSeg := workbenchTodo{Kind: "alert", Items: []workbenchTodoItem{}}
-	if !p.HasPermission("alerts:read") || a.alerts == nil {
+	// 未启用登录时没有 principal：视为不受限（与 filterByNodeScope 同一口径）
+	if (p != nil && !p.HasPermission("alerts:read")) || a.alerts == nil {
 		alertSeg.Available = false
 	} else {
 		alertSeg.Available = true
-		events := filterByNodeScope(a, p, a.unacknowledgedAlerts(a.alerts.Active()),
-			func(e model.AlertEvent) string { return e.Node })
-		alertSeg.Count = len(events)
-		for i, e := range events {
-			if i >= 10 {
-				break
+		events, err := activeAlerts(a.alerts)
+		if err != nil {
+			// 查询失败不能显示成 0 条：界面据 errors 展示失败
+			resp.Errors = append(resp.Errors, workbenchError{Kind: "alert", Message: "查询活跃告警失败"})
+		} else {
+			events = filterByNodeScope(a, p, a.unacknowledgedAlerts(events),
+				func(e model.AlertEvent) string { return e.Node })
+			alertSeg.Count = len(events)
+			for i, e := range events {
+				if i >= 10 {
+					break
+				}
+				alertSeg.Items = append(alertSeg.Items, workbenchTodoItem{
+					ID: e.ID, Title: e.RuleName, Node: e.Node, Instance: e.Instance,
+					Severity: e.Severity, Message: e.Message, CreatedAt: e.StartsAt,
+				})
 			}
-			alertSeg.Items = append(alertSeg.Items, workbenchTodoItem{
-				ID: e.ID, Title: e.RuleName, Node: e.Node, Instance: e.Instance,
-				Severity: e.Severity, Message: e.Message, CreatedAt: e.StartsAt,
-			})
 		}
 	}
 	resp.Todos = append(resp.Todos, alertSeg)
 
 	// 段 2：待我审批（别人提交、仍 pending）
 	approvalSeg := workbenchTodo{Kind: "approval", Items: []workbenchTodoItem{}}
-	if !p.HasPermission("approval:read") || a.approval == nil {
+	if (p != nil && !p.HasPermission("approval:read")) || a.approval == nil {
 		approvalSeg.Available = false
 	} else {
 		approvalSeg.Available = true
@@ -86,4 +93,17 @@ func (a *API) handleWorkbenchSummary(w http.ResponseWriter, r *http.Request) {
 	resp.Todos = append(resp.Todos, approvalSeg)
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// activeAlertStore 是可选用能力：实现它就能把「查询失败」如实上报。
+// 不强行扩展 AlertStore 接口，避免所有测试替身跟着改。
+type activeAlertStore interface {
+	ActiveWithError() ([]model.AlertEvent, error)
+}
+
+func activeAlerts(store AlertStore) ([]model.AlertEvent, error) {
+	if s, ok := store.(activeAlertStore); ok {
+		return s.ActiveWithError()
+	}
+	return store.Active(), nil
 }

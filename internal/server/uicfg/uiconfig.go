@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -51,6 +52,8 @@ func (m *Manager) Disabled(key string) bool {
 	if key == "" {
 		return false
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, k := range m.cfg.Disabled {
 		if k == key {
 			return true
@@ -85,7 +88,9 @@ func DefaultUIConfig() UIConfig {
 // Manager 负责 UI 配置的加载与落盘。
 type Manager struct {
 	path string
-	cfg  UIConfig
+	// mu 保护 cfg：Disabled 会被调度器每秒读，Web 保存可能同时写。
+	mu  sync.RWMutex
+	cfg UIConfig
 }
 
 // New 从 path 加载配置；文件不存在则用 initial 初始化并落盘；解析失败返回错误。
@@ -112,10 +117,16 @@ func New(path string, initial UIConfig) (*Manager, error) {
 }
 
 // Get 返回当前配置的副本。
-func (m *Manager) Get() UIConfig { return m.cfg }
+func (m *Manager) Get() UIConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cfg
+}
 
 // Save 校验并持久化新配置（先写内存，成功后再落盘）。
 func (m *Manager) Save(c UIConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	c.Name = strings.TrimSpace(c.Name)
 	if c.Name == "" {
 		c.Name = DefaultUIConfig().Name

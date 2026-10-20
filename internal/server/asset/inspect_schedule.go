@@ -204,6 +204,9 @@ type InspectScheduler struct {
 	now     func() time.Time
 	// moduleGate 查询「该模块是否被关闭」；nil 表示不限制（测试与旧调用方）。
 	moduleGate func(string) bool
+	// skipLogged 记录「已打过跳过日志」：tick 每分钟一次，
+	// 避免长期关闭时日志被重复刷屏。
+	skipLogged bool
 	// running 标记本轮是否在执行：巡检会遍历资产，到点时上一次还没跑完就跳过本轮
 	// （不排队——排队会把"卡住一次"变成连续积压，而周期本身会带来下一次）。
 	running bool
@@ -449,12 +452,21 @@ func (s *InspectScheduler) SetModuleGate(g func(string) bool) {
 func (s *InspectScheduler) moduleDisabled() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.moduleGate != nil && s.moduleGate("inspect")
+	// 页面或所属域被关闭都算关闭：整域关闭时只写域 key
+	disabled := s.moduleGate != nil && (s.moduleGate("inspect") || s.moduleGate("assets"))
+	if disabled {
+		if !s.skipLogged {
+			slog.Info("模块已关闭，跳过执行", "module", "inspect")
+			s.skipLogged = true
+		}
+	} else {
+		s.skipLogged = false
+	}
+	return disabled
 }
 
 func (s *InspectScheduler) tick() {
 	if s.moduleDisabled() {
-		slog.Info("模块已关闭，跳过执行", "module", "inspect")
 		return
 	}
 	cfg := s.Config()

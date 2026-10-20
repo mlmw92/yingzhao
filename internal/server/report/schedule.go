@@ -105,6 +105,9 @@ type Scheduler struct {
 	now     func() time.Time
 	// moduleGate 查询「该模块是否被关闭」；nil 表示不限制（测试与旧调用方）。
 	moduleGate func(string) bool
+	// skipLogged 记录「已打过跳过日志」：tick 每分钟一次，
+	// 避免长期关闭时日志被重复刷屏。
+	skipLogged bool
 }
 
 // SetScopeResolver 注入「身份 → 范围 + 权限跳过」的折算函数（与周期化巡检同款）。
@@ -318,7 +321,6 @@ func (s *Scheduler) Run(ctx context.Context) {
 // tick 检查是否到点，到点则生成一次。
 func (s *Scheduler) tick() {
 	if s.moduleDisabled() {
-		slog.Info("模块已关闭，跳过执行", "module", "report")
 		return
 	}
 	cfg := s.Config()
@@ -343,9 +345,19 @@ func (s *Scheduler) SetModuleGate(g func(string) bool) {
 }
 
 func (s *Scheduler) moduleDisabled() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.moduleGate != nil && s.moduleGate("report")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// 页面或所属域被关闭都算关闭：整域关闭时只写域 key
+	disabled := s.moduleGate != nil && (s.moduleGate("report") || s.moduleGate("alerting"))
+	if disabled {
+		if !s.skipLogged {
+			slog.Info("模块已关闭，跳过执行", "module", "report")
+			s.skipLogged = true
+		}
+	} else {
+		s.skipLogged = false
+	}
+	return disabled
 }
 
 func writeSchedule(path string, cfg ScheduleConfig) error {
