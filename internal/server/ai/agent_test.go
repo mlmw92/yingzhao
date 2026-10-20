@@ -201,6 +201,7 @@ func TestRunAutoFallsBackWhenToolsUnsupported(t *testing.T) {
 // 模型可能在一轮里批量调用很多工具，直接把预算打满。
 // 此时必须再要一次结论（不带工具），而不是把「工具用尽」当答案。
 func TestRunFinalizesWhenToolBudgetExhausted(t *testing.T) {
+	var finalOK bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -216,6 +217,19 @@ func TestRunFinalizesWhenToolBudgetExhausted(t *testing.T) {
 			}}})
 			return
 		}
+		// 收尾请求必须是纯文本对话：不能夹带 tool_calls / role=tool，
+		// 否则部分推理模型会把这些当成待解析的工具语法而不给结论。
+		msgs, _ := body["messages"].([]any)
+		for _, m := range msgs {
+			mm, _ := m.(map[string]any)
+			if mm["role"] == "tool" {
+				return
+			}
+			if _, has := mm["tool_calls"]; has {
+				return
+			}
+		}
+		finalOK = true
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
 			"message": map[string]any{"role": "assistant", "content": "最终结论：正常"},
 		}}})
@@ -229,6 +243,9 @@ func TestRunFinalizesWhenToolBudgetExhausted(t *testing.T) {
 	}
 	if out.Stopped != "tools" || len(out.Steps) != 2 {
 		t.Fatalf("应在 2 次工具后停止: %+v", out)
+	}
+	if !finalOK {
+		t.Fatal("收尾请求应使用干净的纯文本对话")
 	}
 	if out.Answer != "最终结论：正常" {
 		t.Fatalf("预算用尽后应再要一次结论，实际 %q", out.Answer)

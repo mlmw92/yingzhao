@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -125,14 +126,30 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 
 	// finalize 在工具预算用尽时再要一次结论（不带工具）。
 	// 模型可能在一轮里批量调用很多工具把预算打满，直接停会把「工具用尽」当答案。
+	//
+	// 用**干净的纯文本对话**收尾，而不是复用带 tool_calls / role=tool 的历史：
+	// 部分推理模型会把工具语法当成待解析内容，只输出思考而不给结论。
 	finalize := func() string {
 		if out.Tokens >= budget.MaxTokens {
 			return ""
 		}
-		finalMsgs := append(append([]Message{}, msgs...),
-			Message{Role: "user", Content: "工具调用次数已达上限。请基于以上工具结果直接给出结论，不要再请求调用工具。"})
-		res, err := client.ChatCtx(ctx, cfg, finalMsgs)
+		var sb strings.Builder
+		sb.WriteString("已获得的工具结果：\n")
+		for _, s := range out.Steps {
+			fmt.Fprintf(&sb, "- %s %v → %s\n", s.Tool, s.Args, stepContent(s))
+		}
+		sb.WriteString("\n工具调用次数已达上限。请基于以上信息直接给出结论，不要再请求调用工具。")
+		fcfg := cfg
+		if fcfg.MaxTokens < 1024 {
+			fcfg.MaxTokens = 1024 // 推理模型需要足够 token 才能产出正文
+		}
+		res, err := client.ChatCtx(ctx, fcfg, []Message{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
+			{Role: "user", Content: sb.String()},
+		})
 		if err != nil {
+			slog.Warn("AI 收尾结论生成失败", "err", err)
 			return ""
 		}
 		out.Tokens += res.TotalTokens
