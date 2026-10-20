@@ -52,7 +52,7 @@
 新增第 8 个工具：
 
 ```
-kind   string  动作标识（如 ops:svc.restart）
+kind   string  动作标识（动作目录里的取值，如 svc.restart）
 params object  动作参数（键值均为字符串）
 reason string  建议理由（一句话，会展示给审批人）
 ```
@@ -65,7 +65,7 @@ reason string  建议理由（一句话，会展示给审批人）
 4. `params` 通过 `ops.Validate`（必填、正则、未知参数拒绝）；
 5. 本次调查的建议数 < 3，且与已有建议不完全重复。
 
-**排除集**：`ops:file.push`。`fileId` 只能来自一次上传，模型既看不到也造不出；允许它只会产生注定失败的建议。
+**排除集**：`file.push`。`fileId` 只能来自一次上传，模型既看不到也造不出；允许它只会产生注定失败的建议。
 
 工具成功时返回给模型：
 
