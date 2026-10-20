@@ -29,6 +29,52 @@ type UIConfig struct {
 	Logo     string `yaml:"logo" json:"logo"`         // 可选 Logo：图片 data URL（data:image/...;base64,）或 http(s) 链接
 	Footer   string `yaml:"footer" json:"footer"`     // 页脚文本（支持 HTML），空则隐藏
 	Subtitle string `yaml:"subtitle" json:"subtitle"` // 侧栏副标题（如「运维平台」），留空则不显示
+	// Disabled 是已关闭的模块或页面 key（见前端 modules/catalog.js）。
+	//
+	// **用关闭清单而不是开启清单**：全量开启时不需要任何配置，
+	// 且升级新增的页面会自动出现；开启清单会让存量部署升级后静默看不到新功能。
+	Disabled []string `yaml:"disabled" json:"disabled,omitempty"`
+}
+
+// LockedModuleKeys 是不可关闭的模块与页面：
+// overview/alerts 是「发现与处置」主线的两端，system 是唯一能改回配置的入口，
+// alerting 整域不可关（组内单页仍可关）。
+var LockedModuleKeys = map[string]bool{
+	"overview": true,
+	"alerts":   true,
+	"alerting": true,
+	"system":   true,
+}
+
+// Disabled 判断某个模块/页面是否被关闭。
+func (m *Manager) Disabled(key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, k := range m.cfg.Disabled {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeDisabled 去空白、去重，并拒绝不可关闭项。
+func normalizeDisabled(list []string) ([]string, error) {
+	out := make([]string, 0, len(list))
+	seen := map[string]bool{}
+	for _, raw := range list {
+		k := strings.TrimSpace(raw)
+		if k == "" || seen[k] {
+			continue
+		}
+		if LockedModuleKeys[k] {
+			return nil, fmt.Errorf("模块 %q 不允许关闭", k)
+		}
+		seen[k] = true
+		out = append(out, k)
+	}
+	return out, nil
 }
 
 // DefaultUIConfig 返回默认品牌（系统名 英招，无自定义 Logo 时使用前端默认徽标）。
@@ -89,6 +135,11 @@ func (m *Manager) Save(c UIConfig) error {
 	if len([]rune(c.Subtitle)) > MaxSubtitleLen {
 		return fmt.Errorf("侧栏副标题过长（上限 %d 字符）", MaxSubtitleLen)
 	}
+	normalized, err := normalizeDisabled(c.Disabled)
+	if err != nil {
+		return err
+	}
+	c.Disabled = normalized
 	if err := os.MkdirAll(filepath.Dir(m.path), 0o755); err != nil {
 		return err
 	}
