@@ -32,93 +32,123 @@
       </span>
     </div>
 
-    <div v-loading="loading">
-      <el-form label-position="top" class="two-col-form">
-        <el-row :gutter="28">
-          <el-col :xs="24" :md="8">
-            <el-form-item label="启用">
-              <el-switch v-model="form.enabled" />
-              <div class="field-hint">默认关闭；关闭时不存在任何外呼路径</div>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="16">
-            <el-form-item label="端点地址">
-              <el-input
-                v-model="form.baseUrl"
-                placeholder="https://api.deepseek.com/v1（本地模型如 http://127.0.0.1:11434/v1）"
-              />
-              <div class="field-hint">OpenAI 兼容端点，平台会自动拼 /chat/completions</div>
-            </el-form-item>
-          </el-col>
+    <div v-loading="loading" class="ai-form-wrap">
+      <el-form label-position="top" class="ai-form">
+        <!-- 连接：启用与端点是「能不能调用」的前提，放在最前 -->
+        <section class="form-section">
+          <h3 class="section-title">连接</h3>
+          <el-row :gutter="24">
+            <el-col :xs="24" :sm="8" :md="6">
+              <el-form-item label="启用">
+                <el-switch v-model="form.enabled" />
+                <div class="field-hint">
+                  默认关闭。关闭时平台不发起任何外呼，既有智能分析仍在本地运行。
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="16" :md="18">
+              <el-form-item label="端点地址">
+                <el-input
+                  v-model="form.baseUrl"
+                  placeholder="https://api.deepseek.com/v1（本地模型如 http://127.0.0.1:11434/v1）"
+                />
+                <div class="field-hint">
+                  OpenAI 兼容端点，平台会自动拼接 <code>/chat/completions</code>。
+                  若服务商要求带版本前缀，请把 <code>/v1</code> 一并写进地址——缺它会返回 405。
+                </div>
+              </el-form-item>
+            </el-col>
 
-          <el-col :xs="24" :md="8">
-            <el-form-item label="模型名">
-              <el-input v-model="form.model" placeholder="如 deepseek-chat、qwen-plus" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="API Key">
-              <el-input
-                v-model="form.apiKey"
-                type="password"
-                show-password
-                autocomplete="new-password"
-                :placeholder="hasApiKey ? '已配置（不修改请留空）' : '本地模型通常不需要'"
-              />
-              <div class="field-hint">只写不读：保存后接口不再回显明文</div>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="超时（秒）">
-              <el-input-number v-model="form.timeoutSeconds" :min="5" :max="600" controls-position="right" />
-              <div class="field-hint">大模型比通知慢，默认 60</div>
-            </el-form-item>
-          </el-col>
+            <el-col :xs="24" :sm="8" :md="6">
+              <el-form-item label="模型名">
+                <el-input v-model="form.model" placeholder="如 deepseek-chat、qwen-plus" />
+                <div class="field-hint">端点实际提供的模型标识，不是界面展示名。</div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="8" :md="9">
+              <el-form-item label="API Key">
+                <el-input
+                  v-model="form.apiKey"
+                  type="password"
+                  show-password
+                  autocomplete="new-password"
+                  :placeholder="hasApiKey ? '已配置（不修改请留空）' : '本地模型通常不需要'"
+                />
+                <div class="field-hint">只写不读：保存后接口不再回显明文；留空表示沿用已保存的 Key。</div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="8" :md="9">
+              <el-form-item label="单次调用超时（秒）">
+                <el-input-number v-model="form.timeoutSeconds" :min="5" :max="600" controls-position="right" class="w-full" />
+                <div class="field-hint">
+                  单次模型请求的上限，默认 60。自动调查是多次调用，整体另有时限（120 秒）。
+                </div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </section>
 
-          <el-col :xs="24" :md="8">
-            <el-form-item label="最大输出 tokens">
-              <el-input-number v-model="form.maxTokens" :min="64" :max="32768" :step="256" controls-position="right" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="温度">
-              <el-input-number v-model="form.temperature" :min="0" :max="2" :step="0.1" controls-position="right" />
-              <div class="field-hint">运维结论要稳定，默认 0.2</div>
-            </el-form-item>
-          </el-col>
-        </el-row>
-      </el-form>
-    </div>
+        <section class="form-section">
+          <h3 class="section-title">生成参数</h3>
+          <el-row :gutter="24">
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="最大输出 tokens">
+                <el-input-number v-model="form.maxTokens" :min="64" :max="32768" :step="256" controls-position="right" class="w-full" />
+                <div class="field-hint">
+                  单次回复的输出上限。推理模型会先消耗 token 思考，<b>建议 ≥ 2048</b>；
+                  设得过小会出现「只思考、没有正文」。
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="温度">
+                <el-input-number v-model="form.temperature" :min="0" :max="2" :step="0.1" controls-position="right" class="w-full" />
+                <div class="field-hint">运维结论要稳定可复现，默认 0.2；调高会让同一问题给出不同说法。</div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </section>
 
-    <!-- 工具与自动调查（阶段 2）：自动调查会持续产生数据出境，与常规开关分开呈现 -->
-    <div class="section-block">
-      <el-form label-position="top">
-        <el-form-item label="工具调用协议">
-          <el-select v-model="form.toolMode" style="width: 280px">
-            <el-option value="auto" label="自动（先原生，失败回退 JSON）" />
-            <el-option value="native" label="原生 function calling" />
-            <el-option value="json" label="JSON 协议" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="告警自动调查">
-          <el-switch v-model="form.autoInvestigate" />
-          <div class="field-hint">
-            仅 <b>critical</b> 告警触发；同一规则 + 节点 30 分钟调查一次；全局并发 2。
-            调查只读取告警所属节点，且不发送日志正文。
-          </div>
-        </el-form-item>
-      </el-form>
-    </div>
+        <!-- 工具与自动调查：自动调查会持续产生数据出境，单独成段 -->
+        <section class="form-section">
+          <h3 class="section-title">工具与自动调查</h3>
+          <el-row :gutter="24">
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="工具调用协议">
+                <el-select v-model="form.toolMode" class="w-full">
+                  <el-option value="auto" label="自动（先原生，失败回退 JSON）" />
+                  <el-option value="native" label="原生 function calling" />
+                  <el-option value="json" label="JSON 协议" />
+                </el-select>
+                <div class="field-hint">
+                  原生 function calling 最稳；自建模型不支持时选「自动」或「JSON」。
+                  「自动」只在端点明确不支持工具（400 / 404 / 422）时回退，不会重复发送数据。
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="告警自动调查">
+                <el-switch v-model="form.autoInvestigate" />
+                <div class="field-hint">
+                  仅 <b>critical</b> 告警触发；同一「规则 + 节点」30 分钟一次；全局并发 2；
+                  单次最多 4 轮 / 8 次工具调用 / 8000 tokens / 120 秒。
+                  调查只读告警所属节点，<b>不发送日志正文</b>；结果在告警详情页展示。
+                </div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </section>
 
-    <!-- 敏感开关：开启后诊断可携带资产属性值（可能含连接串、口令），与常规开关视觉隔离 -->
-    <div class="danger-zone">
-      <el-form label-position="top">
-        <el-form-item label="允许发送敏感内容">
-          <el-switch v-model="form.allowSensitive" />
-          <div class="field-hint">
-            打开后，诊断可以携带<b>资产属性值</b>（其中可能含连接串、口令）。该开关的每次变更都会记入审计。
-          </div>
-        </el-form-item>
+        <!-- 敏感开关：开启后诊断可携带资产属性值（可能含连接串、口令），与常规字段视觉隔离 -->
+        <section class="form-section danger-zone">
+          <h3 class="section-title">敏感内容</h3>
+          <el-form-item label="允许发送敏感内容">
+            <el-switch v-model="form.allowSensitive" />
+            <div class="field-hint">
+              打开后，诊断可以携带<b>资产属性值</b>（其中可能含连接串、口令）。该开关的每次变更都会记入审计。
+            </div>
+          </el-form-item>
+        </section>
       </el-form>
     </div>
 
@@ -303,21 +333,48 @@ defineExpose({ dirty, save, reset })
 .test-hint {
   margin-bottom: var(--sp-4);
 }
-.two-col-form :deep(.el-form-item__label) {
-  font-weight: 500;
-  padding-bottom: 6px;
-}
 .field-hint {
   font-size: var(--fs-sm);
   color: var(--t3);
   line-height: 1.5;
   margin-top: 6px;
 }
-.danger-zone {
-  border: 1px solid var(--danger-bd);
+.field-hint code {
+  font-family: var(--mono);
+  background: var(--fill-1);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+/* 每段一张卡片：字段多时靠分段而不是靠缩短标签来降低阅读负担 */
+.form-section {
+  padding: 14px 18px 2px;
+  border: 1px solid var(--bd);
   border-radius: var(--r-md);
-  padding: var(--sp-3) var(--sp-3) 0;
+  background: var(--s1);
   margin-bottom: var(--sp-4);
+}
+.section-title {
+  margin: 0 0 14px;
+  padding-left: 8px;
+  border-left: 3px solid var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--t1);
+}
+.ai-form :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
+.ai-form :deep(.el-form-item__label) {
+  font-weight: 500;
+  padding-bottom: 6px;
+}
+/* 输入类控件统一撑满栅格，宽度不再由内容决定 */
+.w-full {
+  width: 100%;
+}
+.danger-zone {
+  border-color: var(--danger-bd);
   background: var(--fill-1);
 }
 </style>

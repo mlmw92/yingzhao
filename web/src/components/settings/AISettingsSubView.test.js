@@ -54,6 +54,20 @@ afterEach(() => {
 })
 
 describe('AI 助手设置页', () => {
+  it('关键配置项都有可操作的说明：/v1 前缀、输出预算、协议回退', async () => {
+    const w = mountView()
+    await flushPromises()
+    const text = w.text()
+    // 端点：说明要带 /v1（真实踩过 405）
+    expect(text).toContain('/v1')
+    expect(text).toContain('405')
+    // 输出预算：推理模型需要更大的输出上限
+    expect(text).toContain('2048')
+    // 协议：自动只在明确不支持工具时回退，避免重复发送数据
+    expect(text).toContain('不会重复发送数据')
+    expect(text).toContain('120 秒')
+  })
+
   it('默认关闭，并写明数据去向与"不启用时按本地分析工作"', async () => {
     const w = mountView()
     await flushPromises()
