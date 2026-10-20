@@ -22,10 +22,17 @@
 
       <!-- 常用置顶：最多 5 个；开关优先级高于置顶，已关闭模块即使置顶也不显示 -->
       <div v-if="!collapsed && pinnedItems.length" class="pinned-pages">
-        <router-link v-for="p in pinnedItems" :key="'pin-' + p.key" :to="p.to" class="pinned-item">
-          <el-icon :size="13"><Star /></el-icon>
-          <span class="label">{{ p.label }}</span>
-        </router-link>
+        <template v-for="p in pinnedItems" :key="'pin-' + p.key">
+          <!-- 免登录的独立页（对外状态页）保持「新标签页」语义，与侧栏其他入口一致 -->
+          <a v-if="p.newTab" :href="'#' + p.to" target="_blank" rel="noopener" class="pinned-item">
+            <el-icon :size="13"><Star /></el-icon>
+            <span class="label">{{ p.label }}</span>
+          </a>
+          <router-link v-else :to="p.to" class="pinned-item" :class="{ active: isActiveItem(p) }">
+            <el-icon :size="13"><Star /></el-icon>
+            <span class="label">{{ p.label }}</span>
+          </router-link>
+        </template>
       </div>
 
       <div

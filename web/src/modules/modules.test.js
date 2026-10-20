@@ -37,4 +37,17 @@ describe('模块目录与开关 store', () => {
     expect(m.isVisible('logs', 'monitoring')).toBe(false)
     expect(m.isVisible('hosts', 'monitoring')).toBe(true)
   })
+
+  it('拉取失败按全开处理，且不重复请求', async () => {
+    // store 是模块级单例：重置模块图，避免前面的用例把 loaded 置为 true
+    vi.resetModules()
+    http.get.mockRejectedValue(new Error('boom'))
+    const { useModules: fresh } = await import('../composables/useModules')
+    const m = fresh()
+    await m.load()
+    await m.load()
+    expect(http.get).toHaveBeenCalledTimes(1)
+    expect(m.loaded.value).toBe(true)
+    expect(m.isVisible('assets', 'assets')).toBe(true)
+  })
 })

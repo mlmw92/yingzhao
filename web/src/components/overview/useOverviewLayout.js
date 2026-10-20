@@ -41,6 +41,17 @@ function load() {
         order.unshift(k)
       }
     })
+    // 一次性迁移：升级前的布局里没有 todos，且智能运维占着第一位
+    // （那是旧版固定置顶的默认值，不是用户的选择）。把它挪到中间件之后。
+    if (!saved.some((b) => b.key === 'todos')) {
+      const i = order.indexOf('intelligence')
+      if (i >= 0) {
+        order.splice(i, 1)
+        const mw = order.indexOf('middleware')
+        order.splice(mw >= 0 ? mw + 1 : order.length, 0, 'intelligence')
+      }
+      order.unshift('todos')
+    }
     return order
       .map((k) => ({ ...defaultBlocks.find((d) => d.key === k), ...(byKey[k] || {}) }))
       .filter((b) => defaultBlocks.some((d) => d.key === b.key))

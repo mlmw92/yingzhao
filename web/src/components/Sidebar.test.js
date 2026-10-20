@@ -32,6 +32,7 @@ function mountSidebar() {
 describe('侧栏菜单高亮', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     http.get.mockResolvedValue({ server: '1.30.63', buildTime: '' })
   })
 
@@ -55,6 +56,23 @@ describe('侧栏菜单高亮', () => {
     // 复位模块单例，避免影响后面的高亮用例
     http.get.mockResolvedValue({ server: '1.30.63', buildTime: '' })
     await useModules().load(true)
+  })
+
+  it('置顶的对外状态页用新标签页打开', async () => {
+    localStorage.setItem('nebula-pinned-pages', JSON.stringify(['status']))
+    http.get.mockResolvedValue({ server: '1.30.63', buildTime: '' })
+    await useModules().load(true)
+
+    routeState.path = '/hosts'
+    const w = mountSidebar()
+    await flushPromises()
+
+    const link = w.findAll('.pinned-item').find(
+      (a) => a.attributes('href') === '#/status' && a.attributes('target') === '_blank',
+    )
+    expect(link).toBeTruthy()
+    w.unmount()
+    localStorage.clear()
   })
 
   it('在 /assets/topology 只高亮「关系视图」', async () => {

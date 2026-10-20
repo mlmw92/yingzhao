@@ -19,8 +19,10 @@ export function useModules() {
         loaded.value = true
       })
       .catch(() => {
-        // 拉取失败按全开处理：宁可多显示，也不要把功能藏起来
+        // 拉取失败按全开处理：宁可多显示，也不要把功能藏起来。
+        // 同时置 loaded，避免每次导航都重试同一个失败请求（保存后可用 load(true) 强制刷新）。
         disabled.value = []
+        loaded.value = true
       })
       .finally(() => {
         inflight = null

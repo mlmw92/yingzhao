@@ -32,4 +32,16 @@ describe('ModuleSettingsSubView', () => {
     await flushPromises()
     expect(http.put).toHaveBeenCalledWith('/api/v1/ui/settings', { disabled: ['assets'] })
   })
+
+  it('加载失败时不保存，避免把「全开」当成现状写回', async () => {
+    http.get.mockRejectedValue(new Error('boom'))
+    const w = mount(ModuleSettingsSubView, { global: { plugins: [ElementPlus] } })
+    await flushPromises()
+
+    expect(w.text()).toContain('加载失败')
+    const btn = w.findAll('button').find((b) => b.text().includes('保存'))
+    await btn.trigger('click')
+    await flushPromises()
+    expect(http.put).not.toHaveBeenCalled()
+  })
 })

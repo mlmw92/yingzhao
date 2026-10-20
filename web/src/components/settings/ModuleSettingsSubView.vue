@@ -6,6 +6,13 @@
       show-icon
       title="关闭仅隐藏入口并停止对应定时任务，不影响已产生的数据，也不改变接口可达性。"
     />
+    <el-alert
+      v-if="loadError"
+      type="error"
+      :closable="false"
+      show-icon
+      title="功能开关加载失败，请刷新重试（为避免把全部开启写回，已禁用保存）"
+    />
     <div v-for="g in moduleGroups" :key="g.key" class="module-group">
       <div class="group-head">
         <strong>{{ g.label }}</strong>
@@ -26,7 +33,7 @@
         >{{ item.label }}</el-checkbox>
       </div>
     </div>
-    <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+    <el-button type="primary" :loading="saving" :disabled="!!loadError" @click="save">保存</el-button>
   </div>
 </template>
 
@@ -39,11 +46,17 @@ import { useModules } from '../../composables/useModules'
 
 const disabled = ref([])
 const saving = ref(false)
+const loadError = ref('')
 const modules = useModules()
 
 async function loadConfig() {
-  const cfg = await http.get('/api/v1/ui/settings')
-  disabled.value = [...(cfg.disabled || [])]
+  try {
+    const cfg = await http.get('/api/v1/ui/settings')
+    disabled.value = [...(cfg.disabled || [])]
+  } catch (e) {
+    // 加载失败时不能拿「全开」当现状：保存会把所有已关闭模块重新打开
+    loadError.value = e?.message || '加载失败'
+  }
 }
 
 onMounted(loadConfig)
@@ -57,6 +70,7 @@ function toggle(key, on) {
 }
 
 async function save() {
+  if (loadError.value) return
   saving.value = true
   try {
     // 只提交开关：接口是部分更新，品牌字段不会被清空
