@@ -709,3 +709,25 @@ disabled:
   - assets
   - logs
 ```
+
+## AI 助手（`ai.yaml`）
+
+`server.yaml` 的 `aiFile` 指向该文件（默认 `/etc/monitor-server/ai.yaml`）。默认关闭；启用后所有调用都会写审计（`ai:invoke` 单列）。
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | `false` | 总开关 |
+| `baseUrl` / `model` / `apiKey` | — | OpenAI 兼容端点、模型名、密钥（密钥不写日志、接口不回显） |
+| `timeoutSeconds` / `maxTokens` / `temperature` | `60` / `1024` / `0.2` | 单次调用参数 |
+| `allowSensitive` | `false` | 允许发送资产属性值等高级别数据 |
+| `toolMode` | `auto` | 工具调用协议：`auto`（先原生 function calling，4xx 不支持时回退 JSON）\| `native` \| `json` |
+| `autoInvestigate` | `false` | 允许 critical 告警触发自动调查 |
+
+### 工具与自动调查（阶段 2）
+
+- 工具全部**只读**，且只访问**告警所属节点**；模型在参数里传别的节点会被拒绝。
+- `log_stats` 只返回来源与条数，**不返回日志正文**。
+- `autoInvestigate` 开启后：仅 **critical** 告警触发；同一「规则 + 节点」30 分钟内只调查一次；全局并发 2；单次最多 4 轮 / 8 次工具调用 / 8000 tokens / 30 秒。
+- 工具执行失败不会终止调查（错误回填给模型继续排查）；轮次或预算用尽时返回已获得的结论并标记停止原因。
+- 结果保存在 `ai_investigations.json`（最多 500 条、保留 30 天），在告警详情页「AI 调查」区块展示。
+- 审计动作：`ai:auto_investigate`（actor 为 `auto`）。
