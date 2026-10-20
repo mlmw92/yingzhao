@@ -34,12 +34,12 @@
               size="small"
               type="primary"
               :loading="submittingId === s.id"
-              :disabled="!!submitted[s.id]"
+              :disabled="!!submitted[submissionKey(s)]"
               @click="submitSuggestion(s)"
             >
-              {{ submitted[s.id] ? '已提交审批' : '提交审批' }}
+              {{ submitted[submissionKey(s)] ? '已提交审批' : '提交审批' }}
             </el-button>
-            <span v-if="submitted[s.id]" class="muted">审批单 {{ submitted[s.id] }}</span>
+            <span v-if="submitted[submissionKey(s)]" class="muted">审批单 {{ submitted[submissionKey(s)] }}</span>
           </div>
         </div>
       </div>
@@ -118,9 +118,16 @@ const elapsed = computed(() => {
 const canRetry = computed(() => !!inv.value && inv.value.state !== 'running')
 const retrying = ref(false)
 
-// 建议提交：id → 审批单号。提交成功后按钮变成「已提交审批」，避免重复提交。
+// 建议提交：key → 审批单号。提交成功后按钮变成「已提交审批」，避免重复提交。
+//
+// key 必须带调查 ID：建议编号每次调查都从 sug-1 重新开始，
+// 只用 s.id 会让重跑后的新建议继承上一轮的单号（显示成已提交、点不动）。
 const submittingId = ref('')
 const submitted = ref({})
+
+function submissionKey(s) {
+  return `${inv.value?.id || ''}:${s.id}`
+}
 
 function paramsText(s) {
   return Object.entries(s.params || {}).map(([k, v]) => `${k} = ${v}`).join(' · ')
@@ -130,7 +137,7 @@ async function submitSuggestion(s) {
   submittingId.value = s.id
   try {
     const res = await http.submitAISuggestion(inv.value.id, s.id)
-    submitted.value = { ...submitted.value, [s.id]: res.approval?.id || '已提交' }
+    submitted.value = { ...submitted.value, [submissionKey(s)]: res.approval?.id || '已提交' }
     ElMessage.success('已提交审批，需另一位同事批准')
   } catch (e) {
     ElMessage.error(e.message || '提交失败')

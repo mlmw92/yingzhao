@@ -182,4 +182,36 @@ describe('AIInvestigationPanel', () => {
     await flushPromises()
     expect(w.text()).not.toContain('建议处置')
   })
+
+  // 建议 ID 每次调查都从 sug-1 重新编号：提交状态必须按「调查 + 建议」区分，
+  // 否则重跑后的新建议会继承上一轮的单号，显示成「已提交」且点不动。
+  it('重跑后新调查的同号建议不继承旧的提交状态', async () => {
+    http.get
+      .mockResolvedValueOnce({
+        investigation: {
+          id: 'inv-1', state: 'done',
+          suggestions: [{ id: 'sug-1', title: '重启服务', params: { unit: 'a.service' }, node: 'web-01' }],
+        },
+      })
+      .mockResolvedValueOnce({
+        investigation: {
+          id: 'inv-2', state: 'running',
+          suggestions: [{ id: 'sug-1', title: '重启服务', params: { unit: 'b.service' }, node: 'web-01' }],
+        },
+      })
+    http.submitAISuggestion.mockResolvedValue({ approval: { id: 'ap-1' } })
+    http.retryAIInvestigation.mockResolvedValue({ message: '已开始重新调查' })
+
+    const w = mountPanel()
+    await flushPromises()
+    await w.findAll('button').find((b) => b.text().includes('提交审批')).trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('已提交审批')
+
+    await w.findAll('button').find((b) => b.text().includes('重新调查')).trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('b.service')
+    expect(w.text()).not.toContain('已提交审批')
+  })
 })

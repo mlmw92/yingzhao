@@ -243,6 +243,7 @@ func TestAISubmitSuggestionCreatesApprovalWhenDisabled(t *testing.T) {
 		Suggestions: []ai.Suggestion{{
 			ID: "sug-1", Kind: "svc.restart", Title: "重启服务",
 			Params: map[string]string{"unit": "nginx.service"}, Node: "web-01",
+			Reason: "nginx.service 处于 failed",
 		}},
 	})
 
@@ -275,6 +276,50 @@ func TestAISubmitSuggestionCreatesApprovalWhenDisabled(t *testing.T) {
 	}
 	if req.Requester != "ops1" {
 		t.Fatalf("申请人应为当前用户，实际 %q", req.Requester)
+	}
+	// 模型给的理由必须到审批人眼前：审批人判断的是「要不要批准这个动作」，理由是他的依据。
+	if req.Reason != "nginx.service 处于 failed" {
+		t.Fatalf("审批单应带上模型理由，实际 %q", req.Reason)
+	}
+}
+
+// 幂等：同一调查的同一条建议只能有一张未结束的审批单。
+// 面板刷新后本地状态会丢，用户再点一次不能变成两张单子——批准两次就是执行两次。
+func TestAISubmitSuggestionIsIdempotent(t *testing.T) {
+	a, _, st, _ := approvalTestAPI(t)
+	invStore := ai.NewInvestigationStore(filepath.Join(t.TempDir(), "inv.json"), 10, time.Hour)
+	a.SetInvestigationStore(invStore)
+	_ = invStore.Add(ai.Investigation{
+		ID: "inv-1", AlertID: "e1", Node: "web-01", State: "done",
+		Suggestions: []ai.Suggestion{{
+			ID: "sug-1", Kind: "svc.restart", Params: map[string]string{"unit": "nginx.service"}, Node: "web-01",
+		}},
+	})
+
+	p := approvalPrincipal("ops1", true, "ai:invoke", "ops:exec")
+	target := "/api/v1/ai/investigations/inv-1/suggestions/sug-1/submit"
+	first := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(first, approvalReq(p, http.MethodPost, target, ""))
+	if first.Code != http.StatusAccepted {
+		t.Fatalf("第一次提交 code = %d（%s）", first.Code, first.Body.String())
+	}
+	firstID, _ := decodeBody(t, first)["approval"].(map[string]any)["id"].(string)
+
+	second := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(second, approvalReq(p, http.MethodPost, target, ""))
+	if second.Code != http.StatusAccepted {
+		t.Fatalf("第二次提交 code = %d（%s）", second.Code, second.Body.String())
+	}
+	body := decodeBody(t, second)
+	if body["duplicate"] != true {
+		t.Fatalf("重复提交应标记 duplicate: %v", body)
+	}
+	secondID, _ := body["approval"].(map[string]any)["id"].(string)
+	if secondID != firstID {
+		t.Fatalf("重复提交应返回同一张审批单：%q vs %q", firstID, secondID)
+	}
+	if got := len(st.List(approval.Filter{State: approval.StatePending, Limit: 500})); got != 1 {
+		t.Fatalf("应只有 1 张待审批单，实际 %d", got)
 	}
 }
 

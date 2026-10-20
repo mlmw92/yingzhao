@@ -274,9 +274,26 @@ func (a *API) handleAISubmitSuggestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 幂等：同一调查的同一条建议只能有一张未结束的审批单。
+	// 面板刷新后本地「已提交」状态会丢，用户再点一次不能变成两张单子——
+	// 两张都批准就是同一个动作执行两次。
+	for _, prev := range a.approval.List(approval.Filter{State: approval.StatePending, Limit: 500}) {
+		if prev.Extra["investigationId"] == inv.ID && prev.Extra["suggestionId"] == sug.ID {
+			writeJSON(w, http.StatusAccepted, map[string]any{
+				"pending":   true,
+				"duplicate": true,
+				"approval":  a.approvalView(r, prev),
+				"message":   "该建议已提交过审批（审批单 " + prev.ID + "），请等待另一位同事批准",
+			})
+			return
+		}
+	}
+
 	saved := a.submitApproval(r, &approval.Request{
 		Kind: approval.EntryOpsWrite, OpsKind: sug.Kind, Node: sug.Node, Params: params,
-		Title: fmt.Sprintf("AI 建议：%s（写操作） @ %s", action.Title, sug.Node),
+		// 模型给的理由要送到审批人眼前：他判断的是「要不要批准这个动作」，理由就是依据。
+		Reason: sug.Reason,
+		Title:  fmt.Sprintf("AI 建议：%s（写操作） @ %s", action.Title, sug.Node),
 		Extra: map[string]string{
 			"source": "ai", "investigationId": inv.ID, "suggestionId": sug.ID,
 		},
