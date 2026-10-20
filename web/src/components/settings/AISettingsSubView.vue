@@ -296,8 +296,9 @@ function reset() {
 
 onMounted(load)
 
-// dirty 契约：供 SettingsView 容器渲染吸底「未保存改动」条
-defineExpose({ dirty, save, reset })
+// dirty 契约：供 SettingsView 容器渲染吸底「未保存改动」条。
+// ownsActions: 本页顶部已有「保存」，容器不再显示吸底保存条（否则两个保存入口）。
+defineExpose({ dirty, save, reset, ownsActions: true })
 </script>
 
 <style scoped>

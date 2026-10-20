@@ -93,6 +93,9 @@ watch(
 
 // —— 子页 dirty 契约 ——
 // 子页 expose { dirty, save, reset }；dirty 为 ref/computed，父层读它决定是否显示吸底保存条。
+//
+// 自带操作按钮的子页额外 expose ownsActions: true（如「站点与品牌」「AI 助手」）：
+// 它们顶部已有「保存」，再显示吸底条会出现两个保存入口。
 const paneRef = ref(null)
 const saving = ref(false)
 
@@ -104,7 +107,11 @@ function readDirty(inst) {
   return !!d
 }
 
-const activeDirty = computed(() => readDirty(paneRef.value))
+const activeDirty = computed(() => {
+  const inst = paneRef.value
+  if (inst && inst.ownsActions) return false
+  return readDirty(inst)
+})
 
 async function saveActive() {
   const inst = paneRef.value

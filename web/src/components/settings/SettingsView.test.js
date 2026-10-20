@@ -121,4 +121,25 @@ describe('SettingsView 容器层', () => {
     await flushPromises()
     expect(pane.reset).toBe(1)
   })
+
+  it('子页自带操作按钮（ownsActions）时不再显示吸底条，避免两个保存入口', async () => {
+    const SelfManaged = {
+      name: 'SelfManaged',
+      setup(_, { expose }) {
+        expose({ dirty: pane.dirty, ownsActions: true, save() {}, reset() {} })
+        return () => h('div', { class: 'stub-pane' }, 'self')
+      },
+    }
+    wrapper = mount(SettingsView, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: { BrandSettingsSubView: SelfManaged },
+      },
+    })
+    await flushPromises()
+
+    pane.dirty.value = true
+    await nextTick()
+    expect(wrapper.find('.save-bar').exists()).toBe(false)
+  })
 })
