@@ -103,6 +103,8 @@ type Scheduler struct {
 	// 节点管理器，由它提供折算出口），这也是周期化巡检的既有做法。
 	resolve func(string) (ScopeResolution, bool)
 	now     func() time.Time
+	// moduleGate 查询「该模块是否被关闭」；nil 表示不限制（测试与旧调用方）。
+	moduleGate func(string) bool
 }
 
 // SetScopeResolver 注入「身份 → 范围 + 权限跳过」的折算函数（与周期化巡检同款）。
@@ -315,6 +317,10 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 // tick 检查是否到点，到点则生成一次。
 func (s *Scheduler) tick() {
+	if s.moduleDisabled() {
+		slog.Info("模块已关闭，跳过执行", "module", "report")
+		return
+	}
 	cfg := s.Config()
 	if !cfg.Enabled {
 		return
@@ -324,6 +330,22 @@ func (s *Scheduler) tick() {
 		return
 	}
 	s.RunNow("", false)
+}
+
+// SetModuleGate 注入模块开关查询（关闭的模块跳过自动报告；手动触发不受影响）。
+func (s *Scheduler) SetModuleGate(g func(string) bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.moduleGate = g
+}
+
+func (s *Scheduler) moduleDisabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.moduleGate != nil && s.moduleGate("report")
 }
 
 func writeSchedule(path string, cfg ScheduleConfig) error {

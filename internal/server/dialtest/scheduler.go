@@ -34,6 +34,9 @@ type Scheduler struct {
 	// “故障→恢复”邮件对。firedDown 标记已发出故障，需在恢复时清除。
 	failCount map[string]int
 	firedDown map[string]bool
+
+	// moduleGate 查询「该模块是否被关闭」；nil 表示不限制（测试与旧调用方）。
+	moduleGate func(string) bool
 }
 
 // NewScheduler 创建调度器。
@@ -86,8 +89,28 @@ func (s *Scheduler) Stop() {
 	s.stopOnce.Do(func() { close(s.stop) })
 }
 
+// SetModuleGate 注入模块开关查询（关闭的模块跳过自动拨测；手动触发不受影响）。
+func (s *Scheduler) SetModuleGate(g func(string) bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.moduleGate = g
+}
+
+func (s *Scheduler) moduleDisabled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.moduleGate != nil && s.moduleGate("dialtest")
+}
+
 // runOnce 执行到期任务。
 func (s *Scheduler) runOnce() {
+	if s.moduleDisabled() {
+		slog.Info("模块已关闭，跳过执行", "module", "dialtest")
+		return
+	}
 	s.runDue(time.Now())
 }
 

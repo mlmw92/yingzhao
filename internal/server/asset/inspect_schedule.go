@@ -202,6 +202,8 @@ type InspectScheduler struct {
 	// asset 包刻意不依赖 auth 包（见 LabelSelector 的说明），依赖方向保持清晰。
 	resolve func(user string) (ScopeSnapshot, bool)
 	now     func() time.Time
+	// moduleGate 查询「该模块是否被关闭」；nil 表示不限制（测试与旧调用方）。
+	moduleGate func(string) bool
 	// running 标记本轮是否在执行：巡检会遍历资产，到点时上一次还没跑完就跳过本轮
 	// （不排队——排队会把"卡住一次"变成连续积压，而周期本身会带来下一次）。
 	running bool
@@ -434,7 +436,27 @@ func (s *InspectScheduler) Run(ctx context.Context) {
 }
 
 // tick 检查是否到点，到点则执行一次。
+// SetModuleGate 注入模块开关查询（关闭的模块跳过自动巡检；手动触发不受影响）。
+func (s *InspectScheduler) SetModuleGate(g func(string) bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.moduleGate = g
+}
+
+func (s *InspectScheduler) moduleDisabled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.moduleGate != nil && s.moduleGate("inspect")
+}
+
 func (s *InspectScheduler) tick() {
+	if s.moduleDisabled() {
+		slog.Info("模块已关闭，跳过执行", "module", "inspect")
+		return
+	}
 	cfg := s.Config()
 	if !cfg.Enabled {
 		return

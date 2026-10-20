@@ -478,6 +478,19 @@ func main() {
 	// Agent 分发（自带 CDN：安装脚本 + 各架构二进制）
 	agentdist.New(cfg.AgentBinDir, cfg.AgentScriptPath, cfg.AgentAuth).Register(mux)
 
+	// 模块开关：关闭的模块跳过自动调度（手动触发仍可执行）。
+	// 闸门只加在各调度器的自动路径（tick / runOnce），见对应实现。
+	if uiMgr != nil {
+		gate := uiMgr.Disabled
+		dialtestSched.SetModuleGate(gate)
+		if reportSched != nil {
+			reportSched.SetModuleGate(gate)
+		}
+		if inspectSched != nil {
+			inspectSched.SetModuleGate(gate)
+		}
+	}
+
 	// 启动后台任务：全部挂在 runCtx 下，由退出流程在请求排空后统一取消。
 	go hub.Run(runCtx)
 	if cfg.Alert.Enabled {
