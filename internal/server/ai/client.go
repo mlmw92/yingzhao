@@ -22,8 +22,30 @@ const maxRespBytes = 256 << 10
 
 // Message 是一条对话消息（OpenAI 兼容格式）。
 type Message struct {
-	Role    string `json:"role"` // system | user | assistant
-	Content string `json:"content"`
+	Role       string     `json:"role"` // system | user | assistant | tool
+	Content    string     `json:"content,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+}
+
+// ToolCall 是模型请求调用工具（OpenAI 兼容格式）。
+type ToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+// ToolSpec 是发给模型的原生工具声明。
+type ToolSpec struct {
+	Type     string `json:"type"` // 固定 "function"
+	Function struct {
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		Parameters  json.RawMessage `json:"parameters"`
+	} `json:"function"`
 }
 
 // Result 是一次调用的结果。
@@ -33,6 +55,7 @@ type Result struct {
 	TotalTokens  int           // 用量（端点没回则为 0）
 	Elapsed      time.Duration // 端到端耗时
 	FinishReason string        // stop / length / …
+	ToolCalls    []ToolCall    // 模型请求调用的工具（原生协议）
 }
 
 // Client 是 OpenAI 兼容的对话客户端：只做一件事——把 messages 发出去、把回答取回来。
@@ -53,11 +76,12 @@ func NewClient(timeout time.Duration) *Client {
 
 // chatRequest 是 OpenAI 兼容的请求体（只放我们真正会用的字段）。
 type chatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Temperature float64   `json:"temperature"`
-	MaxTokens   int       `json:"max_tokens"`
-	Stream      bool      `json:"stream"`
+	Model       string     `json:"model"`
+	Messages    []Message  `json:"messages"`
+	Temperature float64    `json:"temperature"`
+	MaxTokens   int        `json:"max_tokens"`
+	Stream      bool       `json:"stream"`
+	Tools       []ToolSpec `json:"tools,omitempty"`
 }
 
 // chatResponse 是响应体（只解我们需要的部分）。
@@ -84,6 +108,12 @@ type chatResponse struct {
 //   - **传输问题**：连不上、超时、TLS → 错误里带**脱敏后的**端点（密钥不进日志）；
 //   - **服务端问题**：HTTP ≥300 或响应体里带 error → 带上状态码与端点给的消息。
 func (c *Client) Chat(cfg config.AIConfig, messages []Message) (*Result, error) {
+	return c.ChatWithTools(cfg, messages, nil)
+}
+
+// ChatWithTools 发起一次可能带工具声明的对话补全。
+// tools 为空时与 Chat 等价。
+func (c *Client) ChatWithTools(cfg config.AIConfig, messages []Message, tools []ToolSpec) (*Result, error) {
 	cfg = cfg.Normalize()
 	if !cfg.Ready() {
 		return nil, errors.New("AI 未配置或未启用（需要启用、端点与模型）")
@@ -93,6 +123,7 @@ func (c *Client) Chat(cfg config.AIConfig, messages []Message) (*Result, error) 
 		Messages:    messages,
 		Temperature: cfg.Temperature,
 		MaxTokens:   cfg.MaxTokens,
+		Tools:       tools,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("构造请求失败: %w", err)
@@ -132,7 +163,8 @@ func (c *Client) Chat(cfg config.AIConfig, messages []Message) (*Result, error) 
 		// HTTP 200 但业务失败（部分网关这么干），不能当成功。
 		return nil, fmt.Errorf("AI 端点报错：%s", out.Error.Message)
 	}
-	if len(out.Choices) == 0 || strings.TrimSpace(out.Choices[0].Message.Content) == "" {
+	if len(out.Choices) == 0 ||
+		(strings.TrimSpace(out.Choices[0].Message.Content) == "" && len(out.Choices[0].Message.ToolCalls) == 0) {
 		return nil, fmt.Errorf("AI 端点返回了空回答（%s）", RedactEndpoint(endpoint))
 	}
 
@@ -142,6 +174,7 @@ func (c *Client) Chat(cfg config.AIConfig, messages []Message) (*Result, error) 
 		TotalTokens:  out.Usage.TotalTokens,
 		FinishReason: out.Choices[0].FinishReason,
 		Elapsed:      time.Since(started),
+		ToolCalls:    out.Choices[0].Message.ToolCalls,
 	}, nil
 }
 

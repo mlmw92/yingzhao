@@ -306,6 +306,11 @@ type AIConfig struct {
 	// 本批只覆盖**资产属性值**：日志正文（诊断价值最高、也最敏感）留到"日志归因"那一批，
 	// 届时加它自己的开关——不做"配了却不生效"的死开关。
 	AllowSensitive bool `yaml:"allowSensitive" json:"allowSensitive"`
+	// ToolMode 控制工具调用协议：auto（先原生、失败回退 JSON）| native | json。
+	ToolMode string `yaml:"toolMode" json:"toolMode"`
+	// AutoInvestigate 允许 critical 告警触发自动调查。默认 false：
+	// 打开后每次告警都可能把节点数据发给模型，这属于持续数据出境。
+	AutoInvestigate bool `yaml:"autoInvestigate" json:"autoInvestigate"`
 }
 
 // Normalize 补齐零值默认并收敛取值范围。
@@ -332,6 +337,12 @@ func (c AIConfig) Normalize() AIConfig {
 	}
 	c.BaseURL = strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
 	c.Model = strings.TrimSpace(c.Model)
+	c.ToolMode = strings.ToLower(strings.TrimSpace(c.ToolMode))
+	switch c.ToolMode {
+	case "native", "json":
+	default:
+		c.ToolMode = "auto"
+	}
 	return c
 }
 
