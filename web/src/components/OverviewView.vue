@@ -24,7 +24,7 @@
     <TriageBar :alerts="alertsAll" :nodes="nodes" :latest-map="latestMap" />
 
     <div v-if="editing" class="ov-edit-hint">
-      编辑模式：使用各区块右上角的 ↑ / ↓ 调整顺序，点击「隐藏」可关闭该区块；「智能运维」固定置顶，不可移动或隐藏（但可折叠）。配置自动保存到本地。
+      编辑模式：使用各区块右上角的 ↑ / ↓ 调整顺序，点击「隐藏」可关闭该区块；「待我处理」固定置顶，不可移动或隐藏。配置自动保存到本地。
     </div>
 
     <div class="ov-grid">
@@ -37,8 +37,7 @@
       >
         <SectionCard :title="b.title" class="ov-card" :loading="firstLoad && b.key !== 'intelligence'">
           <template #actions>
-            <!-- 智能运维区块是 260px 重区块：可折叠（默认收起，有 critical 时自动展开）。
-                 注意这是**折叠**，不是隐藏——PINNED_KEYS 与"不可隐藏"的定位保持不变。 -->
+            <!-- 智能运维区块是 260px 重区块：可折叠（默认收起，有 critical 时自动展开）。 -->
             <button
               v-if="b.key === 'intelligence'"
               class="ov-collapse"
@@ -87,10 +86,12 @@ import AlertList from './overview/AlertList.vue'
 import IntelligenceBlock from './overview/IntelligenceBlock.vue'
 import HostOverview from './overview/HostOverview.vue'
 import MiddlewareOverview from './overview/MiddlewareOverview.vue'
+import WorkbenchTodos from './overview/WorkbenchTodos.vue'
 
 const { blocks, editing, pinnedKeys, moveUp, moveDown, toggleVisible, reset, setEditing, persist } = useOverviewLayout()
 
 const compMap = {
+  todos: WorkbenchTodos,
   health: HealthBlock,
   kpi: KpiBlock,
   criticalAlerts: AlertList,

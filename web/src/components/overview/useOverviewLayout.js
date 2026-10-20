@@ -4,17 +4,18 @@ const STORAGE_KEY = 'nebula-overview-layout'
 
 // 首页区块默认配置（顺序即默认排列，span 为 12 栅格占比）
 const defaultBlocks = [
-  { key: 'intelligence', title: '智能运维', span: 12, visible: true },
+  { key: 'todos', title: '待我处理', span: 12, visible: true },
   { key: 'health', title: '系统健康度', span: 4, visible: true },
   { key: 'kpi', title: '关键指标', span: 4, visible: true },
   { key: 'criticalAlerts', title: '紧急告警', span: 4, visible: true },
   { key: 'hostOverview', title: '主机概览', span: 12, visible: true },
   { key: 'middleware', title: '中间件概览', span: 12, visible: true },
+  { key: 'intelligence', title: '智能运维', span: 12, visible: true },
   { key: 'recentAlerts', title: '最近告警', span: 12, visible: true },
 ]
 
 // 固定置顶区块：始终在首页最上方，不可下移、不可隐藏
-const PINNED_KEYS = ['intelligence']
+const PINNED_KEYS = ['todos']
 
 function clone(v) {
   return JSON.parse(JSON.stringify(v))
