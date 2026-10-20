@@ -31,6 +31,19 @@ func TestInvestigatorDedupesByRuleAndNode(t *testing.T) {
 	}
 }
 
+func TestInvestigatorRecoversFromPanic(t *testing.T) {
+	cfg := config.AIConfig{Enabled: true, BaseURL: "http://127.0.0.1:1", Model: "m", AutoInvestigate: true}
+	inv := NewInvestigator(
+		func() config.AIConfig { return cfg },
+		fakeSource{refs: []AlertRef{{ID: "e1", RuleID: "r1", Node: "n1"}}},
+		nil,
+		func(context.Context, AlertRef) { panic("boom") },
+	)
+	// 后台 goroutine 里的 panic 不能把整个进程带走
+	inv.sweep(context.Background())
+	time.Sleep(50 * time.Millisecond)
+}
+
 func TestInvestigatorDisabledDoesNothing(t *testing.T) {
 	cfg := config.AIConfig{Enabled: true, AutoInvestigate: false}
 	ran := 0

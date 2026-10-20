@@ -68,6 +68,16 @@ func (a *API) RunAutoInvestigation(ctx context.Context, ref ai.AlertRef) {
 		State: "running", StartedAt: time.Now().UnixMilli(),
 	}
 	_ = a.aiInv.Add(inv)
+	// panic 也要把记录落到终态，否则会永远停在「调查中」
+	defer func() {
+		if p := recover(); p != nil {
+			a.aiInv.Update(inv.ID, func(it *ai.Investigation) {
+				it.State = "failed"
+				it.Error = fmt.Sprintf("调查异常终止: %v", p)
+			})
+			a.recordAIAuto("ai:auto_investigate", fmt.Sprintf("告警 %s 调查 panic: %v", ref.ID, p))
+		}
+	}()
 
 	system := "你是运维平台的诊断助手。只根据工具返回的数据作答；不要猜测，也不要执行任何写操作。"
 	user := fmt.Sprintf("告警：%s（规则 %s，节点 %s）。请先调用工具核实，再给出结论与建议。",

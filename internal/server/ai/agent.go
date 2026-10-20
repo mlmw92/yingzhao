@@ -157,7 +157,7 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 			for _, tc := range res.ToolCalls {
 				if toolCalls >= budget.MaxToolCalls {
 					out.Stopped = "tools"
-					out.Answer = lastContent
+					out.Answer = incompleteAnswer("工具调用次数用尽", len(out.Steps), lastContent)
 					return out, nil
 				}
 				toolCalls++
@@ -167,7 +167,7 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 			}
 			if out.Tokens >= budget.MaxTokens {
 				out.Stopped = "tokens"
-				out.Answer = lastContent
+				out.Answer = incompleteAnswer("token 预算用尽", len(out.Steps), lastContent)
 				return out, nil
 			}
 			continue
@@ -192,7 +192,7 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 		}
 		if toolCalls >= budget.MaxToolCalls {
 			out.Stopped = "tools"
-			out.Answer = lastContent
+			out.Answer = incompleteAnswer("工具调用次数用尽", len(out.Steps), lastContent)
 			return out, nil
 		}
 		toolCalls++
@@ -202,7 +202,7 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 		msgs = append(msgs, Message{Role: "user", Content: "工具结果：\n" + stepContent(step)})
 		if out.Tokens >= budget.MaxTokens {
 			out.Stopped = "tokens"
-			out.Answer = lastContent
+			out.Answer = incompleteAnswer("token 预算用尽", len(out.Steps), lastContent)
 			return out, nil
 		}
 	}
@@ -210,7 +210,7 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 	if out.Stopped == "" {
 		out.Stopped = "rounds"
 	}
-	out.Answer = lastContent
+	out.Answer = incompleteAnswer("轮次用尽", len(out.Steps), lastContent)
 	return out, nil
 }
 
@@ -238,8 +238,25 @@ func parseEnvelope(s string) (jsonEnvelope, bool) {
 
 func looksLikeToolUnsupported(err error) bool {
 	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "返回 4") ||
-		(strings.Contains(s, "tool") && strings.Contains(s, "unsupported"))
+	// 只有「明确说不支持工具」才回退：401/403/429 等 4xx 重跑一遍只是重复出境，
+	// 不会因为换协议就好。
+	status := strings.Contains(s, "返回 400") || strings.Contains(s, "返回 404") || strings.Contains(s, "返回 422")
+	if !status {
+		return false
+	}
+	return strings.Contains(s, "tool") || strings.Contains(s, "function") || strings.Contains(s, "unsupported")
+}
+
+// incompleteAnswer 在预算耗尽时给出人可读的说明。
+// 不能把最后一次工具请求的 JSON 当结论——界面会显示「已完成」却没有内容。
+func incompleteAnswer(reason string, steps int, last string) string {
+	if _, isEnvelope := parseEnvelope(last); isEnvelope {
+		last = ""
+	}
+	if last != "" {
+		return last + "\n\n（调查未完成：" + reason + "）"
+	}
+	return fmt.Sprintf("调查未完成：%s（已获得 %d 条工具结果，详见步骤）", reason, steps)
 }
 
 func executeTool(ctx context.Context, tools []Tool, name string, args map[string]any) Step {

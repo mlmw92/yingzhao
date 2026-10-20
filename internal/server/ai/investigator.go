@@ -73,7 +73,13 @@ func (i *Investigator) sweep(ctx context.Context) {
 		select {
 		case i.sem <- struct{}{}:
 			go func(r AlertRef) {
-				defer func() { <-i.sem }()
+				defer func() {
+					// 工具或模型代码里的 panic 不能把整个进程带走
+					if p := recover(); p != nil {
+						slog.Error("AI 自动调查 panic", "rule", r.RuleID, "node", r.Node, "panic", p)
+					}
+					<-i.sem
+				}()
 				i.runOne(ctx, r)
 			}(ref)
 		default:

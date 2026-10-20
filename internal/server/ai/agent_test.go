@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/nebula/monitor/internal/server/config"
@@ -146,6 +147,53 @@ func TestRunStopsAtTokenBudget(t *testing.T) {
 	}
 	if out.Stopped != "tokens" {
 		t.Fatalf("token 超限应停止，实际 %+v", out)
+	}
+	// 预算耗尽时不能把最后一次工具请求当成结论：界面会显示「已完成」但只有一段 JSON
+	if strings.Contains(out.Answer, `"action":"tool"`) || !strings.Contains(out.Answer, "未完成") {
+		t.Fatalf("预算耗尽时应给出可读的未完成说明，实际 %q", out.Answer)
+	}
+}
+
+func TestRunAutoDoesNotFallbackOnAuthError(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"unauthorized"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := config.AIConfig{Enabled: true, BaseURL: srv.URL, Model: "m", ToolMode: "auto"}
+	if _, err := Run(context.Background(), cfg, "sys", "user", testToolbox(), Budget{}); err == nil {
+		t.Fatal("401 应直接失败")
+	}
+	if calls != 1 {
+		t.Fatalf("401 不应触发 JSON 回退（会重复出境同一份数据），实际调用 %d 次", calls)
+	}
+}
+
+func TestRunAutoFallsBackWhenToolsUnsupported(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"tools are not supported by this model"}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "结论：正常"},
+		}}})
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := config.AIConfig{Enabled: true, BaseURL: srv.URL, Model: "m", ToolMode: "auto"}
+	out, err := Run(context.Background(), cfg, "sys", "user", testToolbox(), Budget{})
+	if err != nil {
+		t.Fatalf("不支持工具时应回退 JSON: %v", err)
+	}
+	if calls != 2 || out.Protocol != "json" {
+		t.Fatalf("应回退到 JSON（调用 2 次），实际 calls=%d protocol=%s", calls, out.Protocol)
 	}
 }
 
