@@ -56,3 +56,16 @@ func TestInvestigationStorePrunesOldAndOverflow(t *testing.T) {
 		t.Fatalf("超过上限应只保留最近 2 条，实际 %d", len(got))
 	}
 }
+
+func TestInvestigationStorePersistsSuggestions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "inv.json")
+	s := NewInvestigationStore(path, 10, time.Hour)
+	_ = s.Add(Investigation{ID: "inv-1", AlertID: "e1", State: "done",
+		Suggestions: []Suggestion{{ID: "sug-1", Kind: "svc.restart", Node: "web-01"}}})
+
+	reloaded := NewInvestigationStore(path, 10, time.Hour)
+	inv, ok := reloaded.ByAlert("e1")
+	if !ok || len(inv.Suggestions) != 1 || inv.Suggestions[0].Kind != "svc.restart" {
+		t.Fatalf("建议未落盘: %+v", inv)
+	}
+}

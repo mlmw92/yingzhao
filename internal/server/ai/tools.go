@@ -19,6 +19,8 @@ type Tool struct {
 type ToolScope struct {
 	Node           string
 	AllowSensitive bool
+	// Propose 把一条通过校验的处置建议记入本次调查。为 nil 时不暴露 propose_action。
+	Propose func(Suggestion) error
 }
 
 // Toolbox 按范围提供工具。每次调查构造一个实例。

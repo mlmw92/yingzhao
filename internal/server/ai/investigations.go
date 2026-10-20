@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+// Suggestion 是模型提出的一条处置建议。它只是一个记录，不代表任何动作已被提交。
+type Suggestion struct {
+	ID     string            `json:"id"`
+	Kind   string            `json:"kind"`
+	Title  string            `json:"title"`
+	Params map[string]string `json:"params,omitempty"`
+	Node   string            `json:"node"`
+	Reason string            `json:"reason,omitempty"`
+}
+
 // Investigation 是一次 AI 调查的完整记录。
 type Investigation struct {
 	ID        string `json:"id"`
@@ -25,6 +35,8 @@ type Investigation struct {
 	Error     string `json:"error,omitempty"`
 	StartedAt int64  `json:"startedAt"`
 	EndedAt   int64  `json:"endedAt,omitempty"`
+
+	Suggestions []Suggestion `json:"suggestions,omitempty"`
 }
 
 // InvestigationStore 是调查结果的独立存储（不写进告警事件：长文本进时序库标签会放大基数与体积）。

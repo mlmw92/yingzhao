@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/nebula/monitor/internal/model"
 	"github.com/nebula/monitor/internal/server/ai"
 	"github.com/nebula/monitor/internal/server/logstore"
+	"github.com/nebula/monitor/internal/server/ops"
 )
 
 // apiToolbox 把平台已有的只读数据暴露给模型。
@@ -18,17 +20,24 @@ import (
 type apiToolbox struct {
 	a     *API
 	scope ai.ToolScope
+	// 建议计数与去重只在本次调查内有效；工具按顺序执行，无需加锁。
+	proposals int
+	seen      map[string]struct{}
 }
 
 func (a *API) newToolbox(scope ai.ToolScope) ai.Toolbox {
-	return &apiToolbox{a: a, scope: scope}
+	return &apiToolbox{a: a, scope: scope, seen: map[string]struct{}{}}
 }
 
 func (t *apiToolbox) Tools() []ai.Tool {
-	return []ai.Tool{
+	tools := []ai.Tool{
 		t.listAlerts(), t.queryMetric(), t.nodeDetail(), t.assetLookup(),
 		t.inspectFindings(), t.dialtestStatus(), t.logStats(),
 	}
+	if t.scope.Propose != nil {
+		tools = append(tools, t.proposeAction())
+	}
+	return tools
 }
 
 // requireScopeNode 校验参数里的 node 不越过 scope。
@@ -289,4 +298,98 @@ func (t *apiToolbox) logStats() ai.Tool {
 			return b.String(), nil
 		},
 	}
+}
+
+// maxAISuggestions 是单次调查最多保留的建议数。
+// 超过 3 条开始变成噪音：审批人要的是可判断的选项，不是清单。
+const maxAISuggestions = 3
+
+func (t *apiToolbox) proposeAction() ai.Tool {
+	return ai.Tool{
+		Name: "propose_action", ReadOnly: true,
+		Description: "记录一条处置建议。只接受写类操作；建议不会自动执行，需人工提交并由另一位同事批准。",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","description":"动作标识，如 svc.restart / container.restart"},"params":{"type":"object","additionalProperties":{"type":"string"},"description":"动作参数"},"reason":{"type":"string","description":"建议理由，一句话"}},"required":["kind"]}`),
+		Handler: func(_ context.Context, args map[string]any) (string, error) {
+			kind, _ := args["kind"].(string)
+			kind = strings.TrimSpace(kind)
+			action, ok := ops.Lookup(kind)
+			if !ok {
+				return "", fmt.Errorf("未知动作 %q", kind)
+			}
+			if action.ReadOnly {
+				return "", fmt.Errorf("动作 %s 是只读动作，不需要处置建议", kind)
+			}
+			if kind == ops.KindFilePush {
+				return "", errors.New("不支持建议文件分发：文件引用只能来自一次上传")
+			}
+			params, err := stringParams(args["params"])
+			if err != nil {
+				return "", err
+			}
+			action, norm, err := ops.Validate(kind, params)
+			if err != nil {
+				return "", err
+			}
+			if t.proposals >= maxAISuggestions {
+				return "", fmt.Errorf("每条调查最多 %d 条建议", maxAISuggestions)
+			}
+			key := suggestionKey(kind, norm)
+			if _, dup := t.seen[key]; dup {
+				return "", errors.New("已经建议过完全相同的动作")
+			}
+			t.seen[key] = struct{}{}
+			t.proposals++
+
+			reason, _ := args["reason"].(string)
+			reason = strings.TrimSpace(reason)
+			if r := []rune(reason); len(r) > 300 {
+				reason = string(r[:300]) + "…"
+			}
+			s := ai.Suggestion{
+				ID: fmt.Sprintf("sug-%d", t.proposals), Kind: kind, Title: action.Title,
+				Params: norm, Node: t.scope.Node, Reason: reason,
+			}
+			if err := t.scope.Propose(s); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("已记录建议：%s @ %s\n（不会自动执行；需人工提交，并由另一位同事批准）",
+				action.Title, t.scope.Node), nil
+		},
+	}
+}
+
+// stringParams 把模型给的 JSON 对象转成动作参数。
+// 非字符串值一律拒绝：ops.Validate 只接受字符串，静默转换会让「1」和「"1"」看起来一样。
+func stringParams(v any) (map[string]string, error) {
+	out := map[string]string{}
+	if v == nil {
+		return out, nil
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, errors.New("params 必须是对象")
+	}
+	for k, raw := range m {
+		s, ok := raw.(string)
+		if !ok {
+			return nil, fmt.Errorf("参数 %s 必须是字符串", k)
+		}
+		out[k] = s
+	}
+	return out, nil
+}
+
+// suggestionKey 用于去重：参数顺序不影响结果。
+func suggestionKey(kind string, params map[string]string) string {
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(kind)
+	for _, k := range keys {
+		b.WriteString("|" + k + "=" + params[k])
+	}
+	return b.String()
 }
