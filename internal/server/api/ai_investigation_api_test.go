@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,5 +153,74 @@ func TestAIRetryInvestigationAlertQueryError(t *testing.T) {
 	newRoutesMux(a).ServeHTTP(rec, retryReq("ai:invoke", `{"alertId":"e1"}`))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d，want 503（body=%s）", rec.Code, rec.Body.String())
+	}
+}
+
+// 调查运行时必须把工具记录的建议写进调查记录，并把「建议不会自动执行」写进系统提示。
+func TestInvestigationRecordsSuggestions(t *testing.T) {
+	a, m := aiTestAPI(t)
+	store := ai.NewInvestigationStore(filepath.Join(t.TempDir(), "inv.json"), 10, time.Hour)
+	a.SetInvestigationStore(store)
+	a.alerts = &alertStoreStub{}
+
+	var systemPrompt, toolResult string
+	call := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		msgs, _ := body["messages"].([]any)
+		if len(msgs) > 0 {
+			if m0, ok := msgs[0].(map[string]any); ok && m0["role"] == "system" {
+				systemPrompt, _ = m0["content"].(string)
+			}
+			for _, raw := range msgs {
+				if mm, ok := raw.(map[string]any); ok && mm["role"] == "tool" {
+					toolResult, _ = mm["content"].(string)
+				}
+			}
+		}
+		call++
+		if call == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+				"message": map[string]any{
+					"role": "assistant",
+					"tool_calls": []any{map[string]any{
+						"id": "c1", "type": "function",
+						"function": map[string]any{"name": "propose_action",
+							"arguments": `{"kind":"svc.restart","params":{"unit":"nginx.service"},"reason":"单元 failed"}`},
+					}},
+				},
+			}}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "结论：建议重启 nginx"},
+		}}})
+	}))
+	defer srv.Close()
+	if err := m.Save(config.AIConfig{Enabled: true, BaseURL: srv.URL, Model: "m", ToolMode: "native"}); err != nil {
+		t.Fatal(err)
+	}
+
+	a.RunAutoInvestigation(context.Background(), ai.AlertRef{
+		ID: "e1", RuleID: "r1", RuleName: "CPU 高", Node: "web-01", Message: "CPU > 90%",
+	})
+
+	inv, ok := store.ByAlert("e1")
+	if !ok || inv.State != "done" {
+		t.Fatalf("调查未完成: %+v", inv)
+	}
+	if len(inv.Suggestions) != 1 {
+		t.Fatalf("应记录 1 条建议，实际 %+v", inv.Suggestions)
+	}
+	s := inv.Suggestions[0]
+	if s.Kind != "svc.restart" || s.Node != "web-01" || s.Params["unit"] != "nginx.service" {
+		t.Fatalf("建议内容不正确: %+v", s)
+	}
+	if !strings.Contains(systemPrompt, "propose_action") || !strings.Contains(systemPrompt, "不会自动执行") {
+		t.Fatalf("系统提示应说明建议能力与边界: %q", systemPrompt)
+	}
+	if !strings.Contains(toolResult, "不会自动执行") {
+		t.Fatalf("工具回执应告诉模型建议不会自动执行: %q", toolResult)
 	}
 }

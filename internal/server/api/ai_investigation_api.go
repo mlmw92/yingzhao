@@ -163,13 +163,26 @@ func (a *API) runInvestigation(ctx context.Context, id string, ref ai.AlertRef, 
 		}
 	}()
 
-	system := "你是运维平台的诊断助手。只根据工具返回的数据作答；不要猜测，也不要执行任何写操作。"
+	system := "你是运维平台的诊断助手。只根据工具返回的数据作答；不要猜测，也不要执行任何写操作。" +
+		"若结论指向一个可执行的处置动作，可调用 propose_action 记录建议。" +
+		"只有工具结果里有明确依据时才建议；最多 3 条；不要建议文件分发。" +
+		"建议不会自动执行，需人工提交并由另一位同事批准。"
 	user := fmt.Sprintf("告警：%s（规则 %s，节点 %s）。请先调用工具核实，再给出结论与建议。",
 		ref.Message, ref.RuleName, ref.Node)
-	toolbox := a.newToolbox(ai.ToolScope{Node: ref.Node, AllowSensitive: cfg.AllowSensitive})
+	// 建议先累积到本次运行的局部切片，随最终 Update 一并落库。
+	// 每次建议都调 aiInv.Update 会无条件写 EndedAt，让还在跑的调查显示成「已结束」。
+	var suggestions []ai.Suggestion
+	toolbox := a.newToolbox(ai.ToolScope{
+		Node: ref.Node, AllowSensitive: cfg.AllowSensitive,
+		Propose: func(s ai.Suggestion) error {
+			suggestions = append(suggestions, s)
+			return nil
+		},
+	})
 	out, err := ai.Run(ctx, cfg, system, user, toolbox, ai.Budget{})
 	a.aiInv.Update(id, func(it *ai.Investigation) {
 		it.Steps = out.Steps
+		it.Suggestions = suggestions
 		it.Tokens = out.Tokens
 		it.Rounds = out.Rounds
 		it.Stopped = out.Stopped
