@@ -18,6 +18,32 @@
       </div>
       <p v-if="inv.answer" class="inv-answer">{{ inv.answer }}</p>
       <p v-if="inv.error" class="inv-error">{{ inv.error }}</p>
+
+      <div v-if="(inv.suggestions || []).length" class="inv-suggestions">
+        <div class="sug-title">建议处置</div>
+        <p class="sug-hint">AI 只给建议，不会自动执行；提交后需另一位同事批准</p>
+        <div v-for="s in inv.suggestions" :key="s.id" class="sug-item">
+          <div class="sug-head">
+            <strong>{{ s.title }}</strong>
+            <span class="muted">@ {{ s.node }}</span>
+          </div>
+          <div v-if="s.reason" class="sug-reason">{{ s.reason }}</div>
+          <div class="sug-params">{{ paramsText(s) }}</div>
+          <div class="sug-actions">
+            <el-button
+              size="small"
+              type="primary"
+              :loading="submittingId === s.id"
+              :disabled="!!submitted[s.id]"
+              @click="submitSuggestion(s)"
+            >
+              {{ submitted[s.id] ? '已提交审批' : '提交审批' }}
+            </el-button>
+            <span v-if="submitted[s.id]" class="muted">审批单 {{ submitted[s.id] }}</span>
+          </div>
+        </div>
+      </div>
+
       <details v-if="(inv.steps || []).length">
         <summary>调查步骤</summary>
         <div v-for="(s, i) in inv.steps" :key="i" class="inv-step">
@@ -92,6 +118,27 @@ const elapsed = computed(() => {
 const canRetry = computed(() => !!inv.value && inv.value.state !== 'running')
 const retrying = ref(false)
 
+// 建议提交：id → 审批单号。提交成功后按钮变成「已提交审批」，避免重复提交。
+const submittingId = ref('')
+const submitted = ref({})
+
+function paramsText(s) {
+  return Object.entries(s.params || {}).map(([k, v]) => `${k} = ${v}`).join(' · ')
+}
+
+async function submitSuggestion(s) {
+  submittingId.value = s.id
+  try {
+    const res = await http.submitAISuggestion(inv.value.id, s.id)
+    submitted.value = { ...submitted.value, [s.id]: res.approval?.id || '已提交' }
+    ElMessage.success('已提交审批，需另一位同事批准')
+  } catch (e) {
+    ElMessage.error(e.message || '提交失败')
+  } finally {
+    submittingId.value = ''
+  }
+}
+
 // 调查在服务端是后台任务，结果不会主动推送：运行中只能轮询。
 // 上限 90 次 × 2 秒 = 3 分钟，覆盖单次调查 120 秒的时限。
 const POLL_INTERVAL = 2000
@@ -154,6 +201,14 @@ onUnmounted(stopPolling)
 .inv-state { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .inv-stop { color: var(--warning, #b26a00); font-size: var(--fs-sm); margin: 0 0 8px; }
 .inv-actions { margin: 0 0 10px; }
+.inv-suggestions { margin: 12px 0; padding: 12px; border: 1px solid var(--bd); border-radius: var(--r-md); background: var(--fill-1); }
+.sug-title { font-weight: 600; margin-bottom: 4px; }
+.sug-hint { font-size: var(--fs-sm); color: var(--t3); margin: 0 0 10px; }
+.sug-item { padding: 8px 0; border-top: 1px solid var(--bd); }
+.sug-head { display: flex; gap: 8px; align-items: baseline; }
+.sug-reason { font-size: var(--fs-sm); color: var(--t2); margin-top: 4px; }
+.sug-params { font-family: var(--mono); font-size: var(--fs-sm); color: var(--t3); margin-top: 4px; }
+.sug-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
 .inv-answer { white-space: pre-wrap; line-height: 1.6; }
 .inv-error { color: var(--danger); }
 .inv-step { margin: 8px 0; }

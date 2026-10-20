@@ -4,7 +4,9 @@ import ElementPlus from 'element-plus'
 import http from '../../api/http'
 import AIInvestigationPanel from './AIInvestigationPanel.vue'
 
-vi.mock('../../api/http', () => ({ default: { get: vi.fn(), retryAIInvestigation: vi.fn() } }))
+vi.mock('../../api/http', () => ({
+  default: { get: vi.fn(), retryAIInvestigation: vi.fn(), submitAISuggestion: vi.fn() },
+}))
 
 let wrappers = []
 
@@ -131,5 +133,53 @@ describe('AIInvestigationPanel', () => {
 
     await vi.advanceTimersByTimeAsync(6000)
     expect(http.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('展示处置建议，并明确 AI 不会自动执行', async () => {
+    http.get.mockResolvedValue({
+      investigation: {
+        id: 'inv-1', state: 'done', stopped: 'done', answer: '建议重启 nginx',
+        suggestions: [{
+          id: 'sug-1', kind: 'svc.restart', title: '重启服务',
+          params: { unit: 'nginx.service' }, node: 'web-01', reason: '单元处于 failed',
+        }],
+      },
+    })
+    const w = mountPanel()
+    await flushPromises()
+    const text = w.text()
+    expect(text).toContain('重启服务')
+    expect(text).toContain('nginx.service')
+    expect(text).toContain('单元处于 failed')
+    expect(text).toContain('AI 只给建议，不会自动执行')
+    expect(text).toContain('提交审批')
+  })
+
+  it('提交建议后显示审批单号', async () => {
+    http.get.mockResolvedValue({
+      investigation: {
+        id: 'inv-1', state: 'done', answer: '建议重启 nginx',
+        suggestions: [{ id: 'sug-1', kind: 'svc.restart', title: '重启服务', params: { unit: 'nginx.service' }, node: 'web-01' }],
+      },
+    })
+    http.submitAISuggestion.mockResolvedValue({ approval: { id: 'ap-9' } })
+    const w = mountPanel()
+    await flushPromises()
+
+    const btn = w.findAll('button').find((b) => b.text().includes('提交审批'))
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await flushPromises()
+
+    expect(http.submitAISuggestion).toHaveBeenCalledWith('inv-1', 'sug-1')
+    expect(w.text()).toContain('ap-9')
+    expect(w.text()).toContain('已提交审批')
+  })
+
+  it('没有建议时不显示建议区', async () => {
+    http.get.mockResolvedValue({ investigation: { id: 'inv-1', state: 'done', answer: '一切正常' } })
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.text()).not.toContain('建议处置')
   })
 })

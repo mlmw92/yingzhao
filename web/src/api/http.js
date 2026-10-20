@@ -195,6 +195,13 @@ const api = {
   // 重跑：服务端先落一条 running 记录再返回 202，模型调用在后台继续。
   retryAIInvestigation: (alertId) =>
     api.post('/api/v1/ai/investigations/retry', { alertId }),
+  // 把一条 AI 建议提交为审批单（服务端会重新校验动作、参数与节点状态）。
+  submitAISuggestion: (investigationId, suggestionId) =>
+    api.post(
+      '/api/v1/ai/investigations/' + encodeURIComponent(investigationId) +
+        '/suggestions/' + encodeURIComponent(suggestionId) + '/submit',
+      {},
+    ),
 }
 
 export default api
