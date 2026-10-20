@@ -92,6 +92,8 @@ import {
 } from '@element-plus/icons-vue'
 import http from '../api/http'
 import { useAuth } from '../composables/useAuth'
+import { useModules } from '../composables/useModules'
+import { pathModule, pageDomain } from '../modules/catalog'
 import EmptyState from './common/EmptyState.vue'
 
 /* =========================================================
@@ -217,6 +219,7 @@ const props = defineProps({
 })
 
 const router = useRouter()
+const modules = useModules()
 const auth = useAuth()
 
 const visible = ref(false)
@@ -237,6 +240,9 @@ const routeItems = computed(() => {
     // 需要路径参数的路由（如 node/:name）不能从面板直达
     if (c.path.includes(':')) continue
     if (c.meta && c.meta.perm && !auth.can(c.meta.perm)) continue
+    // 与侧栏同一份判定：关闭的模块不出现在搜索结果里
+    const moduleKey = pathModule['/' + c.path] || (c.meta && c.meta.module) || ''
+    if (moduleKey && !modules.isVisible(moduleKey, pageDomain[moduleKey] || '')) continue
     const path = '/' + c.path
     out.push({
       id: 'page:' + c.name,

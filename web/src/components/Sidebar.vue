@@ -38,7 +38,7 @@
             <!-- 免登录的独立页（对外状态页）：用新标签页打开，避免把管理台顶掉。
                  用原生 a + hash 链接：hash 路由下 " #/status " 就是它的地址，中间键/Ctrl+点击也照常工作。 -->
             <a
-              v-if="isItemVisible(sub) && sub.newTab"
+              v-if="sub.newTab"
               :href="'#' + sub.to"
               target="_blank"
               rel="noopener"
@@ -49,7 +49,7 @@
               <el-icon class="ext-icon" :size="12"><TopRight /></el-icon>
             </a>
             <router-link
-              v-else-if="isItemVisible(sub)"
+              v-else
               :to="sub.to"
               class="nav-subitem"
               :class="{ active: isActiveItem(sub) }"
@@ -103,30 +103,16 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Odometer,
-  Monitor,
-  Bell,
-  Message,
-  Connection,
-  Document,
-  Files,
-  Setting,
   ArrowDown,
   ArrowRight,
-  DataLine,
-  Histogram,
-  Grid,
-  Lock,
-  List,
-  Aim,
-  View,
   TopRight,
-  Tools,
-  Share,
   // 收起/展开按钮的图标：此前模板用了 Fold/Expand 但没导入，
   // 渲染时解析不到组件，按钮上是个空图标（只在控制台留一条 warn）。
   Fold,
   Expand,
 } from '@element-plus/icons-vue'
+import { moduleGroups as groups } from '../modules/catalog'
+import { useModules } from '../composables/useModules'
 import http from '../api/http'
 import { useBrand } from '../composables/useBrand'
 import { useAuth } from '../composables/useAuth'
@@ -143,6 +129,7 @@ const emit = defineEmits(['toggle', 'logout'])
 const route = useRoute()
 const { brand } = useBrand()
 const auth = useAuth()
+const modules = useModules()
 
 const serverVersion = ref(WEB_VERSION) // 初始用构建内嵌版本，加载后覆盖为 Server 实际运行版本
 
@@ -158,97 +145,22 @@ const roleText = computed(() => {
   return labels.length ? labels.join(' · ') : '用户'
 })
 
-// 分组菜单：一级分组 + 二级子菜单
-const groups = [
-  {
-    key: 'monitoring',
-    label: '观测监控',
-    icon: DataLine,
-    items: [
-      { key: 'hosts', to: '/hosts', label: '主机列表', icon: Monitor, perm: 'nodes:read' },
-      { key: 'middleware', to: '/middleware', label: '中间件监控', icon: Connection, perm: 'middleware:read' },
-      // 容器只读管理面：读权限是 container:read（与 middleware:read 分开，见路由注释）
-      { key: 'container', to: '/container', label: '容器与工作负载', icon: Grid, perm: 'container:read' },
-      { key: 'logs', to: '/logs', label: '集中日志', icon: List, perm: 'logs:read' },
-      { key: 'dialtest', to: '/dialtest', label: '服务拨测', icon: Aim, perm: 'probe:read' },
-      // 对外状态页入口：页面本身免登录、且在管理壳之外（/status 与 /screen 同级），
-      // 所以在管理台里点它应当新开标签页——否则看完外部视角就回不到原来的页面了。
-      { key: 'status', to: '/status', label: '对外状态页', icon: View, perm: 'probe:read', newTab: true },
-      { key: 'metrics-explore', to: '/metrics/explore', label: '指标浏览', icon: DataLine, perm: 'nodes:read' },
-      { key: 'dashboards', to: '/system/dashboards', label: '自定义仪表盘', icon: Grid, perm: 'dashboard:read' },
-    ],
-  },
-  {
-    key: 'assets',
-    label: '资产与配置',
-    icon: Files,
-    items: [
-      // 读权限即可进入；维护按钮另行按 assets:write 门控（该权限点为高风险，需二次确认）
-      { key: 'assets', to: '/assets', label: '资产台账', icon: Files, perm: 'assets:read' },
-      // 关系视图：只读（关系的维护仍在台账详情里），同样只需读权限
-      { key: 'assets-topology', to: '/assets/topology', label: '关系视图', icon: Share, perm: 'assets:read' },
-      // 配置项模型：看类型与字段（含哪些字段参与巡检比对）；改模型另有 assets:write（页面内门控）
-      { key: 'assets-model', to: '/assets/model', label: '配置项模型', icon: Grid, perm: 'assets:read' },
-      // 配置巡检：读看记录与差异；触发巡检另有 inspect:run（页面内门控）
-      { key: 'inspect', to: '/inspect', label: '配置巡检', icon: Aim, perm: 'inspect:read' },
-    ],
-  },
-  {
-    key: 'ops',
-    label: '运维操作',
-    icon: Tools,
-    items: [
-      // 下行操作：读看任务与动作目录需 ops:read；**下发**另有 ops:exec（高风险，页面内门控）。
-      // 能不能真的执行还取决于目标机器自己的 guards.ops——权限只是四道护栏之一。
-      { key: 'ops', to: '/ops', label: '节点操作', icon: Tools, perm: 'ops:read' },
-      // 审批中心：高风险动作的第二个人在这里点。看单子需 approval:read；
-      // 能不能批由服务端再判一次（approval:approve + 动作本身的权限点）。
-      { key: 'approvals', to: '/approvals', label: '审批中心', icon: Document, perm: 'approval:read' },
-    ],
-  },
-  {
-    key: 'alerting',
-    label: '告警运维',
-    icon: Bell,
-    items: [
-      { key: 'alerts', to: '/alerts', label: '告警中心', icon: Bell, perm: 'alerts:read' },
-      { key: 'intelligence', to: '/intelligence', label: '智能分析', icon: Histogram, perm: 'nodes:read' },
-      { key: 'notify', to: '/notify', label: '通知配置', icon: Message, perm: 'notify:read' },
-      { key: 'report', to: '/report', label: '巡检报告', icon: Document, perm: 'report:read' },
-    ],
-  },
-  {
-    key: 'security',
-    label: '安全治理',
-    icon: Lock,
-    items: [
-      { key: 'security', to: '/security', label: '安全中心', icon: Lock, perm: 'security:read' },
-      { key: 'audit', to: '/audit', label: '操作审计', icon: List, perm: 'audit:read' },
-    ],
-  },
-  {
-    key: 'system',
-    label: '系统设置',
-    icon: Setting,
-    items: [
-      { key: 'settings', to: '/system/settings', label: '站点与品牌' },
-      { key: 'profile', to: '/system/profile', label: '个人中心' },
-      { key: 'upgrade', to: '/system/upgrade', label: '系统升级', perm: 'system:upgrade' },
-      { key: 'users', to: '/system/users', label: '用户管理', perm: 'users:manage' },
-      { key: 'roles', to: '/system/roles', label: '角色与权限', perm: 'roles:read' },
-    ],
-  },
-]
-
-// 按当前用户权限过滤可见的菜单项（前端隐藏仅为体验，真正鉴权以服务端为准）。
+// 按当前用户权限与模块开关过滤可见的菜单项
+// （前端隐藏仅为体验，真正鉴权以服务端为准）。
 // principal 未加载（单管理员/未启用 RBAC）时 auth.can 恒为 true，不隐藏。
-function isItemVisible(sub) {
+function isItemVisible(group, sub) {
+  if (!modules.isVisible(sub.key, group.key)) return false
   if (!sub.perm) return true
   return auth.can(sub.perm)
 }
 
-// 仅含可见子项的菜单分组（无可见子项的分组标题不显示）
-const visibleGroups = computed(() => groups.filter((g) => g.items.some(isItemVisible)))
+// 仅含可见子项的菜单分组（无可见子项、或整域被关闭的分组不显示）
+const visibleGroups = computed(() =>
+  groups
+    .filter((g) => !modules.isDisabled(g.key))
+    .map((g) => ({ ...g, items: g.items.filter((sub) => isItemVisible(g, sub)) }))
+    .filter((g) => g.items.length > 0),
+)
 
 // 分组的显式展开/收起状态。
 // 默认**全部展开**——此前只展开当前路由所在分组，导致 22 个页面全靠逐层点开；
@@ -304,6 +216,7 @@ watch(
 
 onMounted(() => {
   loadVersion()
+  modules.load()
 })
 </script>
 

@@ -10,6 +10,7 @@ vi.mock('vue-router', () => ({ useRoute: () => routeState }))
 vi.mock('../api/http', () => ({ default: { get: vi.fn() } }))
 
 import Sidebar from './Sidebar.vue'
+import { useModules } from '../composables/useModules'
 
 const SlotStub = { template: '<span><slot /></span>' }
 
@@ -32,6 +33,28 @@ describe('侧栏菜单高亮', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     http.get.mockResolvedValue({ server: '1.30.63', buildTime: '' })
+  })
+
+  it('关闭的模块与其页面从侧栏消失', async () => {
+    http.get.mockImplementation((url) => {
+      if (url === '/api/v1/ui/settings') return Promise.resolve({ disabled: ['assets', 'logs'] })
+      return Promise.resolve({ server: '1.30.63', buildTime: '' })
+    })
+    await useModules().load(true)
+
+    routeState.path = '/hosts'
+    const w = mountSidebar()
+    await flushPromises()
+
+    const text = w.text()
+    expect(text).toContain('主机列表')
+    expect(text).not.toContain('资产台账')
+    expect(text).not.toContain('集中日志')
+    w.unmount()
+
+    // 复位模块单例，避免影响后面的高亮用例
+    http.get.mockResolvedValue({ server: '1.30.63', buildTime: '' })
+    await useModules().load(true)
   })
 
   it('在 /assets/topology 只高亮「关系视图」', async () => {

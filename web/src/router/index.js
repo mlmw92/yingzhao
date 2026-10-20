@@ -1,6 +1,9 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { getToken } from '../api/http'
 import { useAuth } from '../composables/useAuth'
+import { useModules } from '../composables/useModules'
+import { moduleKeyForRoute, pageDomain } from '../modules/catalog'
 
 const routes = [
   {
@@ -28,7 +31,7 @@ const routes = [
     children: [
       { path: '', name: 'overview', component: () => import('../components/OverviewView.vue') },
       { path: 'hosts', name: 'hosts', component: () => import('../components/HostsView.vue'), meta: { perm: 'nodes:read' } },
-      { path: 'node/:name', name: 'node', component: () => import('../components/NodeView.vue'), props: true, meta: { perm: 'nodes:read' } },
+      { path: 'node/:name', name: 'node', component: () => import('../components/NodeView.vue'), props: true, meta: { perm: 'nodes:read', module: 'hosts' } },
       { path: 'middleware', name: 'middleware', component: () => import('../components/MiddlewareView.vue'), meta: { perm: 'middleware:read' } },
       // 容器只读管理面（D3）：读需 container:read——刻意与 middleware:read 分开，
       // 它读的是集群内部对象（工作负载/Pod/事件/详情）而不只是指标曲线；
@@ -82,8 +85,16 @@ const router = createRouter({
 // 注意：前端隐藏仅为体验，真正鉴权以服务端为准；principal 未加载（单管理员/未启用 RBAC）
 // 时放行，避免误拦。
 const auth = useAuth()
-router.beforeEach((to) => {
+const modules = useModules()
+router.beforeEach(async (to) => {
   if (to.meta.public) return true
+  await modules.load()
+  const moduleKey = moduleKeyForRoute(to)
+  if (moduleKey && !modules.isVisible(moduleKey, pageDomain[moduleKey] || '')) {
+    // 深链/收藏夹也要拦住，否则用户会以为开关没生效
+    ElMessage.info('该模块已关闭，可在「系统设置 → 功能开关」中开启')
+    return { path: '/' }
+  }
   if (to.meta.perm) {
     // 已加载授权且明确无权限：拦截到首页
     if (auth.principal.loaded && !auth.can(to.meta.perm)) return { path: '/' }
