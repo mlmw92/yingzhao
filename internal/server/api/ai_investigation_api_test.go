@@ -17,6 +17,7 @@ import (
 	"github.com/nebula/monitor/internal/server/auth"
 	"github.com/nebula/monitor/internal/server/config"
 	"github.com/nebula/monitor/internal/server/node"
+	"github.com/nebula/monitor/internal/server/ops"
 )
 
 func TestAIInvestigationsByAlert(t *testing.T) {
@@ -230,7 +231,8 @@ func TestInvestigationRecordsSuggestions(t *testing.T) {
 
 // D2 的决定性判据：全局审批开关关闭时，AI 建议仍然只能进审批。
 func TestAISubmitSuggestionCreatesApprovalWhenDisabled(t *testing.T) {
-	a, _, st, cfg := approvalTestAPI(t)
+	a, svc, st, cfg := approvalTestAPI(t)
+	svc.Store().SaveCaps("web-01", []string{ops.KindSvcRestart})
 	c := cfg.Get()
 	c.Enabled = false
 	if err := cfg.Set(c); err != nil {
@@ -286,7 +288,8 @@ func TestAISubmitSuggestionCreatesApprovalWhenDisabled(t *testing.T) {
 // 幂等：同一调查的同一条建议只能有一张未结束的审批单。
 // 面板刷新后本地状态会丢，用户再点一次不能变成两张单子——批准两次就是执行两次。
 func TestAISubmitSuggestionIsIdempotent(t *testing.T) {
-	a, _, st, _ := approvalTestAPI(t)
+	a, svc, st, _ := approvalTestAPI(t)
+	svc.Store().SaveCaps("web-01", []string{ops.KindSvcRestart})
 	invStore := ai.NewInvestigationStore(filepath.Join(t.TempDir(), "inv.json"), 10, time.Hour)
 	a.SetInvestigationStore(invStore)
 	_ = invStore.Add(ai.Investigation{
@@ -360,6 +363,9 @@ func TestAISubmitSuggestionRejections(t *testing.T) {
 		base+"sug-ro/submit", http.StatusBadRequest)
 	check("文件分发", approvalPrincipal("ops1", true, "ai:invoke", "ops:exec"),
 		base+"sug-file/submit", http.StatusBadRequest)
+	// 节点没放行写操作：与人工路径一致，提交时就拒绝，不把注定失败的动作推给审批人。
+	check("节点未放行", approvalPrincipal("ops1", true, "ai:invoke", "ops:exec"),
+		base+"sug-1/submit", http.StatusConflict)
 	// 范围：db-01 属于 g2，ops1 只被授予 g1
 	check("范围外节点", approvalPrincipal("ops1", false, "ai:invoke", "ops:exec"),
 		base+"sug-out/submit", http.StatusNotFound)

@@ -273,6 +273,12 @@ func (a *API) handleAISubmitSuggestion(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// 能力协商：与人工提交同一条判定。节点没放行的动作在提交时就拒绝，
+	// 不把注定失败的单子推给审批人。
+	if err := a.ops.CheckSupport(sug.Node, action); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
 
 	// 幂等：同一调查的同一条建议只能有一张未结束的审批单。
 	// 面板刷新后本地「已提交」状态会丢，用户再点一次不能变成两张单子——

@@ -99,6 +99,14 @@ func (s *Service) Create(node, kind string, params map[string]string, actor, ip,
 	return t, nil
 }
 
+// CheckSupport 判断目标节点是否声明支持该动作。
+//
+// 与 Create 内部是同一条判定；单独导出是为了让「先登记审批、后执行」的入口
+// （AI 建议提交）能在提交时提前拦下注定失败的动作——审批人批的应当是可执行的单子。
+func (s *Service) CheckSupport(node string, action Action) error {
+	return s.checkSupport(node, action)
+}
+
 // checkSupport 判断目标节点是否确实能执行该动作（第二道护栏：能力协商）。
 //
 // 这里刻意对「不能执行」的两种情况给出**不同的、可操作的**错误：

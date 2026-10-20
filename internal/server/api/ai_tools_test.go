@@ -181,3 +181,33 @@ func TestProposeActionAbsentWithoutCallback(t *testing.T) {
 		}
 	}
 }
+
+// 建议阶段就做能力协商：目标机器没放行的动作不要提，
+// 否则模型会记录一条注定执行失败的建议，白占一次人审。
+func TestProposeActionRejectsUnsupportedNode(t *testing.T) {
+	a, svc := opsTestAPI(t)
+	var got []ai.Suggestion
+	tb := a.newToolbox(ai.ToolScope{Node: "web-01", Propose: func(s ai.Suggestion) error {
+		got = append(got, s)
+		return nil
+	}})
+	tool := toolByName(t, tb, "propose_action")
+	args := map[string]any{
+		"kind": ops.KindSvcRestart, "params": map[string]any{"unit": "nginx.service"},
+	}
+
+	if _, err := tool.Handler(context.Background(), args); err == nil {
+		t.Fatal("节点未放行 svc.restart 时应拒绝建议")
+	}
+	if len(got) != 0 {
+		t.Fatalf("被拒绝的建议不得记录: %+v", got)
+	}
+
+	svc.Store().SaveCaps("web-01", []string{ops.KindSvcRestart})
+	if _, err := tool.Handler(context.Background(), args); err != nil {
+		t.Fatalf("节点放行后应接受建议: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("应记录 1 条建议，实际 %d", len(got))
+	}
+}

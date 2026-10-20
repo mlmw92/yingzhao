@@ -330,6 +330,13 @@ func (t *apiToolbox) proposeAction() ai.Tool {
 			if err != nil {
 				return "", err
 			}
+			// 能力协商前移到建议阶段：目标机器没放行的动作不要提，
+			// 否则会记录一条注定执行失败的建议，白占一次人审。
+			if t.a.ops != nil {
+				if err := t.a.ops.CheckSupport(t.scope.Node, action); err != nil {
+					return "", err
+				}
+			}
 			if t.proposals >= maxAISuggestions {
 				return "", fmt.Errorf("每条调查最多 %d 条建议", maxAISuggestions)
 			}
