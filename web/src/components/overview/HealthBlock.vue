@@ -15,18 +15,25 @@
       </div>
     </div>
 
-    <!-- 四个构成项：把"扣分来自哪里"直接摆出来，比只给一个分数有用 -->
-    <div class="hb-facts">
-      <StatusPill v-for="f in facts" :key="f.key" :tone="f.tone" dot>
-        {{ f.label }} {{ f.value }}
-      </StatusPill>
+    <!-- 四个构成项：按行列出各自扣了多少分。
+         与「紧急告警」同处一行时这张卡会被拉高；明细行用 space-evenly 铺开，
+         既填满高度，也解释「分数为什么是 0」。 -->
+    <div class="hb-breakdown">
+      <div v-for="f in facts" :key="f.key" class="hb-row" :data-key="f.key">
+        <i class="hb-dot" :class="'dot-' + f.tone"></i>
+        <span class="hb-label">{{ f.label }}</span>
+        <span class="hb-value" :title="f.value">{{ f.value }}</span>
+        <span class="hb-deduct" :class="f.deduct > 0 ? 'c-' + f.tone : 'c-muted'">
+          {{ f.deduct > 0 ? '−' + f.deduct : '0' }}
+        </span>
+      </div>
     </div>
+    <p class="hb-formula">健康度 = 100 − 四项扣分（最低 0）</p>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import StatusPill from '../common/StatusPill.vue'
 
 const props = defineProps({
   health: { type: Object, required: true },
@@ -55,30 +62,41 @@ const facts = computed(() => {
   const crit = h.criticalAlerts || 0
   const warn = h.warningAlerts || 0
 
+  // 扣分口径与 healthScore.js 一致：
+  //   可用性扣 60×离线率；性能/容量按超阈值幅度×权重；安全按 critical×5 + warning×2。
+  // 这里单独算一份是为了把「分数从哪来」显示出来，不改变总分口径。
+  const deductOf = (p) => (p && p.count ? Math.round(((p.avgOver || 0) / 100) * (p.weight || 0)) : 0)
+  const availDeduct = total ? Math.round((offline / total) * 60) : 0
+  const secDeduct = Math.min(100, crit * 5 + warn * 2)
+
   return [
     {
       key: 'avail',
       label: '可用性',
       value: total ? avail.toFixed(1) + '%' : '—',
       tone: !total ? 'muted' : offline === 0 ? 'ok' : offline / total >= 0.3 ? 'danger' : 'warn',
+      deduct: availDeduct,
     },
     {
       key: 'perf',
       label: '性能',
       value: `CPU ${pct(cpu)} · 内存 ${pct(mem)}`,
       tone: worse(toneOf(cpu), toneOf(mem)),
+      deduct: deductOf(cpu) + deductOf(mem),
     },
     {
       key: 'capacity',
       label: '容量',
       value: `磁盘 ${pct(disk)}`,
       tone: toneOf(disk),
+      deduct: deductOf(disk),
     },
     {
       key: 'security',
       label: '安全',
       value: crit > 0 ? `${crit} 条紧急` : warn > 0 ? `${warn} 条警告` : '无告警',
       tone: crit > 0 ? 'danger' : warn > 0 ? 'warn' : 'ok',
+      deduct: secDeduct,
     },
   ]
 })
@@ -101,7 +119,7 @@ function rank(score) {
 .health-block {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: space-between;
   gap: 14px;
   height: 100%;
   min-height: 120px;
@@ -185,9 +203,75 @@ function rank(score) {
 .hb-sub .off {
   color: var(--danger);
 }
-.hb-facts {
+.hb-breakdown {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  justify-content: space-evenly;
+}
+.hb-row {
+  display: grid;
+  grid-template-columns: 8px 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--bd);
+}
+.hb-row:first-child {
+  border-top: none;
+}
+.hb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--t3);
+}
+.dot-ok {
+  background: var(--ok);
+}
+.dot-warn {
+  background: var(--warn);
+}
+.dot-danger {
+  background: var(--danger);
+}
+.dot-muted {
+  background: var(--t3);
+}
+.hb-label {
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.hb-value {
+  font-size: var(--fs-sm);
+  color: var(--t1);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hb-deduct {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.c-ok {
+  color: var(--ok);
+}
+.c-warn {
+  color: var(--warn);
+}
+.c-danger {
+  color: var(--danger);
+}
+.c-muted {
+  color: var(--t3);
+}
+.hb-formula {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--t3);
 }
 </style>
