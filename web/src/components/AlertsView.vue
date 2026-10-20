@@ -529,6 +529,8 @@
         <div class="ev-field"><span>详情</span><span>{{ detail.message }}</span></div>
         <div class="ev-field"><span>开始</span><span>{{ fmt(detail.startsAt) }}</span></div>
         <div class="ev-field"><span>恢复</span><span>{{ detail.state === 'resolved' ? fmt(detail.endsAt) : '—' }}</span></div>
+        <div class="ev-chart-title">AI 调查</div>
+        <AIInvestigationPanel v-if="detail.id" :alert-id="detail.id" />
         <template v-if="detail.metric">
           <div class="ev-chart-title">触发指标近 1 小时趋势</div>
           <TrendChart
@@ -669,6 +671,7 @@ import RuleModal from './RuleModal.vue'
 import TopologyGraph from './asset/TopologyGraph.vue'
 import AiDiagnosePanel from './ai/AiDiagnosePanel.vue'
 import TrendChart from './mw/TrendChart.vue'
+import AIInvestigationPanel from './alert/AIInvestigationPanel.vue'
 import useAuth from '../composables/useAuth'
 import { filterAlerts } from './alertFilter'
 import { printPage } from '../utils/print'

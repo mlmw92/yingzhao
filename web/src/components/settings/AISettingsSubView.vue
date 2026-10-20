@@ -90,6 +90,26 @@
       </el-form>
     </div>
 
+    <!-- 工具与自动调查（阶段 2）：自动调查会持续产生数据出境，与常规开关分开呈现 -->
+    <div class="section-block">
+      <el-form label-position="top">
+        <el-form-item label="工具调用协议">
+          <el-select v-model="form.toolMode" style="width: 280px">
+            <el-option value="auto" label="自动（先原生，失败回退 JSON）" />
+            <el-option value="native" label="原生 function calling" />
+            <el-option value="json" label="JSON 协议" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="告警自动调查">
+          <el-switch v-model="form.autoInvestigate" />
+          <div class="field-hint">
+            仅 <b>critical</b> 告警触发；同一规则 + 节点 30 分钟调查一次；全局并发 2。
+            调查只读取告警所属节点，且不发送日志正文。
+          </div>
+        </el-form-item>
+      </el-form>
+    </div>
+
     <!-- 敏感开关：开启后诊断可携带资产属性值（可能含连接串、口令），与常规开关视觉隔离 -->
     <div class="danger-zone">
       <el-form label-position="top">
@@ -124,6 +144,8 @@ const form = ref({
   temperature: 0.2,
   allowSensitive: false,
   includeLogs: false,
+  toolMode: 'auto',
+  autoInvestigate: false,
 })
 const hasApiKey = ref(false)
 const loading = ref(false)
@@ -143,7 +165,9 @@ const dirty = computed(() => {
     form.value.timeoutSeconds !== b.timeoutSeconds ||
     form.value.maxTokens !== b.maxTokens ||
     form.value.temperature !== b.temperature ||
-    form.value.allowSensitive !== b.allowSensitive
+    form.value.allowSensitive !== b.allowSensitive ||
+    form.value.toolMode !== b.toolMode ||
+    form.value.autoInvestigate !== b.autoInvestigate
   )
 })
 
