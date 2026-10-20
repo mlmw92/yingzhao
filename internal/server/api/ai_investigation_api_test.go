@@ -13,7 +13,10 @@ import (
 
 	"github.com/nebula/monitor/internal/model"
 	"github.com/nebula/monitor/internal/server/ai"
+	"github.com/nebula/monitor/internal/server/approval"
+	"github.com/nebula/monitor/internal/server/auth"
 	"github.com/nebula/monitor/internal/server/config"
+	"github.com/nebula/monitor/internal/server/node"
 )
 
 func TestAIInvestigationsByAlert(t *testing.T) {
@@ -222,5 +225,124 @@ func TestInvestigationRecordsSuggestions(t *testing.T) {
 	}
 	if !strings.Contains(toolResult, "不会自动执行") {
 		t.Fatalf("工具回执应告诉模型建议不会自动执行: %q", toolResult)
+	}
+}
+
+// D2 的决定性判据：全局审批开关关闭时，AI 建议仍然只能进审批。
+func TestAISubmitSuggestionCreatesApprovalWhenDisabled(t *testing.T) {
+	a, _, st, cfg := approvalTestAPI(t)
+	c := cfg.Get()
+	c.Enabled = false
+	if err := cfg.Set(c); err != nil {
+		t.Fatal(err)
+	}
+	invStore := ai.NewInvestigationStore(filepath.Join(t.TempDir(), "inv.json"), 10, time.Hour)
+	a.SetInvestigationStore(invStore)
+	_ = invStore.Add(ai.Investigation{
+		ID: "inv-1", AlertID: "e1", Node: "web-01", State: "done",
+		Suggestions: []ai.Suggestion{{
+			ID: "sug-1", Kind: "svc.restart", Title: "重启服务",
+			Params: map[string]string{"unit": "nginx.service"}, Node: "web-01",
+		}},
+	})
+
+	p := approvalPrincipal("ops1", true, "ai:invoke", "ops:exec")
+	rec := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(rec, approvalReq(p, http.MethodPost,
+		"/api/v1/ai/investigations/inv-1/suggestions/sug-1/submit", ""))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("code = %d（body=%s）", rec.Code, rec.Body.String())
+	}
+
+	body := decodeBody(t, rec)
+	ap, _ := body["approval"].(map[string]any)
+	id, _ := ap["id"].(string)
+	if id == "" {
+		t.Fatalf("响应缺少审批单号: %v", body)
+	}
+	req, ok := st.Get(id)
+	if !ok {
+		t.Fatalf("审批单 %s 未落库", id)
+	}
+	if req.Kind != approval.EntryOpsWrite || req.OpsKind != "svc.restart" {
+		t.Fatalf("审批单动作不正确: %+v", req)
+	}
+	if req.Node != "web-01" || req.Params["unit"] != "nginx.service" {
+		t.Fatalf("审批单目标或参数不正确: %+v", req)
+	}
+	if req.Extra["source"] != "ai" || req.Extra["investigationId"] != "inv-1" || req.Extra["suggestionId"] != "sug-1" {
+		t.Fatalf("审批单缺少来源标记: %+v", req.Extra)
+	}
+	if req.Requester != "ops1" {
+		t.Fatalf("申请人应为当前用户，实际 %q", req.Requester)
+	}
+}
+
+func TestAISubmitSuggestionRejections(t *testing.T) {
+	a, _, _, _ := approvalTestAPI(t)
+	invStore := ai.NewInvestigationStore(filepath.Join(t.TempDir(), "inv.json"), 10, time.Hour)
+	a.SetInvestigationStore(invStore)
+	_ = invStore.Add(ai.Investigation{
+		ID: "inv-1", AlertID: "e1", Node: "web-01", State: "done",
+		Suggestions: []ai.Suggestion{
+			{ID: "sug-1", Kind: "svc.restart", Params: map[string]string{"unit": "nginx.service"}, Node: "web-01"},
+			{ID: "sug-out", Kind: "svc.restart", Params: map[string]string{"unit": "nginx.service"}, Node: "db-01"},
+			{ID: "sug-bad", Kind: "svc.restart", Params: map[string]string{"unit": "nginx"}, Node: "web-01"},
+			{ID: "sug-ro", Kind: "node.diagnostics", Node: "web-01"},
+			{ID: "sug-file", Kind: "file.push", Params: map[string]string{"path": "/tmp/x", "fileId": "obf-1"}, Node: "web-01"},
+		},
+	})
+
+	check := func(name string, p *auth.Principal, target string, want int) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		newRoutesMux(a).ServeHTTP(rec, approvalReq(p, http.MethodPost, target, ""))
+		if rec.Code != want {
+			t.Fatalf("%s：code = %d，want %d（body=%s）", name, rec.Code, want, rec.Body.String())
+		}
+	}
+	base := "/api/v1/ai/investigations/inv-1/suggestions/"
+
+	check("无 ai:invoke", approvalPrincipal("ops1", true, "ops:exec"), base+"sug-1/submit", http.StatusForbidden)
+	check("无 ops:exec", approvalPrincipal("ops1", true, "ai:invoke"), base+"sug-1/submit", http.StatusForbidden)
+	check("调查不存在", approvalPrincipal("ops1", true, "ai:invoke", "ops:exec"),
+		"/api/v1/ai/investigations/nope/suggestions/sug-1/submit", http.StatusNotFound)
+	check("建议不存在", approvalPrincipal("ops1", true, "ai:invoke", "ops:exec"),
+		base+"nope/submit", http.StatusNotFound)
+	check("参数失效", approvalPrincipal("ops1", true, "ai:invoke", "ops:exec"),
+		base+"sug-bad/submit", http.StatusBadRequest)
+	check("只读动作", approvalPrincipal("ops1", true, "ai:invoke", "ops:exec"),
+		base+"sug-ro/submit", http.StatusBadRequest)
+	check("文件分发", approvalPrincipal("ops1", true, "ai:invoke", "ops:exec"),
+		base+"sug-file/submit", http.StatusBadRequest)
+	// 范围：db-01 属于 g2，ops1 只被授予 g1
+	check("范围外节点", approvalPrincipal("ops1", false, "ai:invoke", "ops:exec"),
+		base+"sug-out/submit", http.StatusNotFound)
+}
+
+// 提交前节点离线：必须 409，不能把注定过期的动作推给审批人。
+func TestAISubmitSuggestionOfflineNode(t *testing.T) {
+	a, _, _, _ := approvalTestAPI(t)
+	mgr := node.New(filepath.Join(t.TempDir(), "nodes.json"), time.Millisecond)
+	mgr.Register(&model.ReportPayload{Node: "web-01", Group: "g1", Mode: model.ModeCollect})
+	time.Sleep(5 * time.Millisecond)
+	mgr.OfflineStale()
+	a.nodeMgr = mgr
+
+	invStore := ai.NewInvestigationStore(filepath.Join(t.TempDir(), "inv.json"), 10, time.Hour)
+	a.SetInvestigationStore(invStore)
+	_ = invStore.Add(ai.Investigation{
+		ID: "inv-1", AlertID: "e1", Node: "web-01", State: "done",
+		Suggestions: []ai.Suggestion{{
+			ID: "sug-1", Kind: "svc.restart", Params: map[string]string{"unit": "nginx.service"}, Node: "web-01",
+		}},
+	})
+
+	rec := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(rec, approvalReq(
+		approvalPrincipal("ops1", true, "ai:invoke", "ops:exec"),
+		http.MethodPost, "/api/v1/ai/investigations/inv-1/suggestions/sug-1/submit", ""))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code = %d，want 409（body=%s）", rec.Code, rec.Body.String())
 	}
 }

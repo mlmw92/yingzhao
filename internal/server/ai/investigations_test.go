@@ -69,3 +69,16 @@ func TestInvestigationStorePersistsSuggestions(t *testing.T) {
 		t.Fatalf("建议未落盘: %+v", inv)
 	}
 }
+
+func TestInvestigationStoreByID(t *testing.T) {
+	s := NewInvestigationStore(filepath.Join(t.TempDir(), "inv.json"), 10, time.Hour)
+	_ = s.Add(Investigation{ID: "inv-1", AlertID: "e1", State: "done"})
+	_ = s.Add(Investigation{ID: "inv-2", AlertID: "e2", State: "done"})
+
+	if inv, ok := s.ByID("inv-2"); !ok || inv.AlertID != "e2" {
+		t.Fatalf("ByID = %+v, %v", inv, ok)
+	}
+	if _, ok := s.ByID("nope"); ok {
+		t.Fatal("不存在的 ID 应返回 false")
+	}
+}

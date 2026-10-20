@@ -494,6 +494,9 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/ai/investigations", a.permit(a.handleAIInvestigations, "ai:read"))
 	// 重跑会再次把运维数据发往外部端点，与发起诊断同一权限点（ai:invoke），而不是 ai:read。
 	mux.HandleFunc("POST /api/v1/ai/investigations/retry", a.permit(a.handleAIRetryInvestigation, "ai:invoke"))
+	// 提交 AI 建议会生成审批单（动作仍需他人批准后才执行）。
+	mux.HandleFunc("POST /api/v1/ai/investigations/{id}/suggestions/{sid}/submit",
+		a.permit(a.handleAISubmitSuggestion, "ai:invoke"))
 
 	// 大屏与品牌配置：system:config（GET /ui/settings 为公开匿名只读，见 AuthMiddleware）
 	mux.HandleFunc("GET /api/v1/screen/config", a.permit(a.handleScreenGet, "system:config"))

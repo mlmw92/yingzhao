@@ -133,6 +133,18 @@ func (s *InvestigationStore) ByAlert(alertID string) (Investigation, bool) {
 	return Investigation{}, false
 }
 
+// ByID 按调查 ID 查找。提交建议时需要它：告警 ID 与调查 ID 不是一回事。
+func (s *InvestigationStore) ByID(id string) (Investigation, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.items) - 1; i >= 0; i-- {
+		if s.items[i].ID == id {
+			return s.items[i], true
+		}
+	}
+	return Investigation{}, false
+}
+
 func (s *InvestigationStore) List(limit int) []Investigation {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -10,7 +10,9 @@ import (
 
 	"github.com/nebula/monitor/internal/model"
 	"github.com/nebula/monitor/internal/server/ai"
+	"github.com/nebula/monitor/internal/server/approval"
 	"github.com/nebula/monitor/internal/server/audit"
+	"github.com/nebula/monitor/internal/server/ops"
 )
 
 // SetInvestigationStore 注入 AI 调查结果存储（未注入时查询返回空）。
@@ -209,5 +211,81 @@ func (a *API) recordInvestigation(action, actor, detail string) {
 		User: actor, Method: "SYSTEM", Path: "/api/v1/ai/investigations",
 		Status: 200, Succeeded: true,
 		Category: "ai", Action: action, Detail: detail,
+	})
+}
+
+// POST /api/v1/ai/investigations/{id}/suggestions/{sid}/submit
+//
+// 把一条 AI 建议转成审批单。**永远**创建审批单，不看 approval.Config.Enabled：
+// 那个开关回答的是「人提交的动作要不要复核」，而模型产出的动作没有免复核的选项。
+func (a *API) handleAISubmitSuggestion(w http.ResponseWriter, r *http.Request) {
+	if a.aiInv == nil || a.approval == nil || a.ops == nil || a.nodeMgr == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "AI 建议或审批通道未启用"})
+		return
+	}
+	// 先判权限再看资源：没有执行权限的人不该通过错误码差异探测建议是否存在。
+	if !a.checkPerm(w, r, "ops:exec") {
+		return
+	}
+
+	inv, ok := a.aiInv.ByID(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "调查不存在"})
+		return
+	}
+	var sug *ai.Suggestion
+	for i := range inv.Suggestions {
+		if inv.Suggestions[i].ID == r.PathValue("sid") {
+			sug = &inv.Suggestions[i]
+			break
+		}
+	}
+	if sug == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "建议不存在"})
+		return
+	}
+	if !a.nodeInScope(Principal(r), sug.Node) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "节点不存在"})
+		return
+	}
+
+	// 不信任落库值：动作可能已下架，参数规则也可能已收紧。
+	action, params, err := ops.Validate(sug.Kind, sug.Params)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "建议已失效：" + err.Error()})
+		return
+	}
+	if action.ReadOnly || sug.Kind == ops.KindFilePush {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "该动作不支持从建议提交"})
+		return
+	}
+	if action.Perm != "" && !a.checkPerm(w, r, action.Perm) {
+		return
+	}
+	nd, ok := a.nodeMgr.GetNode(sug.Node)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "节点不存在"})
+		return
+	}
+	if nd.Status != "online" {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": fmt.Sprintf("节点 %s 当前不在线（状态 %s），无法提交", sug.Node, nd.Status),
+		})
+		return
+	}
+
+	saved := a.submitApproval(r, &approval.Request{
+		Kind: approval.EntryOpsWrite, OpsKind: sug.Kind, Node: sug.Node, Params: params,
+		Title: fmt.Sprintf("AI 建议：%s（写操作） @ %s", action.Title, sug.Node),
+		Extra: map[string]string{
+			"source": "ai", "investigationId": inv.ID, "suggestionId": sug.ID,
+		},
+	})
+	a.recordAI(r, "ai:suggestion:submit", fmt.Sprintf(
+		"调查 %s 建议 %s：%s @ %s → 审批单 %s", inv.ID, sug.ID, action.Title, sug.Node, saved.ID))
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"pending":  true,
+		"approval": a.approvalView(r, saved),
+		"message":  "已提交审批：需另一位同事批准后才会执行",
 	})
 }
