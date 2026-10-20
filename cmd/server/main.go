@@ -420,6 +420,14 @@ func main() {
 	rest.SetDashboardManager(dashMgr)
 	// AI 配置管理器（可选能力；未注入时 AI 接口明确报"未初始化"，不静默）。
 	rest.SetAIManager(aiMgr)
+	// AI 调查结果独立存储 + 自动调查器（仅 critical 告警触发；默认关闭，
+	// 见 ai.yaml 的 autoInvestigate）
+	aiInvStore := ai.NewInvestigationStore(filepath.Join(cfg.DataDir, "ai_investigations.json"), 500, 30*24*time.Hour)
+	rest.SetInvestigationStore(aiInvStore)
+	if aiMgr != nil {
+		investigator := ai.NewInvestigator(aiMgr.Get, rest.CriticalAlertsForAI(), aiInvStore, rest.RunAutoInvestigation)
+		go investigator.Run(runCtx)
+	}
 	// K8s 实时清单代理（ADR-0004，可选能力；未配置凭据文件时实时接口返回 501）。
 	rest.SetK8sLive(k8sLiveMgr)
 	// 下行操作通道：与 receiver 共用同一个 service 实例（见上面 opsSvc 的说明）
