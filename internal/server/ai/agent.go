@@ -45,7 +45,9 @@ func normalizeBudget(b Budget) Budget {
 		b.MaxTokens = 8000
 	}
 	if b.Timeout <= 0 {
-		b.Timeout = 30 * time.Second
+		// 一次调查要跑多轮「模型→工具→模型」，真实模型单轮就要数秒：
+		// 默认值必须大于客户端单次超时，否则第一轮还没回就整体超时。
+		b.Timeout = 120 * time.Second
 	}
 	return b
 }
@@ -116,9 +118,9 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 	callModel := func(native bool) (*Result, error) {
 		if !native {
 			msgs[0] = Message{Role: "system", Content: jsonToolPrompt(tools, system)}
-			return client.Chat(cfg, msgs)
+			return client.ChatCtx(ctx, cfg, msgs)
 		}
-		return client.ChatWithTools(cfg, msgs, toolSpecs(tools))
+		return client.ChatWithToolsCtx(ctx, cfg, msgs, toolSpecs(tools))
 	}
 
 	// finalize 在工具预算用尽时再要一次结论（不带工具）。
@@ -129,7 +131,7 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 		}
 		finalMsgs := append(append([]Message{}, msgs...),
 			Message{Role: "user", Content: "工具调用次数已达上限。请基于以上工具结果直接给出结论，不要再请求调用工具。"})
-		res, err := client.Chat(cfg, finalMsgs)
+		res, err := client.ChatCtx(ctx, cfg, finalMsgs)
 		if err != nil {
 			return ""
 		}
@@ -141,10 +143,17 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 	for round := 0; round < budget.MaxRounds; round++ {
 		if ctx.Err() != nil {
 			out.Stopped = "timeout"
+			out.Answer = incompleteAnswer("超时", len(out.Steps), lastContent)
 			break
 		}
 		res, err := callModel(native)
 		if err != nil {
+			if ctx.Err() != nil {
+				// 超时中断的是在途请求：返回未完成结论，而不是把它当配置/网络错误
+				out.Stopped = "timeout"
+				out.Answer = incompleteAnswer("超时", len(out.Steps), lastContent)
+				return out, nil
+			}
 			if native && mode == "auto" && round == 0 && looksLikeToolUnsupported(err) {
 				native = false
 				out.Protocol = "json"

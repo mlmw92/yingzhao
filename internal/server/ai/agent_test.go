@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nebula/monitor/internal/server/config"
 )
@@ -231,6 +232,31 @@ func TestRunFinalizesWhenToolBudgetExhausted(t *testing.T) {
 	}
 	if out.Answer != "最终结论：正常" {
 		t.Fatalf("预算用尽后应再要一次结论，实际 %q", out.Answer)
+	}
+}
+
+// 超时必须中断在途模型调用，并给出可读的未完成说明；
+// 不能因为 HTTP 请求没绑 ctx 而拖到客户端超时。
+func TestRunTimeoutProducesIncompleteAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "late"},
+		}}})
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := config.AIConfig{Enabled: true, BaseURL: srv.URL, Model: "m", ToolMode: "json"}
+	start := time.Now()
+	out, err := Run(context.Background(), cfg, "sys", "user", testToolbox(), Budget{Timeout: 50 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("超时应返回未完成结论而不是错误: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+		t.Fatalf("超时未中断在途请求，耗时 %v", elapsed)
+	}
+	if out.Stopped != "timeout" || !strings.Contains(out.Answer, "未完成") {
+		t.Fatalf("超时应给出未完成说明: %+v", out)
 	}
 }
 

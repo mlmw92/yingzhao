@@ -132,7 +132,7 @@ type Budget struct {
     MaxRounds    int // 4
     MaxToolCalls int // 8
     MaxTokens    int // 8000（累计 usage）
-    Timeout      time.Duration // 30s
+    Timeout      time.Duration // 120s（多轮模型调用；需大于单次客户端超时）
 }
 
 type Outcome struct {

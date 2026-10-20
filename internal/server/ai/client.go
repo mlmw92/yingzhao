@@ -2,6 +2,7 @@ package ai
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,12 +109,26 @@ type chatResponse struct {
 //   - **传输问题**：连不上、超时、TLS → 错误里带**脱敏后的**端点（密钥不进日志）；
 //   - **服务端问题**：HTTP ≥300 或响应体里带 error → 带上状态码与端点给的消息。
 func (c *Client) Chat(cfg config.AIConfig, messages []Message) (*Result, error) {
-	return c.ChatWithTools(cfg, messages, nil)
+	return c.chat(context.Background(), cfg, messages, nil)
+}
+
+// ChatCtx 与 Chat 相同，但请求绑定调用方的 ctx（超时可中断在途请求）。
+func (c *Client) ChatCtx(ctx context.Context, cfg config.AIConfig, messages []Message) (*Result, error) {
+	return c.chat(ctx, cfg, messages, nil)
 }
 
 // ChatWithTools 发起一次可能带工具声明的对话补全。
 // tools 为空时与 Chat 等价。
 func (c *Client) ChatWithTools(cfg config.AIConfig, messages []Message, tools []ToolSpec) (*Result, error) {
+	return c.chat(context.Background(), cfg, messages, tools)
+}
+
+// ChatWithToolsCtx 同 ChatWithTools，但请求绑定 ctx。
+func (c *Client) ChatWithToolsCtx(ctx context.Context, cfg config.AIConfig, messages []Message, tools []ToolSpec) (*Result, error) {
+	return c.chat(ctx, cfg, messages, tools)
+}
+
+func (c *Client) chat(ctx context.Context, cfg config.AIConfig, messages []Message, tools []ToolSpec) (*Result, error) {
 	cfg = cfg.Normalize()
 	if !cfg.Ready() {
 		return nil, errors.New("AI 未配置或未启用（需要启用、端点与模型）")
@@ -130,7 +145,7 @@ func (c *Client) ChatWithTools(cfg config.AIConfig, messages []Message, tools []
 	}
 
 	endpoint := strings.TrimRight(cfg.BaseURL, "/") + "/chat/completions"
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("构造请求失败: %w", err)
 	}
