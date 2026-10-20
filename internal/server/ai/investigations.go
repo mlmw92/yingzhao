@@ -48,6 +48,20 @@ func (s *InvestigationStore) load() {
 		return
 	}
 	_ = json.Unmarshal(data, &s.items)
+	// 进程在调查中途重启：running 记录不能永远停在「调查中」
+	changed := false
+	for i := range s.items {
+		if s.items[i].State == "running" {
+			s.items[i].State = "failed"
+			s.items[i].Error = "服务重启，调查中断"
+			changed = true
+		}
+	}
+	if changed {
+		s.mu.Lock()
+		s.persistLocked()
+		s.mu.Unlock()
+	}
 }
 
 func (s *InvestigationStore) persistLocked() {

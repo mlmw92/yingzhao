@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -21,6 +22,22 @@ func TestInvestigationStoreByAlertAndPrune(t *testing.T) {
 	got, _ = s.ByAlert("a1")
 	if got.State != "failed" || got.Error != "x" {
 		t.Fatalf("Update 未生效: %+v", got)
+	}
+}
+
+// 进程在调查中途重启：running 记录不能永远停在「调查中」。
+func TestInvestigationStoreMarksInterruptedRunningAsFailed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "inv.json")
+	if err := os.WriteFile(path, []byte(`[{"id":"inv-x","alertId":"a1","state":"running","startedAt":1}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewInvestigationStore(path, 500, 30*24*time.Hour)
+	got, ok := s.ByAlert("a1")
+	if !ok {
+		t.Fatal("记录应仍在")
+	}
+	if got.State != "failed" || got.Error == "" {
+		t.Fatalf("中断的 running 记录应标为 failed，实际 %+v", got)
 	}
 }
 

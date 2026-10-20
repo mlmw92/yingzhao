@@ -197,6 +197,43 @@ func TestRunAutoFallsBackWhenToolsUnsupported(t *testing.T) {
 	}
 }
 
+// 模型可能在一轮里批量调用很多工具，直接把预算打满。
+// 此时必须再要一次结论（不带工具），而不是把「工具用尽」当答案。
+func TestRunFinalizesWhenToolBudgetExhausted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if _, withTools := body["tools"]; withTools {
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+				"message": map[string]any{
+					"role": "assistant",
+					"tool_calls": []any{map[string]any{
+						"id": "c", "type": "function",
+						"function": map[string]any{"name": "echo", "arguments": `{"q":"x"}`},
+					}},
+				},
+			}}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "最终结论：正常"},
+		}}})
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := config.AIConfig{Enabled: true, BaseURL: srv.URL, Model: "m", ToolMode: "native"}
+	out, err := Run(context.Background(), cfg, "sys", "user", testToolbox(), Budget{MaxRounds: 5, MaxToolCalls: 2, MaxTokens: 8000})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Stopped != "tools" || len(out.Steps) != 2 {
+		t.Fatalf("应在 2 次工具后停止: %+v", out)
+	}
+	if out.Answer != "最终结论：正常" {
+		t.Fatalf("预算用尽后应再要一次结论，实际 %q", out.Answer)
+	}
+}
+
 func TestRunJSONParseFailureBecomesAnswer(t *testing.T) {
 	srv := fakeChat(t, func(int, map[string]any) map[string]any {
 		return map[string]any{"choices": []any{map[string]any{

@@ -121,6 +121,22 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 		return client.ChatWithTools(cfg, msgs, toolSpecs(tools))
 	}
 
+	// finalize 在工具预算用尽时再要一次结论（不带工具）。
+	// 模型可能在一轮里批量调用很多工具把预算打满，直接停会把「工具用尽」当答案。
+	finalize := func() string {
+		if out.Tokens >= budget.MaxTokens {
+			return ""
+		}
+		finalMsgs := append(append([]Message{}, msgs...),
+			Message{Role: "user", Content: "工具调用次数已达上限。请基于以上工具结果直接给出结论，不要再请求调用工具。"})
+		res, err := client.Chat(cfg, finalMsgs)
+		if err != nil {
+			return ""
+		}
+		out.Tokens += res.TotalTokens
+		return strings.TrimSpace(res.Content)
+	}
+
 	native := mode == "native" || mode == "auto"
 	for round := 0; round < budget.MaxRounds; round++ {
 		if ctx.Err() != nil {
@@ -157,7 +173,8 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 			for _, tc := range res.ToolCalls {
 				if toolCalls >= budget.MaxToolCalls {
 					out.Stopped = "tools"
-					out.Answer = incompleteAnswer("工具调用次数用尽", len(out.Steps), lastContent)
+					out.Answer = firstNonEmpty(finalize(),
+						incompleteAnswer("工具调用次数用尽", len(out.Steps), lastContent))
 					return out, nil
 				}
 				toolCalls++
@@ -192,7 +209,8 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 		}
 		if toolCalls >= budget.MaxToolCalls {
 			out.Stopped = "tools"
-			out.Answer = incompleteAnswer("工具调用次数用尽", len(out.Steps), lastContent)
+			out.Answer = firstNonEmpty(finalize(),
+				incompleteAnswer("工具调用次数用尽", len(out.Steps), lastContent))
 			return out, nil
 		}
 		toolCalls++
