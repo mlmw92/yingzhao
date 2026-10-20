@@ -692,3 +692,20 @@ zookeeperInstances:
   scope: all
   enabled: true
 ```
+
+## UI 配置（`ui.yaml`）
+
+`server.yaml` 的 `uiFile` 指向该文件（默认 `/etc/monitor-server/ui.yaml`）。`name` / `logo` / `footer` / `subtitle` 为品牌配置；`disabled` 是已关闭的模块与页面 key。
+
+- `disabled` 是**关闭清单**：缺省或空 = 全开，升级新增页面自动可见。
+- 不可关闭：`overview`（值班台）、`alerts`（告警中心）、`alerting`（整域）、`system`（系统设置）。
+- 关闭只隐藏入口并停止自动巡检 / 报告 / 拨测，不注销接口、不删除数据。
+- 接口采用部分更新：只提交 `disabled` 不会覆盖品牌字段。
+
+```yaml
+name: 英招
+subtitle: 运维平台
+disabled:
+  - assets
+  - logs
+```

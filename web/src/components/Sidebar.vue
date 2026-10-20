@@ -20,6 +20,14 @@
         </router-link>
       </el-tooltip>
 
+      <!-- 常用置顶：最多 5 个；开关优先级高于置顶，已关闭模块即使置顶也不显示 -->
+      <div v-if="!collapsed && pinnedItems.length" class="pinned-pages">
+        <router-link v-for="p in pinnedItems" :key="'pin-' + p.key" :to="p.to" class="pinned-item">
+          <el-icon :size="13"><Star /></el-icon>
+          <span class="label">{{ p.label }}</span>
+        </router-link>
+      </div>
+
       <div
         v-for="g in visibleGroups"
         :key="g.key"
@@ -62,6 +70,12 @@
                 :max="99"
                 class="nav-badge"
               />
+              <span
+                class="pin-star"
+                :class="{ pinned: pinnedCtl.isPinned(sub.key) }"
+                :title="pinnedCtl.isPinned(sub.key) ? '取消置顶' : '置顶'"
+                @click.stop.prevent="pinnedCtl.toggle(sub.key)"
+              >★</span>
             </router-link>
           </template>
         </div>
@@ -103,6 +117,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Odometer,
+  Star,
   ArrowDown,
   ArrowRight,
   TopRight,
@@ -111,8 +126,9 @@ import {
   Fold,
   Expand,
 } from '@element-plus/icons-vue'
-import { moduleGroups as groups } from '../modules/catalog'
+import { moduleGroups as groups, pageDomain } from '../modules/catalog'
 import { useModules } from '../composables/useModules'
+import { usePinnedPages } from '../composables/usePinnedPages'
 import http from '../api/http'
 import { useBrand } from '../composables/useBrand'
 import { useAuth } from '../composables/useAuth'
@@ -130,6 +146,15 @@ const route = useRoute()
 const { brand } = useBrand()
 const auth = useAuth()
 const modules = useModules()
+const pinnedCtl = usePinnedPages()
+
+// 全部菜单项：置顶区与星标共用
+const allItems = groups.flatMap((g) => g.items)
+const pinnedItems = computed(() =>
+  pinnedCtl.pinned.value
+    .map((k) => allItems.find((i) => i.key === k))
+    .filter((i) => i && modules.isVisible(i.key, pageDomain[i.key] || '') && (!i.perm || auth.can(i.perm))),
+)
 
 const serverVersion = ref(WEB_VERSION) // 初始用构建内嵌版本，加载后覆盖为 Server 实际运行版本
 
@@ -500,5 +525,43 @@ onMounted(() => {
 }
 .sidebar.collapsed .toggle-btn {
   justify-content: center;
+}
+
+/* 常用置顶：与普通菜单项同一视觉语言，但更紧凑 */
+.pinned-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px 8px;
+}
+.pinned-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+.pinned-item:hover,
+.pinned-item.active {
+  background: var(--fill-1);
+  color: var(--t1);
+}
+/* 星标默认隐藏，悬停菜单项时出现；已置顶时常显 */
+.pin-star {
+  margin-left: auto;
+  color: var(--t3);
+  opacity: 0;
+  cursor: pointer;
+  font-size: 12px;
+}
+.nav-subitem:hover .pin-star,
+.pin-star.pinned {
+  opacity: 1;
+}
+.pin-star.pinned {
+  color: var(--warn);
 }
 </style>
