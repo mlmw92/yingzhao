@@ -4,6 +4,7 @@ import { getToken } from '../api/http'
 import { useAuth } from '../composables/useAuth'
 import { useModules } from '../composables/useModules'
 import { moduleKeyForRoute, pageDomain } from '../modules/catalog'
+import { installChunkReload } from './chunkReload'
 
 const routes = [
   {
@@ -101,5 +102,8 @@ router.beforeEach(async (to) => {
   }
   return true
 })
+
+// 部署后旧页面加载旧 chunk 会 404：自动刷新一次（10 秒内不重复）
+installChunkReload(router)
 
 export default router

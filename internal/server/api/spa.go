@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // RegisterDashboard 将前端 SPA 注册到 mux 根路径（从磁盘 webDir 读取）。
@@ -22,9 +23,15 @@ func (a *API) RegisterDashboard(mux *http.ServeMux) {
 	}
 	fs := http.FileServer(http.Dir(webDir))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		serveIndex := func() {
+			// index 必须每次回源：否则部署后浏览器一直用旧 index，
+			// 它引用的带旧哈希的 chunk 已被删除
+			w.Header().Set("Cache-Control", "no-cache")
+			http.ServeFile(w, r, indexFile)
+		}
 		// SPA：根路径或找不到的静态资源回退到 index.html
 		if r.URL.Path == "/" {
-			http.ServeFile(w, r, indexFile)
+			serveIndex()
 			return
 		}
 		fp := filepath.Join(webDir, filepath.Clean(r.URL.Path))
@@ -36,8 +43,12 @@ func (a *API) RegisterDashboard(mux *http.ServeMux) {
 				http.NotFound(w, r)
 				return
 			}
-			http.ServeFile(w, r, indexFile)
+			serveIndex()
 			return
+		}
+		// 带内容哈希的资源文件名唯一，可以长缓存
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}
 		fs.ServeHTTP(w, r)
 	})
