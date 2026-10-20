@@ -327,6 +327,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/rules/export", a.permit(a.handleRulesExport, "alerts:read"))
 	mux.HandleFunc("POST /api/v1/rules/import", a.permit(a.handleRulesImport, "alerts:write"))
 	mux.HandleFunc("GET /api/v1/rules/templates", a.permit(a.handleRuleTemplates, "alerts:read"))
+	mux.HandleFunc("GET /api/v1/workbench/summary", a.permit(a.handleWorkbenchSummary, "alerts:read"))
 	mux.HandleFunc("POST /api/v1/rules/promql/preview", a.permit(a.handlePromQLPreview, "alerts:write"))
 	mux.HandleFunc("POST /api/v1/rules", a.permit(a.handleRuleCreate, "alerts:write"))
 	mux.HandleFunc("PUT /api/v1/rules/{id}", a.permit(a.handleRuleUpdate, "alerts:write"))
