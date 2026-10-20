@@ -39,6 +39,13 @@ func testToolbox() Toolbox {
 	}}}
 }
 
+func TestNormalizeBudgetDefaults(t *testing.T) {
+	b := normalizeBudget(Budget{})
+	if b.MaxRounds != 4 || b.MaxToolCalls != 8 || b.MaxTokens != 16000 || b.Timeout != 120*time.Second {
+		t.Fatalf("默认预算 = %+v", b)
+	}
+}
+
 func TestRunNativeToolThenFinal(t *testing.T) {
 	srv := fakeChat(t, func(call int, _ map[string]any) map[string]any {
 		if call == 1 {

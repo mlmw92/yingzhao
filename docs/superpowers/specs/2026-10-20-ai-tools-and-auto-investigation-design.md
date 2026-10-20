@@ -131,7 +131,7 @@ type Step struct {
 type Budget struct {
     MaxRounds    int // 4
     MaxToolCalls int // 8
-    MaxTokens    int // 8000（累计 usage）
+    MaxTokens    int // 16000（累计 usage；实机 3 轮调查实测 12.7k–15.3k，8000 会提前截断）
     Timeout      time.Duration // 120s（多轮模型调用；需大于单次客户端超时）
 }
 

@@ -131,7 +131,7 @@
                 <el-switch v-model="form.autoInvestigate" />
                 <div class="field-hint">
                   仅 <b>critical</b> 告警触发；同一「规则 + 节点」30 分钟一次；全局并发 2；
-                  单次最多 4 轮 / 8 次工具调用 / 8000 tokens / 120 秒。
+                  单次最多 4 轮 / 8 次工具调用 / 16000 tokens / 120 秒。
                   调查只读告警所属节点，<b>不发送日志正文</b>；结果在告警详情页展示。
                 </div>
               </el-form-item>

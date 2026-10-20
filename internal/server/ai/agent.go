@@ -43,7 +43,9 @@ func normalizeBudget(b Budget) Budget {
 		b.MaxToolCalls = 8
 	}
 	if b.MaxTokens <= 0 {
-		b.MaxTokens = 8000
+		// token 预算按**累计 usage** 计，而上下文每轮都在增长：
+		// 实机 3 轮调查实测 12.7k–15.3k tokens，8000 会在第 2–3 轮就把调查截断。
+		b.MaxTokens = 16000
 	}
 	if b.Timeout <= 0 {
 		// 一次调查要跑多轮「模型→工具→模型」，真实模型单轮就要数秒：
