@@ -136,12 +136,14 @@ func Run(ctx context.Context, cfg config.AIConfig, system, user string, toolbox 
 		var sb strings.Builder
 		sb.WriteString("已获得的工具结果：\n")
 		for _, s := range out.Steps {
-			fmt.Fprintf(&sb, "- %s %v → %s\n", s.Tool, s.Args, stepContent(s))
+			// 汇总里每条只留摘要：8 条完整结果叠加会把上下文撑大，
+			// 推理模型把输出预算耗在思考上，正文会是空的。
+			fmt.Fprintf(&sb, "- %s %v → %s\n", s.Tool, s.Args, truncate(stepContent(s), 600))
 		}
 		sb.WriteString("\n工具调用次数已达上限。请基于以上信息直接给出结论，不要再请求调用工具。")
 		fcfg := cfg
-		if fcfg.MaxTokens < 1024 {
-			fcfg.MaxTokens = 1024 // 推理模型需要足够 token 才能产出正文
+		if fcfg.MaxTokens < 2048 {
+			fcfg.MaxTokens = 2048 // 推理模型需要足够 token 才能产出正文
 		}
 		res, err := client.ChatCtx(ctx, fcfg, []Message{
 			{Role: "system", Content: system},
@@ -326,4 +328,12 @@ func stepContent(s Step) string {
 		return "错误：" + s.Err
 	}
 	return s.Result
+}
+
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…（已截断）"
 }
