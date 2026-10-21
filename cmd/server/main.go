@@ -13,15 +13,17 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/server/agentdist"
+	"github.com/mlmw92/yingzhao/internal/server/ai"
 	"github.com/mlmw92/yingzhao/internal/server/alert"
 	"github.com/mlmw92/yingzhao/internal/server/analysis"
 	"github.com/mlmw92/yingzhao/internal/server/api"
-	"github.com/mlmw92/yingzhao/internal/server/asset"
 	"github.com/mlmw92/yingzhao/internal/server/approval"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 	"github.com/mlmw92/yingzhao/internal/server/audit"
 	"github.com/mlmw92/yingzhao/internal/server/auth"
 	"github.com/mlmw92/yingzhao/internal/server/config"
@@ -36,7 +38,6 @@ import (
 	"github.com/mlmw92/yingzhao/internal/server/mwview"
 	"github.com/mlmw92/yingzhao/internal/server/nginxaccess"
 	"github.com/mlmw92/yingzhao/internal/server/node"
-	"github.com/mlmw92/yingzhao/internal/server/ai"
 	"github.com/mlmw92/yingzhao/internal/server/notify"
 	"github.com/mlmw92/yingzhao/internal/server/ops"
 	"github.com/mlmw92/yingzhao/internal/server/receiver"
@@ -85,7 +86,7 @@ func main() {
 	defer cancelRun()
 
 	// 状态库：配置文档入库后它是硬依赖，连不上就启动失败（不退回文件）。
-	stateDB, err := openStateDB(runCtx, *cfg)
+	stateDB, applied, err := openStateDB(runCtx, *cfg)
 	if err != nil {
 		slog.Error("初始化状态库失败", "err", err)
 		os.Exit(1)
@@ -97,7 +98,7 @@ func main() {
 		os.Exit(1)
 	}
 	docs := persisterFactory{store: configdoc.NewMySQLStore(stateDB), key: masterKey}
-	slog.Info("状态库已就绪", "migrated", true)
+	slog.Info("状态库已就绪", "migrationsApplied", applied)
 
 	// 存储层
 	store, err := storage.NewStorage(cfg.TSDB)
@@ -130,11 +131,7 @@ func main() {
 		slog.Warn("auth.secret 未配置，已自动生成随机密钥（重启后登录失效，建议写入配置固定）")
 	}
 
-	// 多用户角色权限数据存储：默认 <DataDir>/users.yaml。
-	usersFile := cfg.Auth.UsersFile
-	if usersFile == "" {
-		usersFile = filepath.Join(cfg.DataDir, "users.yaml")
-	}
+	// 多用户角色权限数据存储：状态库的 users 配置文档（加密）。
 	var authStore *auth.Store
 	if cfg.Auth.Enabled {
 		st, err := auth.NewStoreWithPersister(docs.sensitive(nsUsers))
@@ -152,9 +149,13 @@ func main() {
 	}
 
 	// 告警相关
-	rules := alert.NewRulesStoreWithPersister(docs.plain(nsRules), filepath.Join(cfg.DataDir, "alert_rules.yaml"))
+	rules := alert.NewRulesStoreWithPersister(docs.plain(nsRules), docs.plain(nsRulesSeed))
+	if err := rules.LoadError(); err != nil {
+		slog.Error("读取告警规则失败，拒绝启动（继续跑会在下次保存时覆盖库里的规则）", "err", err)
+		os.Exit(1)
+	}
 	alertStore := alert.NewVMAlertStore(store)
-	ackStore := alert.NewAckStore(filepath.Join(filepath.Dir(cfg.Alert.RulesFile), "alert_acks.json"))
+	ackStore := alert.NewAckStore(filepath.Join(cfg.DataDir, "alert_acks.json"))
 	maintenance := alert.NewMaintenanceStoreWithPersister(docs.plain(nsMaintenance))
 	// 抑制规则与分组配置（P4）：热加载 YAML，可经 Web 端增删改。
 	inhibitStore := alert.NewInhibitStoreWithPersister(docs.plain(nsInhibit))
@@ -268,26 +269,30 @@ func main() {
 	// （它要调 RunInspect），启动在下面的后台任务块里（与报告调度同一位置）。
 	var inspectSched *asset.InspectScheduler
 	// 台账与审计、告警处置、下行任务共用状态库（同一 *sql.DB）。
+	// 数据库是硬依赖（设计件 §1.4）：初始化失败就退出，不静默退回本地文件。
+	// 退回文件等于「以为在用 DB，实际写本地」——换机就丢，而且没人会发现。
 	var assetStore *asset.Store
-	if s, err := asset.OpenMySQL(stateDB); err != nil {
-		slog.Error("资产台账初始化失败，资产能力已关闭", "err", err)
-	} else {
-		assetStore = s
-		assetSvc = asset.NewService(assetStore)
-		recv.SetAssetService(assetSvc)
-		slog.Info("资产台账已启用", "db", "mysql")
-		// 告警处置与台账**共用同一个库**（设计件批次 18）：写入频率是人工操作级
-		// （每分钟几条到几十条），单连接下这点增量可忽略，换来一个备份文件、一套迁移机制。
-		// 首次启动会把既有 alert_acks.json 回填进库并改名 .bak-migrated。
-		// 回填失败**不阻断启动**：记日志，继续按 JSON 降级模式工作。
-		if err := ackStore.UseSQL(stateDB, true); err != nil {
-			slog.Error("告警处置改用数据库失败，继续按 JSON 文件工作", "err", err)
-		}
-		// 操作任务同理（设计件批次 19）。首次启动会把既有 ops_tasks.json 回填进库并改名
-		// .bak-migrated；回填失败不阻断启动，继续按 JSON 降级模式工作。
-		if err := opsStore.UseSQL(stateDB, true); err != nil {
-			slog.Error("操作任务改用数据库失败，继续按 JSON 文件工作", "err", err)
-		}
+	s, err := asset.OpenMySQL(stateDB)
+	if err != nil {
+		slog.Error("资产台账初始化失败，拒绝启动（处置/下行任务/审计与它共用同一套表）", "err", err)
+		os.Exit(1)
+	}
+	assetStore = s
+	assetSvc = asset.NewService(assetStore)
+	recv.SetAssetService(assetSvc)
+	slog.Info("资产台账已启用", "db", "mysql")
+	// 告警处置与台账**共用同一个库**（设计件批次 18）：写入频率是人工操作级
+	// （每分钟几条到几十条），单连接下这点增量可忽略，换来一个备份文件、一套迁移机制。
+	// 首次启动会把既有 alert_acks.json 回填进库并改名 .bak-migrated。
+	if err := ackStore.UseSQL(stateDB, true); err != nil {
+		slog.Error("告警处置改用数据库失败，拒绝启动（不允许退回本地 JSON）", "err", err)
+		os.Exit(1)
+	}
+	// 操作任务同理（设计件批次 19）。首次启动会把既有 ops_tasks.json 回填进库并改名
+	// .bak-migrated。
+	if err := opsStore.UseSQL(stateDB, true); err != nil {
+		slog.Error("操作任务改用数据库失败，拒绝启动（不允许退回本地 JSON）", "err", err)
+		os.Exit(1)
 	}
 	// 中间件类型注册表：内置类型清单的唯一来源
 	//（api 的类型清单、报告分节、告警的服务类型校验都读它）。
@@ -295,6 +300,10 @@ func main() {
 
 	// 拨测模块
 	dialtestStore := dialtest.NewStoreWithPersister(docs.plain(nsDialtest))
+	if err := dialtestStore.LoadError(); err != nil {
+		slog.Error("读取拨测任务失败，拒绝启动（继续跑会在下次保存时覆盖库里的任务）", "err", err)
+		os.Exit(1)
+	}
 	dialtestSched := dialtest.NewScheduler(dialtestStore, store)
 	// 拨测状态跃迁联动告警事件（P2）：故障/恢复统一进入告警中心并通知。
 	if cfg.Alert.Enabled {
@@ -380,20 +389,19 @@ func main() {
 	}
 
 	// API
-	auditStore := audit.New(filepath.Join(filepath.Dir(*cfgPath), "audit_events.json"))
+	auditStore := audit.New(filepath.Join(cfg.DataDir, "audit_events.json"))
 	// 审计与台账**共用同一个库**（设计件批次 18）。这里才注入是因为审计存储在本行才创建。
 	// 首次启动会把既有 audit_events.json 回填进库并改名 .bak-migrated（幂等：判据是表为空）。
-	// 台账库不可用（assetStore == nil）时保持 JSON 降级模式，审计不跟着失效。
-	if assetStore != nil {
-		if err := auditStore.UseSQL(stateDB, true); err != nil {
-			slog.Error("审计事件改用数据库失败，继续按 JSON 文件工作", "err", err)
-		}
+	// 失败即退出：退回 JSON 文件会让审计失去链式保护，且换机即丢——与设计件 §4.4.5 冲突。
+	if err := auditStore.UseSQL(stateDB, true); err != nil {
+		slog.Error("审计事件改用数据库失败，拒绝启动（不允许退回本地 JSON）", "err", err)
+		os.Exit(1)
 	}
 	// 审计防篡改（链式 HMAC，设计件 2026-10-08）：让"改过/删过审计"变成**可检测**。
 	// **不是"不可删除"**——库仍在该机、同一权限面下，root 依然能删（威胁模型见设计件 §2.3）。
 	// 密钥文件不存在就自动生成（0600）；生成/读取失败**不阻断启动**，只是审计不带链，
 	// 校验时会如实报成"无链、不可验"，而不是假装完整。
-	if assetStore != nil {
+	{
 		keyPath := cfg.AuditKeyFile
 		if keyPath == "" {
 			keyPath = filepath.Join(cfg.DataDir, "audit.key")
@@ -422,12 +430,17 @@ func main() {
 	// 去删它的数据；但必须显式声明，否则界面会把"日志 0 文件"说成"日志未接入"。
 	retentionMgr.SetLogStoreExternal(logBackend.Backend())
 	rest := api.New(store, nodeMgr, rules, alertStore, hub, cfg.AgentAuth, cfg.AgentBinDir, cfg.WebDir, cfg.Auth, upgrader, notifyMgr, engine, maintenance, dialtestStore, reportGen, screenMgr, ackStore, inhibitStore, groupingStore, ngxWin, uiMgr, *cfgPath, securityStore, defenseStore, auditStore, authStore)
+	rest.SetStateDB(stateDB)
 	rest.SetDashboardManager(dashMgr)
 	// AI 配置管理器（可选能力；未注入时 AI 接口明确报"未初始化"，不静默）。
 	rest.SetAIManager(aiMgr)
 	// AI 调查结果独立存储 + 自动调查器（仅 critical 告警触发；默认关闭，
 	// 见 ai.yaml 的 autoInvestigate）
-	aiInvStore := ai.NewInvestigationStoreWithPersister(docs.plain(nsInvestigations), 500, 30*24*time.Hour)
+	aiInvStore := ai.NewInvestigationStoreWithPersister(docs.plainJSON(nsInvestigations), 500, 30*24*time.Hour)
+	if err := aiInvStore.LoadError(); err != nil {
+		slog.Error("读取 AI 调查记录失败，拒绝启动（继续跑会在下次保存时覆盖库里的记录）", "err", err)
+		os.Exit(1)
+	}
 	rest.SetInvestigationStore(aiInvStore)
 	if aiMgr != nil {
 		investigator := ai.NewInvestigator(aiMgr.Get, rest.CriticalAlertsForAI(), aiInvStore, rest.RunAutoInvestigation)
@@ -440,8 +453,13 @@ func main() {
 	// 高风险操作双人复核：审批单与配置都与下行操作同处一个数据目录（同为"要能人工查看、
 	// 且不能丢"的小体量状态）。配置**默认关闭**——单管理员部署下开启会让任何动作都执行不了，
 	// 开启必须是管理员在界面上显式做的决定。
+	approvalStore := approval.NewStoreWithPersister(docs.plainJSON(nsApprovals))
+	if err := approvalStore.LoadError(); err != nil {
+		slog.Error("读取审批单失败，拒绝启动（继续跑会在下次保存时覆盖库里的审批单）", "err", err)
+		os.Exit(1)
+	}
 	rest.SetApproval(
-		approval.NewStoreWithPersister(docs.plain(nsApprovals)),
+		approvalStore,
 		approval.NewConfigStore(filepath.Join(opsDataDir, "approval.json")),
 	)
 	rest.SetAnalyzer(analyzer)
@@ -510,7 +528,15 @@ func main() {
 	go offlineChecker(runCtx, nodeMgr, 10*time.Second)
 	// 节点心跳落库：每 30 秒把内存里的 last_seen/status 批量写一次。
 	// 注册信息变化时已即时写库，这里只补心跳——它每轮上报都变，逐次写会把节点表打成写热点。
-	go nodeMgr.RunHeartbeatFlusher(runCtx, 30*time.Second)
+	//
+	// 用 WaitGroup 等它退出再关库：退出流程是 cancelRun() → stateDB.Close()，
+	// 不等待的话最后一次 flush 可能撞上 "database is closed"（最多丢 30 秒 last_seen）。
+	var flusherWG sync.WaitGroup
+	flusherWG.Add(1)
+	go func() {
+		defer flusherWG.Done()
+		nodeMgr.RunHeartbeatFlusher(runCtx, 30*time.Second)
+	}()
 	// 自监控指标周期写入时序库（走未包装的原始存储）：self_* 指标因此可查询、可画趋势，
 	// 也能直接复用现有告警规则来监控 Server 自身。
 	go selfmon.NewReporter(rawStore, mon, selfmon.DefaultReportInterval).Run(runCtx)
@@ -550,6 +576,7 @@ func main() {
 	if err != nil {
 		slog.Error("HTTP 监听失败", "addr", cfg.Listen, "err", err)
 		cancelRun()
+		flusherWG.Wait()
 		_ = store.Close()
 		os.Exit(1)
 	}
@@ -574,10 +601,12 @@ func main() {
 	if err := serveUntilStopped(signalCtx, srv, ln, hub.CloseClients); err != nil {
 		slog.Error("HTTP 服务异常退出", "err", err)
 		cancelRun()
+		flusherWG.Wait()
 		_ = store.Close()
 		os.Exit(1)
 	}
 	cancelRun()
+	flusherWG.Wait()
 	_ = store.Close()
 	slog.Info("Server 已停止")
 }

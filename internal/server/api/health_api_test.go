@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -306,5 +307,37 @@ func TestHealthTestAPIWiring(t *testing.T) {
 	// startedAt 由真实构造函数设置；测试内直接构造的 API 需显式给值才能测「首次评估」分支
 	if !a.startedAt.IsZero() {
 		t.Fatal("测试辅助不应预设 startedAt")
+	}
+}
+
+type fakePinger struct{ err error }
+
+func (p fakePinger) PingContext(context.Context) error { return p.err }
+
+// 数据库是硬依赖：连不上时 /readyz 必须 503，否则负载均衡与运维都看不到。
+func TestRoutes_ReadyzDatabaseFailure(t *testing.T) {
+	a := healthTestAPI(t, &healthTestStore{}, nil)
+	a.SetStateDB(fakePinger{err: errors.New("db down")})
+
+	rec := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(rec, reqWith(globalPrincipal(), http.MethodGet, "/readyz", ""))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("code = %d，want 503（body=%s）", rec.Code, rec.Body.String())
+	}
+	checks, _ := decodeBody(t, rec)["checks"].(map[string]any)
+	db, _ := checks["database"].(map[string]any)
+	if db == nil || db["ok"] != false {
+		t.Fatalf("checks.database 应标记失败：%v", checks)
+	}
+}
+
+// 未注入数据库（测试/纯前端调试）时不报 database 项，避免误报。
+func TestRoutes_ReadyzSkipsDatabaseWhenNotInjected(t *testing.T) {
+	a := healthTestAPI(t, &healthTestStore{}, nil)
+	rec := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(rec, reqWith(globalPrincipal(), http.MethodGet, "/readyz", ""))
+	checks, _ := decodeBody(t, rec)["checks"].(map[string]any)
+	if _, exists := checks["database"]; exists {
+		t.Fatalf("未注入数据库时不应检查：%v", checks)
 	}
 }

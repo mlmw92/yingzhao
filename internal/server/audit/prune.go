@@ -22,8 +22,9 @@ import (
 // **裁剪记录自己也要带 HMAC**：否则拿到库写权限的人可以**伪造一条裁剪记录**来遮盖自己的删除。
 // 有了 HMAC，他伪造不出来（没有密钥），只能删——而删掉记录会让缺口"无法归因"，照样被检出。
 
-const insertPrunedSQL = `INSERT INTO audit_pruned(from_seq, to_seq, head_hash, rows, pruned_ms, mac)
-	VALUES(?,?,?,?,?,?)`
+// rows 是 MySQL 8 的保留字（窗口函数 ROWS BETWEEN），DML 里必须加反引号；
+// Go 的原始字符串不能包含反引号，所以这里用拼接。SQLite 同样接受反引号。
+const insertPrunedSQL = "INSERT INTO audit_pruned(from_seq, to_seq, head_hash, `rows`, pruned_ms, mac)\n\tVALUES(?,?,?,?,?,?)"
 
 // prunedMAC 覆盖裁剪记录的**全部字段**（与链上一条同理：少覆盖一列那一列就可改而不被发现）。
 func prunedMAC(key []byte, fromSeq, toSeq int64, headHash string, rows int, prunedMs int64) string {
@@ -40,9 +41,14 @@ func prunedMAC(key []byte, fromSeq, toSeq int64, headHash string, rows int, prun
 //
 // 链未启用（没有库或没有密钥）时退化为原来的直接删除——**不假装**记了链区间。
 func (s *Store) pruneWhere(where string, args ...any) (int, error) {
-	s.mu.RLock()
+	// 持**写锁**覆盖整个事务：Record 也持这把锁，两者必须互斥。
+	// MySQL 的 REPEATABLE READ 下，`id NOT IN (子查询)` 里的子查询是快照读、
+	// DELETE 是当前读：一条在快照建立之后、DELETE 执行之前提交的审计行不在保留集合里，
+	// 却会被 DELETE 看到并删掉——同时 MIN/MAX/COUNT 也不包含它，裁剪锚点记不到这个缺口，
+	// 校验会把正常清理报成「不可归因缺口」。SQLite 单连接时代这个窗口基本不存在。
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	db, key := s.db, s.chainKey
-	s.mu.RUnlock()
 	if db == nil {
 		// 降级模式不做任何事：它的保留口径本来就是"最近 MaxEvents 条"，没有时间语义。
 		return 0, nil
@@ -118,8 +124,7 @@ func (s *Store) PrunedSegments() []PrunedSegment {
 	if db == nil {
 		return nil
 	}
-	rows, err := db.Query(`SELECT from_seq, to_seq, head_hash, rows, pruned_ms, mac
-		FROM audit_pruned ORDER BY from_seq`)
+	rows, err := db.Query("SELECT from_seq, to_seq, head_hash, `rows`, pruned_ms, mac\n\t\tFROM audit_pruned ORDER BY from_seq")
 	if err != nil {
 		return nil
 	}

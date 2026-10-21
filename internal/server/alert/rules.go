@@ -2,6 +2,7 @@
 package alert
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -22,27 +23,40 @@ type RulesStore struct {
 	mu    sync.RWMutex
 	rules map[string]model.AlertRule
 	p     configdoc.Persister
-	// path 只用于「内置规则已播种」标记文件；规则本体已走持久化后端。
-	path string
+	// marker 记录「哪些内置规则已经播种过」；与规则本体分开存，
+	// 这样用户删掉的内置规则不会在下次启动时复活。
+	marker configdoc.Persister
+	// docMissing 表示构造时规则文档不存在（真正的全新安装）。
+	// 用它判断播种，而不是看某个本地文件在不在：文件时代的标记路径在换机/升级后
+	// 根本对不上，会让删掉的规则全部复活。
+	docMissing bool
+	// loadErr 记录读取失败（不是「文档不存在」）。读失败时内存是空的，
+	// 此时任何写入都会用空集合覆盖库里的原文档——所以 persistLocked 直接拒绝写。
+	loadErr error
 }
 
 // NewRulesStore 用文件持久化（测试与迁移源）。
 func NewRulesStore(path string) *RulesStore {
-	return NewRulesStoreWithPersister(configdoc.NewFilePersister(path), path)
+	return NewRulesStoreWithPersister(configdoc.NewFilePersister(path), configdoc.NewFilePersister(path+".seeded"))
 }
 
 // NewRulesStoreWithPersister 用指定持久化后端创建规则存储并加载。
 // 若尚无规则（全新安装），自动播种一组开箱即用的推荐规则。
-func NewRulesStoreWithPersister(p configdoc.Persister, markerPath string) *RulesStore {
+// marker 可为 nil（测试里不需要播种记录）。
+func NewRulesStoreWithPersister(p configdoc.Persister, marker configdoc.Persister) *RulesStore {
 	s := &RulesStore{
-		rules: map[string]model.AlertRule{},
-		p:     p,
-		path:  markerPath,
+		rules:  map[string]model.AlertRule{},
+		p:      p,
+		marker: marker,
 	}
 	s.load()
 	s.SeedDefaults()
 	return s
 }
+
+// LoadError 返回构造时读取文档的错误（nil 表示正常；文档不存在不算错误）。
+// 生产路径应当据此拒绝启动：带着空内存继续跑，下一次保存就会覆盖库里的原文档。
+func (s *RulesStore) LoadError() error { return s.loadErr }
 
 // DefaultTemplates 返回可复用的规则模板（不含 ID/时间戳），供前端「从模板新建」挑选。
 //
@@ -288,50 +302,43 @@ func seedTemplates() []model.AlertRule {
 	return out
 }
 
-// seedMarkerPath 返回播种记录文件路径，记录已经播种过的内置规则名。
-func (s *RulesStore) seedMarkerPath() string {
-	if s.path == "" {
-		return ""
-	}
-	return s.path + ".seeded"
-}
-
-// loadSeedMarker 读取已播种的内置规则名集合。文件不存在时返回空集合。
-func (s *RulesStore) loadSeedMarker() map[string]bool {
+// loadSeedMarker 读取已播种的内置规则名集合。记录不存在时返回空集合与 missing=true。
+func (s *RulesStore) loadSeedMarker() (map[string]bool, bool) {
 	seeded := map[string]bool{}
-	if s.seedMarkerPath() == "" {
-		return seeded
+	if s.marker == nil {
+		return seeded, false
 	}
-	data, err := os.ReadFile(s.seedMarkerPath())
+	data, err := s.marker.Load()
 	if err != nil {
-		return seeded
+		if errors.Is(err, configdoc.ErrNotFound) {
+			return seeded, true
+		}
+		slog.Warn("读取告警规则播种记录失败（按未播种处理）", "doc", s.marker.Name(), "err", err)
+		return seeded, false
 	}
 	var names []string
 	if err := yaml.Unmarshal(data, &names); err != nil {
-		slog.Warn("解析告警规则播种记录失败", "path", s.seedMarkerPath(), "err", err)
-		return seeded
+		slog.Warn("解析告警规则播种记录失败", "doc", s.marker.Name(), "err", err)
+		return seeded, false
 	}
 	for _, n := range names {
 		seeded[n] = true
 	}
-	return seeded
+	return seeded, false
 }
 
 // saveSeedMarker 记录当前版本全部内置规则名，表示它们均已播种过。
 // 之后用户删除其中任何一条都不会被重新写回。
 func (s *RulesStore) saveSeedMarker(names []string) {
-	if s.seedMarkerPath() == "" {
+	if s.marker == nil {
 		return
 	}
 	data, err := yaml.Marshal(names)
 	if err != nil {
 		return
 	}
-	if err := os.MkdirAll(dirOf(s.path), 0o755); err != nil {
-		return
-	}
-	if err := os.WriteFile(s.seedMarkerPath(), data, 0o644); err != nil {
-		slog.Warn("写入告警规则播种记录失败", "err", err, "path", s.seedMarkerPath())
+	if err := s.marker.Save(data); err != nil {
+		slog.Warn("写入告警规则播种记录失败", "doc", s.marker.Name(), "err", err)
 	}
 }
 
@@ -347,22 +354,30 @@ func (s *RulesStore) saveSeedMarker(names []string) {
 //     老版本已存在的规则不会重复创建；
 //   - 用户主动删除过的内置规则不会被重新写回，因为它已记录在播种记录中。
 func (s *RulesStore) SeedDefaults() {
+	if s.loadErr != nil {
+		// 读失败时内存为空，播种会把「内置规则」当成用户的全部规则写回去，
+		// 覆盖库里真正的内容。交给 LoadError 让调用方拒绝启动。
+		return
+	}
 	templates := seedTemplates()
 	names := make([]string, 0, len(templates))
 	for _, t := range templates {
 		names = append(names, t.Name)
 	}
 
-	freshInstall := false
-	if s.path != "" {
-		_, statErr := os.Stat(s.path)
-		freshInstall = os.IsNotExist(statErr)
-	}
+	freshInstall := s.docMissing
 
-	seeded := s.loadSeedMarker()
+	seeded, markerMissing := s.loadSeedMarker()
 	if freshInstall {
-		// 全新安装：规则文件尚不存在，忽略可能残留的播种记录，全部写入
+		// 全新安装：规则文档尚不存在，忽略可能残留的播种记录，全部写入
 		seeded = map[string]bool{}
+	} else if markerMissing {
+		// 升级到「播种记录入库」的第一个版本：旧标记在本地文件里，新代码读不到，
+		// 但规则文档是存在的。此时无法区分「用户删过某条内置规则」与「从未播种」——
+		// 按「都已播种」处理，避免把用户删掉的规则一次性复活；同时补写标记。
+		// 代价：本版本若新增内置规则，已有部署不会自动补上（可手工从模板创建）。
+		s.saveSeedMarker(names)
+		return
 	}
 
 	// 已存在的规则名，避免与用户自建的同名规则重复
@@ -374,13 +389,34 @@ func (s *RulesStore) SeedDefaults() {
 	s.mu.RUnlock()
 
 	added := 0
-	for _, t := range templates {
+	now := model.NowMillis()
+	s.mu.Lock()
+	for i, t := range templates {
 		if seeded[t.Name] || existing[t.Name] {
 			continue
 		}
-		s.Create(t)
+		if t.ID == "" {
+			// 批量创建发生在同一毫秒内：ID 带上序号，否则会互相覆盖。
+			id := now + int64(i)
+			for {
+				cand := "r-" + strconv.FormatInt(id, 36)
+				if _, taken := s.rules[cand]; !taken {
+					t.ID = cand
+					break
+				}
+				id++
+			}
+		}
+		t.CreatedAt = now
+		t.UpdatedAt = now
+		s.rules[t.ID] = t
 		added++
 	}
+	if added > 0 {
+		// 一次写完整批：逐条 Create 会做 N 次整份序列化 + N 次数据库往返。
+		s.persistLocked()
+	}
+	s.mu.Unlock()
 	if added > 0 {
 		slog.Info("已补充内置告警规则", "count", added)
 	}
@@ -512,13 +548,20 @@ func (s *RulesStore) ImportRules(rules []model.AlertRule, replace bool) (created
 func (s *RulesStore) load() {
 	data, err := s.p.Load()
 	if err != nil {
+		if errors.Is(err, configdoc.ErrNotFound) {
+			s.docMissing = true
+			return
+		}
+		// 读失败不是「空库」：内存保持为空，但必须记住这件事并禁止写入，
+		// 否则下一次保存会用空集合覆盖库里的原文档（数据全丢）。
+		s.loadErr = fmt.Errorf("读取规则存储失败: %w", err)
+		slog.Error("读取规则存储失败，已禁止写入以免覆盖原数据", "doc", s.p.Name(), "err", err)
 		return
 	}
 	var list []model.AlertRule
 	if err := yaml.Unmarshal(data, &list); err != nil {
-		// 解析失败时保留内存为空（不清空数据库），下次保存会覆盖；
-		// 原内容仍在持久化后端里，可人工恢复。
-		slog.Warn("解析规则失败（保留原始内容，下次保存覆盖）", "doc", s.p.Name(), "err", err)
+		s.loadErr = fmt.Errorf("解析规则文档失败: %w", err)
+		slog.Error("解析规则文档失败，已禁止写入以免覆盖原数据", "doc", s.p.Name(), "err", err)
 		return
 	}
 	for _, r := range list {
@@ -530,6 +573,11 @@ func (s *RulesStore) load() {
 }
 
 func (s *RulesStore) persistLocked() {
+	if s.loadErr != nil {
+		// 内存里是「读失败后的空集合」，写下去等于清空原文档。
+		slog.Error("规则存储处于读取失败状态，已跳过写入", "doc", s.p.Name(), "err", s.loadErr)
+		return
+	}
 	list := make([]model.AlertRule, 0, len(s.rules))
 	for _, r := range s.rules {
 		list = append(list, r)

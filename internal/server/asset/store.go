@@ -734,7 +734,15 @@ func (s *Store) assetByNaturalClause(typeKey, naturalKey string, fold bool) (Ass
 	if fold {
 		// 折叠时可能命中多条（台账里真的并存两种大小写），取 id 最小的那条让结果稳定：
 		// 否则同一份数据在两次查询之间可能给出不同的资产。
-		cond = "natural_key=? COLLATE NOCASE ORDER BY id LIMIT 1"
+		//
+		// MySQL 下不用 `COLLATE NOCASE`（它会被 sqlx 剥掉、转而依赖库的默认排序规则）：
+		// 默认规则由 DBA 建库时决定，如果是 `_bin`，这里就会静默变成大小写敏感——
+		// 同一台机器被判成两台，且不报错。显式 LOWER() 不依赖任何排序规则。
+		if s.mysql() {
+			cond = "LOWER(natural_key)=LOWER(?) ORDER BY id LIMIT 1"
+		} else {
+			cond = "natural_key=? COLLATE NOCASE ORDER BY id LIMIT 1"
+		}
 	}
 	err := s.db.QueryRow(
 		`SELECT id,type_key,natural_key,name,node,created_at,updated_at
@@ -781,7 +789,7 @@ func (s *Store) seenOf(assetID int64, a *Asset) error {
 // 往回拨，否则台账会凭空出现一批失联资产。
 func (s *Store) markSeen(assetID int64, at int64) error {
 	if _, err := s.db.Exec(
-		`INSERT INTO asset_seen(asset_id,last_seen_at) VALUES(?,?)` + s.onConflict("asset_id", "last_seen_at=MAX(last_seen_at, excluded.last_seen_at)"),
+		`INSERT INTO asset_seen(asset_id,last_seen_at) VALUES(?,?)`+s.onConflict("asset_id", "last_seen_at=MAX(last_seen_at, excluded.last_seen_at)"),
 		assetID, at,
 	); err != nil {
 		return fmt.Errorf("记录资产最近上报时间失败: %w", err)
@@ -1227,7 +1235,7 @@ func (s *Store) loadMeta(assets []Asset) error {
 // ignoreAsset 标记资产为已忽略（重复忽略按最后一次的理由与操作人覆盖）。
 func (s *Store) ignoreAsset(assetID int64, reason, actor string, at int64) error {
 	if _, err := s.db.Exec(
-		`INSERT INTO asset_ignored(asset_id,reason,ignored_by,ignored_at) VALUES(?,?,?,?)` + s.onConflict("asset_id", "reason=excluded.reason, ignored_by=excluded.ignored_by, ignored_at=excluded.ignored_at"),
+		`INSERT INTO asset_ignored(asset_id,reason,ignored_by,ignored_at) VALUES(?,?,?,?)`+s.onConflict("asset_id", "reason=excluded.reason, ignored_by=excluded.ignored_by, ignored_at=excluded.ignored_at"),
 		assetID, reason, actor, at,
 	); err != nil {
 		return fmt.Errorf("忽略资产失败: %w", err)
@@ -1545,7 +1553,7 @@ func (s *Store) deleteManualAttrs(assetID int64, keys []string, at int64, actor,
 // 既原子，也不依赖调用方记得先读一次。
 func (s *Store) linkAssets(fromID, toID int64, kind LinkKind, src Source, at int64) error {
 	if _, err := s.db.Exec(
-		`INSERT INTO asset_links(from_id,to_id,kind,source,created_at) VALUES(?,?,?,?,?)` + s.onConflict("from_id,to_id,kind", "source = CASE WHEN excluded.source='manual' OR asset_links.source='manual' THEN 'manual' ELSE asset_links.source END"),
+		`INSERT INTO asset_links(from_id,to_id,kind,source,created_at) VALUES(?,?,?,?,?)`+s.onConflict("from_id,to_id,kind", "source = CASE WHEN excluded.source='manual' OR asset_links.source='manual' THEN 'manual' ELSE asset_links.source END"),
 		fromID, toID, string(kind), string(src.normalized()), at,
 	); err != nil {
 		return fmt.Errorf("建立资产关联失败: %w", err)
@@ -1572,7 +1580,7 @@ func (s *Store) unlinkAssets(fromID, toID int64, kind LinkKind) error {
 // 实例挂在了采集机上），刻意**不落抑制**——抑制的语义是"人工禁止这条边再出现"，
 // 而这里是"我们建错了"：判定成立时（机器迁移、地址改正）这条边应该能重新长出来。
 //
-// source 用 `<> 'manual'` 而不是 `= 'discovery'`：最早那批存量行可能没有 source（''），
+// source 用 `<> 'manual'` 而不是 `= 'discovery'`：最早那批存量行可能没有 source（”），
 // 它们是采集建的，同样应该被纠正。
 func (s *Store) unlinkDiscovered(fromID, toID int64, kind LinkKind) (bool, error) {
 	res, err := s.db.Exec(
@@ -1592,7 +1600,7 @@ func (s *Store) unlinkDiscovered(fromID, toID int64, kind LinkKind) (bool, error
 // suppressLink 记录「这条采集来的边被人工删掉了」，采集侧据此不再重建（幂等）。
 func (s *Store) suppressLink(fromID, toID int64, kind LinkKind, by string, at int64) error {
 	if _, err := s.db.Exec(
-		`INSERT INTO asset_link_suppressions(from_id,to_id,kind,created_at,created_by) VALUES(?,?,?,?,?)` + s.onConflict("from_id,to_id,kind", "created_at=excluded.created_at, created_by=excluded.created_by"),
+		`INSERT INTO asset_link_suppressions(from_id,to_id,kind,created_at,created_by) VALUES(?,?,?,?,?)`+s.onConflict("from_id,to_id,kind", "created_at=excluded.created_at, created_by=excluded.created_by"),
 		fromID, toID, string(kind), at, by,
 	); err != nil {
 		return fmt.Errorf("记录关联抑制失败: %w", err)
@@ -1735,7 +1743,7 @@ func (s *Store) assetsByInstanceAddr(addr string) ([]Asset, error) {
 		return nil, nil
 	}
 	rows, err := s.db.Query(
-		`SELECT id FROM assets WHERE type_key=? AND (natural_key=? OR natural_key LIKE ? ESCAPE '\')
+		`SELECT id FROM assets WHERE type_key=? AND (natural_key=? OR natural_key LIKE ? ESCAPE '!')
 		 ORDER BY natural_key`, TypeMiddlewareInst, addr, "%:"+escapeLike(addr))
 	if err != nil {
 		return nil, fmt.Errorf("查询实例资产失败: %w", err)
@@ -1757,8 +1765,12 @@ func (s *Store) assetsByInstanceAddr(addr string) ([]Asset, error) {
 
 // escapeLike 转义 LIKE 模式里的通配符：实例地址里出现 `_`（主机名常见）或 `%`
 // 时，不转义就会变成通配匹配，把不相干的资产也捞进来。
+//
+// 转义字符用 `!` 而不是反斜杠：反斜杠在 MySQL 的字符串字面量里另有含义
+// （`'\'` 会把引号转义掉，整条 SQL 变成未闭合字符串），SQLite 又不这么解释——
+// 同一个字符在两套方言里语义不同，换个不冲突的字符最省事。
 func escapeLike(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+	return strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(s)
 }
 
 // assetsByPodIdentity 找出「某节点上、某命名空间里、名字匹配」的 Pod 资产（供 Pod 日志 → 资产联动）。
@@ -1771,7 +1783,7 @@ func escapeLike(s string) string {
 // 调用方必须原样呈现候选，不能自己挑一条——挑错就是"看的是另一个 Pod"。
 //
 // node 为空表示"不知道在哪台机器上"（Pod 落在未注册节点时台账里就是空串）：
-// 此时退回只按命名空间 + 名字找，**不能**用 node='' 去匹配——那会把"不知道在哪"当成"就在这台"。
+// 此时退回只按命名空间 + 名字找，**不能**用 node=” 去匹配——那会把"不知道在哪"当成"就在这台"。
 func (s *Store) assetsByPodIdentity(node, namespace, name string) ([]Asset, error) {
 	namespace = strings.TrimSpace(namespace)
 	name = strings.TrimSpace(name)
@@ -2325,7 +2337,7 @@ func (s *Store) findingsOf(runID int64, limit int) ([]InspectFinding, error) {
 // setBaseline 把某资产的快照设为**该资产类型**的标杆（同类型只保留一个）。
 func (s *Store) setBaseline(b Baseline) error {
 	if _, err := s.db.Exec(
-		`INSERT INTO inspect_baselines(type_key,asset_id,asset_key,snapshot_id,set_by,set_at) VALUES(?,?,?,?,?,?)` + s.onConflict("type_key", "asset_id=excluded.asset_id, asset_key=excluded.asset_key, snapshot_id=excluded.snapshot_id, set_by=excluded.set_by, set_at=excluded.set_at"),
+		`INSERT INTO inspect_baselines(type_key,asset_id,asset_key,snapshot_id,set_by,set_at) VALUES(?,?,?,?,?,?)`+s.onConflict("type_key", "asset_id=excluded.asset_id, asset_key=excluded.asset_key, snapshot_id=excluded.snapshot_id, set_by=excluded.set_by, set_at=excluded.set_at"),
 		b.TypeKey, b.AssetID, b.AssetKey, b.SnapshotID, b.SetBy, b.SetAt,
 	); err != nil {
 		return fmt.Errorf("设置巡检标杆失败: %w", err)
@@ -2436,120 +2448,120 @@ func (s *Store) baselinesOf() ([]Baseline, error) {
 	defer rows.Close()
 	var out []Baseline
 	for rows.Next() {
-	var b Baseline
-	if err := rows.Scan(&b.TypeKey, &b.AssetID, &b.AssetKey, &b.SnapshotID, &b.SetBy, &b.SetAt); err != nil {
-		return nil, fmt.Errorf("读取巡检标杆失败: %w", err)
-	}
-	out = append(out, b)
+		var b Baseline
+		if err := rows.Scan(&b.TypeKey, &b.AssetID, &b.AssetKey, &b.SnapshotID, &b.SetBy, &b.SetAt); err != nil {
+			return nil, fmt.Errorf("读取巡检标杆失败: %w", err)
+		}
+		out = append(out, b)
 	}
 	return out, rows.Err()
-	}
+}
 
-	// ===== 关系总览与筛选子图（批次 22：全库视图）=====
-	//
-	// 两个查询回答两件不同的事：
-	//   - linkStats：**库里整体有哪些关系**（按形态聚合，行数与规模无关）；
-	//   - topologyByFilter：**某个子集长什么样**（先按条件选边、再把两端取成节点）。
-	//
-	// 共同的一条安全边界：**边的两端都必须可见**。只判一端，受限用户就能从"计数"或"图上多出来的
-	// 一个节点"里看出范围外资产的存在与规模——那正是范围裁剪要挡住的东西。
+// ===== 关系总览与筛选子图（批次 22：全库视图）=====
+//
+// 两个查询回答两件不同的事：
+//   - linkStats：**库里整体有哪些关系**（按形态聚合，行数与规模无关）；
+//   - topologyByFilter：**某个子集长什么样**（先按条件选边、再把两端取成节点）。
+//
+// 共同的一条安全边界：**边的两端都必须可见**。只判一端，受限用户就能从"计数"或"图上多出来的
+// 一个节点"里看出范围外资产的存在与规模——那正是范围裁剪要挡住的东西。
 
-	// scopeConds 把资产范围折算成可直接拼进 WHERE 的片段（形如 ` AND f.node IN (?)`）。
-	//
-	// 复用 assetWhere 而不是另写一套范围判定：节点维度的三态、业务标签维度的"受限但无选择器 → 恒不匹配"
-	// 只能有一处实现，否则"列表里看不见、总览却数得出来"这类越权迟早出现。
-	func scopeConds(alias string, scope ChangeScope) (string, []any) {
+// scopeConds 把资产范围折算成可直接拼进 WHERE 的片段（形如 ` AND f.node IN (?)`）。
+//
+// 复用 assetWhere 而不是另写一套范围判定：节点维度的三态、业务标签维度的"受限但无选择器 → 恒不匹配"
+// 只能有一处实现，否则"列表里看不见、总览却数得出来"这类越权迟早出现。
+func scopeConds(alias string, scope ChangeScope) (string, []any) {
 	where, args := assetWhere(alias, ListFilter{
-	Nodes:          scope.Nodes,
-	LabelSelectors: scope.LabelSelectors,
+		Nodes:          scope.Nodes,
+		LabelSelectors: scope.LabelSelectors,
 	})
 	return strings.TrimPrefix(where, " WHERE 1=1"), args
-	}
+}
 
-	// linkStats 按 (来源类型, 关系种类, 目标类型, 边来源) 聚合关系条数。
-	func (s *Store) linkStats(scope ChangeScope) ([]LinkStat, error) {
+// linkStats 按 (来源类型, 关系种类, 目标类型, 边来源) 聚合关系条数。
+func (s *Store) linkStats(scope ChangeScope) ([]LinkStat, error) {
 	fromCond, fromArgs := scopeConds("f", scope)
 	toCond, toArgs := scopeConds("t", scope)
 	where := " WHERE 1=1" + fromCond + toCond
 	args := append(append([]any{}, fromArgs...), toArgs...)
 
 	rows, err := s.db.Query(
-	`SELECT f.type_key, l.kind, t.type_key, l.source, COUNT(*), MIN(l.id)
+		`SELECT f.type_key, l.kind, t.type_key, l.source, COUNT(*), MIN(l.id)
 	 FROM asset_links l
 	 JOIN assets f ON f.id=l.from_id
 	 JOIN assets t ON t.id=l.to_id`+where+
-		` GROUP BY f.type_key, l.kind, t.type_key, l.source
+			` GROUP BY f.type_key, l.kind, t.type_key, l.source
 	   ORDER BY COUNT(*) DESC, f.type_key, l.kind, t.type_key, l.source`, args...)
 	if err != nil {
-	return nil, fmt.Errorf("统计资产关系失败: %w", err)
+		return nil, fmt.Errorf("统计资产关系失败: %w", err)
 	}
 	defer rows.Close()
 
 	out := make([]LinkStat, 0, 16)
 	sampleIDs := make([]int64, 0, 16)
 	for rows.Next() {
-	var st LinkStat
-	var kind, src string
-	var sampleID int64
-	if err := rows.Scan(&st.FromType, &kind, &st.ToType, &src, &st.Count, &sampleID); err != nil {
-		return nil, fmt.Errorf("读取资产关系统计失败: %w", err)
-	}
-	st.Kind, st.Source = LinkKind(kind), Source(src).normalized()
-	out = append(out, st)
-	sampleIDs = append(sampleIDs, sampleID)
+		var st LinkStat
+		var kind, src string
+		var sampleID int64
+		if err := rows.Scan(&st.FromType, &kind, &st.ToType, &src, &st.Count, &sampleID); err != nil {
+			return nil, fmt.Errorf("读取资产关系统计失败: %w", err)
+		}
+		st.Kind, st.Source = LinkKind(kind), Source(src).normalized()
+		out = append(out, st)
+		sampleIDs = append(sampleIDs, sampleID)
 	}
 	if err := rows.Err(); err != nil {
-	return nil, err
+		return nil, err
 	}
 	if err := s.fillLinkSamples(out, sampleIDs); err != nil {
-	return nil, err
+		return nil, err
 	}
 	return out, nil
-	}
+}
 
-	// fillLinkSamples 一次取回各组样本边（避免逐组查询变成 N+1）。
-	func (s *Store) fillLinkSamples(stats []LinkStat, ids []int64) error {
+// fillLinkSamples 一次取回各组样本边（避免逐组查询变成 N+1）。
+func (s *Store) fillLinkSamples(stats []LinkStat, ids []int64) error {
 	if len(ids) == 0 {
-	return nil
+		return nil
 	}
 	args := make([]any, 0, len(ids))
 	for _, id := range ids {
-	args = append(args, id)
+		args = append(args, id)
 	}
 	rows, err := s.db.Query(
-	`SELECT l.id, f.natural_key, f.name, t.natural_key, t.name
+		`SELECT l.id, f.natural_key, f.name, t.natural_key, t.name
 	 FROM asset_links l
 	 JOIN assets f ON f.id=l.from_id
 	 JOIN assets t ON t.id=l.to_id
 	 WHERE l.id IN (`+placeholders(len(ids))+`)`, args...)
 	if err != nil {
-	return fmt.Errorf("查询关系样本失败: %w", err)
+		return fmt.Errorf("查询关系样本失败: %w", err)
 	}
 	defer rows.Close()
 	byID := map[int64]LinkStatSample{}
 	for rows.Next() {
-	var id int64
-	var sample LinkStatSample
-	if err := rows.Scan(&id, &sample.FromKey, &sample.FromName, &sample.ToKey, &sample.ToName); err != nil {
-		return fmt.Errorf("读取关系样本失败: %w", err)
-	}
-	byID[id] = sample
+		var id int64
+		var sample LinkStatSample
+		if err := rows.Scan(&id, &sample.FromKey, &sample.FromName, &sample.ToKey, &sample.ToName); err != nil {
+			return fmt.Errorf("读取关系样本失败: %w", err)
+		}
+		byID[id] = sample
 	}
 	if err := rows.Err(); err != nil {
-	return err
+		return err
 	}
 	for i := range stats {
-	stats[i].Sample = byID[ids[i]]
+		stats[i].Sample = byID[ids[i]]
 	}
 	return nil
-	}
+}
 
-	// assetsWithoutLinks 统计"在范围内、但没有任何一条两端都在范围内的边"的资产数。
-	//
-	// 它是台账质量的信号（纳管了却没接线）。两个口径上的选择与台账首页可比：
-	//   - **两端都要在范围内**才算"有边"，否则受限用户会看到偏小的数字（差异本身就是范围外的信息）；
-	//   - 排除短命运行时对象（容器/工作负载）与被忽略的资产——它们本来就不在首页资产数里。
-	func (s *Store) assetsWithoutLinks(scope ChangeScope) (int, error) {
+// assetsWithoutLinks 统计"在范围内、但没有任何一条两端都在范围内的边"的资产数。
+//
+// 它是台账质量的信号（纳管了却没接线）。两个口径上的选择与台账首页可比：
+//   - **两端都要在范围内**才算"有边"，否则受限用户会看到偏小的数字（差异本身就是范围外的信息）；
+//   - 排除短命运行时对象（容器/工作负载）与被忽略的资产——它们本来就不在首页资产数里。
+func (s *Store) assetsWithoutLinks(scope ChangeScope) (int, error) {
 	// Ignored 用零值（= 不含已忽略）：与台账首页的资产数同口径——被忽略的资产本来就不算在里面。
 	where, args := assetWhere("a", ListFilter{
 		Nodes:          scope.Nodes,
@@ -2564,28 +2576,28 @@ func (s *Store) baselinesOf() ([]Baseline, error) {
 
 	var n int
 	if err := s.db.QueryRow(
-	`SELECT COUNT(*) FROM assets a`+where+
-		` AND NOT EXISTS (SELECT 1 FROM asset_links l JOIN assets t ON t.id=l.to_id
+		`SELECT COUNT(*) FROM assets a`+where+
+			` AND NOT EXISTS (SELECT 1 FROM asset_links l JOIN assets t ON t.id=l.to_id
 	       WHERE l.from_id=a.id`+toCond+`)
 	   AND NOT EXISTS (SELECT 1 FROM asset_links l JOIN assets f ON f.id=l.from_id
 	       WHERE l.to_id=a.id`+fromCond+`)`, args...).Scan(&n); err != nil {
-	return 0, fmt.Errorf("统计无边资产失败: %w", err)
+		return 0, fmt.Errorf("统计无边资产失败: %w", err)
 	}
 	return n, nil
-	}
+}
 
-	// topologyByFilter 按筛选取子图：先选边、再取两端为节点。
-	//
-	// 返回 (节点, 边, 符合筛选的边总数, 是否截断, err)。与邻域查询共用 assetsByIDs 与同一套排序口径，
-	// 两张图的节点形态一致。
-	func (s *Store) topologyByFilter(flt TopologyFilter) ([]TopologyNode, []TopologyEdge, int, bool, error) {
+// topologyByFilter 按筛选取子图：先选边、再取两端为节点。
+//
+// 返回 (节点, 边, 符合筛选的边总数, 是否截断, err)。与邻域查询共用 assetsByIDs 与同一套排序口径，
+// 两张图的节点形态一致。
+func (s *Store) topologyByFilter(flt TopologyFilter) ([]TopologyNode, []TopologyEdge, int, bool, error) {
 	maxEdges := flt.MaxEdges
 	if maxEdges <= 0 || maxEdges > MaxTopologyEdges {
-	maxEdges = MaxTopologyEdges
+		maxEdges = MaxTopologyEdges
 	}
 	maxNodes := flt.MaxNodes
 	if maxNodes <= 0 || maxNodes > MaxTopologyNodes {
-	maxNodes = MaxTopologyNodes
+		maxNodes = MaxTopologyNodes
 	}
 
 	fromCond, fromArgs := scopeConds("f", flt.Scope)
@@ -2594,75 +2606,75 @@ func (s *Store) baselinesOf() ([]Baseline, error) {
 	args := append(append([]any{}, fromArgs...), toArgs...)
 
 	if len(flt.Kinds) > 0 {
-	where += " AND l.kind IN (" + placeholders(len(flt.Kinds)) + ")"
-	for _, k := range flt.Kinds {
-		args = append(args, string(k))
-	}
+		where += " AND l.kind IN (" + placeholders(len(flt.Kinds)) + ")"
+		for _, k := range flt.Kinds {
+			args = append(args, string(k))
+		}
 	}
 	if len(flt.Sources) > 0 {
-	where += " AND l.source IN (" + placeholders(len(flt.Sources)) + ")"
-	for _, src := range flt.Sources {
-		args = append(args, string(src.normalized()))
-	}
+		where += " AND l.source IN (" + placeholders(len(flt.Sources)) + ")"
+		for _, src := range flt.Sources {
+			args = append(args, string(src.normalized()))
+		}
 	}
 	// 类型与归属节点都是"两端任一命中"：筛选问的是"这批边里有没有这类资产参与"，
 	// 而不是"两端都必须是它"（后者会把绝大部分边筛掉，图上只剩两条腿一样的结构）。
 	if len(flt.Types) > 0 {
-	ph := placeholders(len(flt.Types))
-	where += " AND (f.type_key IN (" + ph + ") OR t.type_key IN (" + ph + "))"
-	for _, t := range flt.Types {
-		args = append(args, t)
-	}
-	for _, t := range flt.Types {
-		args = append(args, t)
-	}
+		ph := placeholders(len(flt.Types))
+		where += " AND (f.type_key IN (" + ph + ") OR t.type_key IN (" + ph + "))"
+		for _, t := range flt.Types {
+			args = append(args, t)
+		}
+		for _, t := range flt.Types {
+			args = append(args, t)
+		}
 	}
 	if len(flt.Nodes) > 0 {
-	ph := placeholders(len(flt.Nodes))
-	where += " AND (f.node IN (" + ph + ") OR t.node IN (" + ph + "))"
-	for _, n := range flt.Nodes {
-		args = append(args, n)
-	}
-	for _, n := range flt.Nodes {
-		args = append(args, n)
-	}
+		ph := placeholders(len(flt.Nodes))
+		where += " AND (f.node IN (" + ph + ") OR t.node IN (" + ph + "))"
+		for _, n := range flt.Nodes {
+			args = append(args, n)
+		}
+		for _, n := range flt.Nodes {
+			args = append(args, n)
+		}
 	}
 
 	var total int
 	if err := s.db.QueryRow(
-	`SELECT COUNT(*) FROM asset_links l
+		`SELECT COUNT(*) FROM asset_links l
 	 JOIN assets f ON f.id=l.from_id JOIN assets t ON t.id=l.to_id`+where, args...).Scan(&total); err != nil {
-	return nil, nil, 0, false, fmt.Errorf("统计符合条件的关系失败: %w", err)
+		return nil, nil, 0, false, fmt.Errorf("统计符合条件的关系失败: %w", err)
 	}
 
 	rows, err := s.db.Query(
-	`SELECT l.id, l.from_id, l.to_id, l.kind, l.source, l.created_at
+		`SELECT l.id, l.from_id, l.to_id, l.kind, l.source, l.created_at
 	 FROM asset_links l
 	 JOIN assets f ON f.id=l.from_id JOIN assets t ON t.id=l.to_id`+where+
-		` ORDER BY l.id LIMIT ?`, append(args, maxEdges+1)...)
+			` ORDER BY l.id LIMIT ?`, append(args, maxEdges+1)...)
 	if err != nil {
-	return nil, nil, 0, false, fmt.Errorf("查询关系子图失败: %w", err)
+		return nil, nil, 0, false, fmt.Errorf("查询关系子图失败: %w", err)
 	}
 	defer rows.Close()
 
 	type rawEdge struct {
-	id, fromID, toID, at int64
-	kind, src            string
+		id, fromID, toID, at int64
+		kind, src            string
 	}
 	raw := make([]rawEdge, 0, maxEdges)
 	for rows.Next() {
-	var e rawEdge
-	if err := rows.Scan(&e.id, &e.fromID, &e.toID, &e.kind, &e.src, &e.at); err != nil {
-		return nil, nil, 0, false, fmt.Errorf("读取关系子图失败: %w", err)
-	}
-	raw = append(raw, e)
+		var e rawEdge
+		if err := rows.Scan(&e.id, &e.fromID, &e.toID, &e.kind, &e.src, &e.at); err != nil {
+			return nil, nil, 0, false, fmt.Errorf("读取关系子图失败: %w", err)
+		}
+		raw = append(raw, e)
 	}
 	if err := rows.Err(); err != nil {
-	return nil, nil, 0, false, err
+		return nil, nil, 0, false, err
 	}
 	truncated := len(raw) > maxEdges
 	if truncated {
-	raw = raw[:maxEdges]
+		raw = raw[:maxEdges]
 	}
 
 	// 节点集合按边的顺序收，收满上限就停：**先到先得**是刻意的——
@@ -2670,55 +2682,55 @@ func (s *Store) baselinesOf() ([]Baseline, error) {
 	ids := make([]int64, 0, maxNodes)
 	seen := map[int64]bool{}
 	for _, e := range raw {
-	for _, id := range [2]int64{e.fromID, e.toID} {
-		if seen[id] {
-			continue
+		for _, id := range [2]int64{e.fromID, e.toID} {
+			if seen[id] {
+				continue
+			}
+			if len(ids) >= maxNodes {
+				truncated = true
+				continue
+			}
+			seen[id] = true
+			ids = append(ids, id)
 		}
-		if len(ids) >= maxNodes {
-			truncated = true
-			continue
-		}
-		seen[id] = true
-		ids = append(ids, id)
-	}
 	}
 
 	assets, err := s.assetsByIDs(ids)
 	if err != nil {
-	return nil, nil, 0, false, err
+		return nil, nil, 0, false, err
 	}
 	byID := make(map[int64]Asset, len(assets))
 	for _, a := range assets {
-	byID[a.ID] = a
+		byID[a.ID] = a
 	}
 	nodes := make([]TopologyNode, 0, len(assets))
 	for _, a := range assets {
-	// Depth 统一为 0：这张图没有中心，界面不该显示"几跳"（那是邻域才有的概念）。
-	nodes = append(nodes, TopologyNode{Asset: a})
+		// Depth 统一为 0：这张图没有中心，界面不该显示"几跳"（那是邻域才有的概念）。
+		nodes = append(nodes, TopologyNode{Asset: a})
 	}
 	sort.SliceStable(nodes, func(i, j int) bool {
-	if nodes[i].Asset.TypeKey != nodes[j].Asset.TypeKey {
-		return nodes[i].Asset.TypeKey < nodes[j].Asset.TypeKey
-	}
-	return nodes[i].Asset.NaturalKey < nodes[j].Asset.NaturalKey
+		if nodes[i].Asset.TypeKey != nodes[j].Asset.TypeKey {
+			return nodes[i].Asset.TypeKey < nodes[j].Asset.TypeKey
+		}
+		return nodes[i].Asset.NaturalKey < nodes[j].Asset.NaturalKey
 	})
 
 	edges := make([]TopologyEdge, 0, len(raw))
 	for _, e := range raw {
-	from, ok1 := byID[e.fromID]
-	to, ok2 := byID[e.toID]
-	if !ok1 || !ok2 {
-		continue // 端点被节点上限挡在外面：这条边在本次子图里不成立
-	}
-	edges = append(edges, TopologyEdge{
-		FromID: e.fromID, ToID: e.toID,
-		From: Ref{TypeKey: from.TypeKey, NaturalKey: from.NaturalKey},
-		To:   Ref{TypeKey: to.TypeKey, NaturalKey: to.NaturalKey},
-		Kind: LinkKind(e.kind), Source: Source(e.src).normalized(), CreatedAt: e.at,
-	})
+		from, ok1 := byID[e.fromID]
+		to, ok2 := byID[e.toID]
+		if !ok1 || !ok2 {
+			continue // 端点被节点上限挡在外面：这条边在本次子图里不成立
+		}
+		edges = append(edges, TopologyEdge{
+			FromID: e.fromID, ToID: e.toID,
+			From: Ref{TypeKey: from.TypeKey, NaturalKey: from.NaturalKey},
+			To:   Ref{TypeKey: to.TypeKey, NaturalKey: to.NaturalKey},
+			Kind: LinkKind(e.kind), Source: Source(e.src).normalized(), CreatedAt: e.at,
+		})
 	}
 	if len(edges) < len(raw) {
-	truncated = true
+		truncated = true
 	}
 	return nodes, edges, total, truncated, nil
-	}
+}

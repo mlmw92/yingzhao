@@ -2,6 +2,9 @@ package ai
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -46,7 +49,12 @@ type InvestigationStore struct {
 	max     int
 	keepFor time.Duration
 	items   []Investigation
+	// loadErr 记录读取失败（不是「文档不存在」）：内存为空时写入会覆盖原文档。
+	loadErr error
 }
+
+// LoadError 返回构造时读取文档的错误（nil 表示正常；文档不存在不算错误）。
+func (s *InvestigationStore) LoadError() error { return s.loadErr }
 
 func NewInvestigationStore(path string, max int, keepFor time.Duration) *InvestigationStore {
 	return NewInvestigationStoreWithPersister(configdoc.NewFilePersister(path), max, keepFor)
@@ -61,9 +69,17 @@ func NewInvestigationStoreWithPersister(p configdoc.Persister, max int, keepFor 
 func (s *InvestigationStore) load() {
 	data, err := s.p.Load()
 	if err != nil {
+		if !errors.Is(err, configdoc.ErrNotFound) {
+			s.loadErr = fmt.Errorf("读取 AI 调查记录失败: %w", err)
+			slog.Error("读取 AI 调查记录失败，已禁止写入以免覆盖原数据", "doc", s.p.Name(), "err", err)
+		}
 		return
 	}
-	_ = json.Unmarshal(data, &s.items)
+	if err := json.Unmarshal(data, &s.items); err != nil {
+		s.loadErr = fmt.Errorf("解析 AI 调查记录失败: %w", err)
+		slog.Error("解析 AI 调查记录失败，已禁止写入以免覆盖原数据", "doc", s.p.Name(), "err", err)
+		return
+	}
 	// 进程在调查中途重启：running 记录不能永远停在「调查中」
 	changed := false
 	for i := range s.items {
@@ -81,6 +97,10 @@ func (s *InvestigationStore) load() {
 }
 
 func (s *InvestigationStore) persistLocked() {
+	if s.loadErr != nil {
+		slog.Error("AI 调查记录存储处于读取失败状态，已跳过写入", "doc", s.p.Name(), "err", s.loadErr)
+		return
+	}
 	data, _ := json.MarshalIndent(s.items, "", "  ")
 	_ = s.p.Save(data)
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,6 +14,16 @@ import (
 
 // SetSelfMon 注入自监控收集器（可选）。需在 RegisterRoutes 之前调用。
 func (a *API) SetSelfMon(mon *selfmon.Monitor) { a.selfmon = mon }
+
+// DBProbe 是就绪探针需要的最小数据库能力（*sql.DB 天然满足）。
+// 用接口而不是 *sql.DB：测试不需要引入具体驱动。
+type DBProbe interface {
+	PingContext(ctx context.Context) error
+}
+
+// SetStateDB 注入状态库，用于 /readyz 探活。生产路径必须调用：
+// 数据库是硬依赖，连不上时读接口只是缓存、写接口已经全部失败，实例应当被摘除。
+func (a *API) SetStateDB(db DBProbe) { a.stateDB = db }
 
 // metricsResponseWriter 记录响应状态码，供自监控统计错误率。
 type metricsResponseWriter struct {
@@ -103,6 +114,19 @@ func (a *API) handleReadyz(w http.ResponseWriter, r *http.Request) {
 			markBad("tsdb", "查询失败: "+err.Error())
 		} else {
 			checks["tsdb"] = readyCheck{OK: true, Detail: a.store.Backend()}
+		}
+	}
+
+	// 状态库：硬依赖（设计件 §5.4）。DB 挂掉时读接口只能靠内存缓存、写接口已经失败，
+	// 探针必须让负载均衡把实例摘掉。带超时，避免探针自己卡在黑洞连接上。
+	if a.stateDB != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		err := a.stateDB.PingContext(ctx)
+		cancel()
+		if err != nil {
+			markBad("database", "连接失败: "+err.Error())
+		} else {
+			checks["database"] = readyCheck{OK: true}
 		}
 	}
 

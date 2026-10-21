@@ -8,27 +8,40 @@ import (
 // DB / Tx 包一层 database/sql，在 MySQL 模式下改写少量 SQL 方言差异。
 //
 // 只有两类改写，且都只在 MySQL 生效：
-//   - 标识符 key 是 MySQL 保留字，必须加反引号（SQLite 里也能用，但只在 MySQL 时改写，
+//   - 保留字标识符（key、rows）必须加反引号（SQLite 里也能用，但只在 MySQL 时改写，
 //     避免影响 SQLite 已有语句的可读性）；
 //   - SQLite 的 COLLATE NOCASE 在 MySQL 下不存在：MySQL 默认排序规则本就大小写不敏感。
 //
-// 不改写字符串字面量里的内容：本项目的 SQL 里没有含 "key" 的字符串字面量。
-var (
-	keyIdent      = regexp.MustCompile("(^|[^`\\w])key([^`\\w]|$)")
-	collateNoCase = regexp.MustCompile(`(?i)\s+COLLATE\s+NOCASE`)
-)
+// 不改写字符串字面量里的内容：本项目的 SQL 里没有含这些标识符的字符串字面量。
+//
+// **这条正则改写路线是过渡方案**：它只认识这里列出的保留字，任何新增的保留字列
+// （或绕过 sqlx 包装的裸 *sql.DB 调用）都不会被覆盖。多数据库支持会把这里换成
+// 显式的 Dialect 接口（见设计件阶段 2–6 审查记录），新 SQL 请优先使用带反引号的写法。
+var reservedIdents = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	{regexp.MustCompile("(^|[^`\\w])key([^`\\w]|$)"), "$1`key`$2"},
+	{regexp.MustCompile("(^|[^`\\w])rows([^`\\w]|$)"), "$1`rows`$2"},
+	// schema 是 MySQL 8 保留字；schema_version 这种带下划线的名字不会被匹配（`\w` 挡住）。
+	{regexp.MustCompile("(^|[^`\\w])schema([^`\\w]|$)"), "$1`schema`$2"},
+}
+
+var collateNoCase = regexp.MustCompile(`(?i)\s+COLLATE\s+NOCASE`)
 
 func rewriteQuery(q string, mysql bool) string {
 	if !mysql {
 		return q
 	}
-	// 反复替换直到不再变化：单次替换遇到连续的 key token 会漏掉边界。
-	for {
-		next := keyIdent.ReplaceAllString(q, "$1`key`$2")
-		if next == q {
-			break
+	for _, ident := range reservedIdents {
+		// 反复替换直到不再变化：单次替换遇到连续的同名 token 会漏掉边界。
+		for {
+			next := ident.re.ReplaceAllString(q, ident.repl)
+			if next == q {
+				break
+			}
+			q = next
 		}
-		q = next
 	}
 	return collateNoCase.ReplaceAllString(q, "")
 }

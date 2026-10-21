@@ -87,6 +87,10 @@ func NormalizeDSN(dsn string) (string, error) {
 	if _, ok := cfg.Params["charset"]; !ok {
 		cfg.Params["charset"] = "utf8mb4"
 	}
+	// 让 UPDATE 回报「匹配到的行」而不是「值真的变了的行」。
+	// 代码里有把 RowsAffected==0 当作「行不存在」的地方（保存资产类型模型），
+	// 默认语义下内容没变的保存会被误判成 404。DELETE 不受这个开关影响。
+	cfg.ClientFoundRows = true
 	return cfg.FormatDSN(), nil
 }
 

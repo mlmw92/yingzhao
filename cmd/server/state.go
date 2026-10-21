@@ -31,6 +31,7 @@ const (
 
 	// 阶段 2：协作状态
 	nsRules          = "alert_rules"
+	nsRulesSeed      = "alert_rules_seed"
 	nsDialtest       = "dialtest"
 	nsApprovals      = "approvals"
 	nsInvestigations = "ai_investigations"
@@ -39,7 +40,7 @@ const (
 
 // openStateDB 打开 MySQL 状态库并执行 Schema 迁移。
 // 阶段 1 起数据库是硬依赖：连不上就启动失败，不退回文件。
-func openStateDB(ctx context.Context, cfg config.Config) (*sql.DB, error) {
+func openStateDB(ctx context.Context, cfg config.Config) (*sql.DB, int, error) {
 	pool, err := db.Open(ctx, db.Config{
 		DSN:             cfg.Database.DSN,
 		MaxOpenConns:    cfg.Database.MaxOpenConns,
@@ -47,18 +48,19 @@ func openStateDB(ctx context.Context, cfg config.Config) (*sql.DB, error) {
 		ConnMaxLifetime: time.Duration(cfg.Database.ConnMaxLifetime) * time.Second,
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	migrations, err := migrate.Load()
 	if err != nil {
 		_ = pool.Close()
-		return nil, fmt.Errorf("加载迁移失败: %w", err)
+		return nil, 0, fmt.Errorf("加载迁移失败: %w", err)
 	}
-	if _, err := migrate.Apply(ctx, pool, migrations); err != nil {
+	applied, err := migrate.Apply(ctx, pool, migrations)
+	if err != nil {
 		_ = pool.Close()
-		return nil, fmt.Errorf("执行迁移失败: %w", err)
+		return nil, 0, fmt.Errorf("执行迁移失败: %w", err)
 	}
-	return pool, nil
+	return pool, applied, nil
 }
 
 // persisterFactory 按命名空间构造配置文档的后端。
@@ -75,4 +77,10 @@ func (f persisterFactory) plain(ns string) configdoc.Persister {
 // sensitive 返回加密的文档后端（含密钥/口令的配置）。
 func (f persisterFactory) sensitive(ns string) configdoc.Persister {
 	return configdoc.NewDBPersister(f.store, ns, f.key)
+}
+
+// plainJSON 返回不加密、格式标签为 json 的文档后端（审批单、AI 调查记录）。
+// 格式只是元数据（读取时不做转换），但标错会误导排障时手工解码。
+func (f persisterFactory) plainJSON(ns string) configdoc.Persister {
+	return configdoc.NewDBPersisterFormat(f.store, ns, nil, "json")
 }

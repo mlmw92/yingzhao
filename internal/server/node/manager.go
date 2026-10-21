@@ -154,7 +154,7 @@ func (m *Manager) Register(p *model.ReportPayload) {
 		n.Version = p.Version
 	}
 	if hasHostInfo(p.HostInfo) {
-		if !reflect.DeepEqual(n.HostInfo, p.HostInfo) {
+		if !reflect.DeepEqual(stableHostInfo(n.HostInfo), stableHostInfo(p.HostInfo)) {
 			regChanged = true
 		}
 		n.HostInfo = p.HostInfo
@@ -182,6 +182,32 @@ func (m *Manager) LastPayload(node string) *model.ReportPayload {
 
 func hasHostInfo(info model.HostInfo) bool {
 	return info.CPUModel != "" || info.CPUCores > 0 || info.MemoryTotal > 0 || info.DiskTotal > 0 || len(info.Disks) > 0
+}
+
+// stableHostInfo 只保留**注册级**的主机信息，用于判断"要不要整份写库"。
+//
+// 磁盘已用/剩余/使用率与在线用户每轮上报都在变（Agent 默认 15 秒一轮），
+// 把它们算进变化检测等于让每次上报都触发一次全表 SaveMeta——节点表变成写热点，
+// 而且这次写是在 Manager 的写锁里同步做事务，会把上报与节点页一起拖住。
+//
+// 这些易变值仍然留在内存快照里（界面读的是内存），只是不再决定"是否落库"。
+// 代价：Server 重启后、节点下一次上报前（≤15 秒），库里的磁盘已用是上次落库时的值。
+func stableHostInfo(info model.HostInfo) model.HostInfo {
+	out := info
+	out.DiskUsed = 0
+	out.OnlineUsers = nil
+	if info.Disks != nil {
+		out.Disks = make([]model.DiskStat, len(info.Disks))
+		for i, d := range info.Disks {
+			out.Disks[i] = model.DiskStat{
+				Mountpoint: d.Mountpoint,
+				Device:     d.Device,
+				Fstype:     d.Fstype,
+				Total:      d.Total,
+			}
+		}
+	}
+	return out
 }
 
 // OfflineStale 将超过离线阈值的节点标记为 offline。

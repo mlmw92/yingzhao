@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/mlmw92/yingzhao/internal/server/config"
 )
@@ -99,7 +100,9 @@ type documentEnvelope struct {
 func (p *DBPersister) Load() ([]byte, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	payload, version, err := p.store.Load(context.Background(), p.ns)
+	ctx, cancel := p.opCtx()
+	defer cancel()
+	payload, version, err := p.store.Load(ctx, p.ns)
 	if errors.Is(err, ErrNotFound) {
 		return nil, ErrNotFound
 	}
@@ -156,7 +159,19 @@ func (p *DBPersister) Save(data []byte) error {
 	if err != nil {
 		return err
 	}
-	version, err := p.store.Save(context.Background(), p.ns, payload, p.version)
+	ctx, cancel := p.opCtx()
+	defer cancel()
+	version, err := p.store.Save(ctx, p.ns, payload, p.version)
+	if errors.Is(err, ErrVersionConflict) {
+		// 版本过期（外部工具/第二个进程/从备份恢复改过同一 namespace）。
+		// 重读一次版本再重试：不重试的话 p.version 永远停在旧值，
+		// 之后每一次 Save 都会冲突，这个 namespace 从此只读——而 store 层
+		// 大多只记一条日志就当成功，用户看到的是"保存成功、数据没变"。
+		if _, fresh, loadErr := p.store.Load(ctx, p.ns); loadErr == nil {
+			p.version = fresh
+			version, err = p.store.Save(ctx, p.ns, payload, p.version)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -222,4 +237,14 @@ func LoadKey(path string) ([]byte, error) {
 		return nil, fmt.Errorf("写入主密钥失败: %w", err)
 	}
 	return key, nil
+}
+
+// dbOpTimeout 是单次配置文档读写的上限。
+//
+// 不加超时的话，DB 网络黑洞或锁等待会让保存请求永久挂起——HTTP 连接不返回，
+// 进程退出也会被拖住。10 秒足够任何正常读写，也远小于运维的耐心。
+const dbOpTimeout = 10 * time.Second
+
+func (p *DBPersister) opCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), dbOpTimeout)
 }

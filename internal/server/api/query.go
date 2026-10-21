@@ -126,22 +126,23 @@ type API struct {
 	// 与"默认关闭"同义——审批是可选护栏，缺了它平台照常工作。
 	approval    *approval.Store
 	approvalCfg *approval.ConfigStore
-	authStore      *auth.Store            // 多用户角色权限存储（可空：未启用登录认证时为 nil）
-	analysis       *analysis.Analyzer     // 只读智能分析服务（可空）
-	pipeline       *alert.PipelineStore   // 告警事件管道：relabel/enrich/消息模板（可空）
-	selfmon        *selfmon.Monitor       // 自监控收集器（可空；不注入时探针仍可用，只是没有进程指标）
-	retention      *retention.Manager     // 数据保留策略（可空；不注入时接口返回默认策略）
-	mwRegistry     *mwreg.Registry        // 中间件类型注册表（可空；未注入时退化为内置类型）
+	authStore   *auth.Store          // 多用户角色权限存储（可空：未启用登录认证时为 nil）
+	analysis    *analysis.Analyzer   // 只读智能分析服务（可空）
+	pipeline    *alert.PipelineStore // 告警事件管道：relabel/enrich/消息模板（可空）
+	selfmon     *selfmon.Monitor     // 自监控收集器（可空；不注入时探针仍可用，只是没有进程指标）
+	stateDB     DBProbe              // 状态库探活（可空；生产路径必注入，见 SetStateDB）
+	retention   *retention.Manager   // 数据保留策略（可空；不注入时接口返回默认策略）
+	mwRegistry  *mwreg.Registry      // 中间件类型注册表（可空；未注入时退化为内置类型）
 	// 集中日志存储（C2；可空，未注入时检索接口返回 503）。
 	// 用接口而不是具体类型：日志后端可替换（默认自研落盘，可选 VictoriaLogs，ADR-0002）。
-	logs           logstore.LogStore
+	logs logstore.LogStore
 	// 报告周期化调度（可空；未注入时相关接口返回 503）
 	reportSched ReportScheduleProvider
 	// 周期化巡检（可空；未注入时相关接口返回 503）。与报告调度同构，但它多一件事：
 	// 范围要按身份折算（见 InspectScopeSnapshot），因为巡检范围是**授权**的一部分。
 	inspectSched InspectScheduleProvider
-	assets       AssetProvider          // 资产台账（可空；未注入时资产接口返回 503）
-	startedAt      time.Time              // 进程启动时间，供 /healthz、/readyz 报告运行时长
+	assets       AssetProvider // 资产台账（可空；未注入时资产接口返回 503）
+	startedAt    time.Time     // 进程启动时间，供 /healthz、/readyz 报告运行时长
 }
 
 // SetDashboardManager 注入仪表盘配置管理器（可选，不注入则相关接口返回空列表）。

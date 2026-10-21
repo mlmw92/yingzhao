@@ -195,6 +195,16 @@ func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
 	s.mysql = mysql
 	s.events = nil // 入库模式下不再维护内存副本，读走 SQL
 	s.mu.Unlock()
+
+	// 初始化链头行（幂等）。设计件 §4.4.2：不插这一行的话，首次并发写时
+	// 两个事务都会走 ErrNoRows 分支、各自算出 seq=1——PK 冲突让后者整事务回滚
+	// （丢一条审计），或直接死锁。单实例下进程内锁掩盖了它，但维护脚本、
+	// 从备份恢复、未来重启多实例都会踩到。
+	initSQL := `INSERT INTO audit_chain(id, seq, hash, key_fingerprint, updated_ms)
+		VALUES(1, 0, '', '', 0)` + sqlx.UpsertNothing(mysql, "id")
+	if _, err := s.db.Exec(initSQL); err != nil {
+		return fmt.Errorf("初始化审计链头失败: %w", err)
+	}
 	return nil
 }
 

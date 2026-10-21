@@ -68,7 +68,7 @@ type logStorageView struct {
 // 与 /api/v1/system/retention 同一取向：只读、如实报告、**探测失败就说失败**（不显示成 0）。
 func (a *API) handleLogsBackend(w http.ResponseWriter, r *http.Request) {
 	if a.logs == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "集中日志未启用（server.yaml 的 logDir）"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "集中日志未启用（未配置 logVictoriaLogs.addr 或初始化失败）"})
 		return
 	}
 	cap := a.logs.Capability()
@@ -100,7 +100,7 @@ func (a *API) handleLogsBackend(w http.ResponseWriter, r *http.Request) {
 // handleLogsQuery 处理集中日志检索。
 func (a *API) handleLogsQuery(w http.ResponseWriter, r *http.Request) {
 	if a.logs == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "集中日志未启用（server.yaml 的 logDir）"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "集中日志未启用（未配置 logVictoriaLogs.addr 或初始化失败）"})
 		return
 	}
 	q, err := parseLogQuery(r)
@@ -459,7 +459,7 @@ func parseLogPodFilters(raw []string) ([]model.LogPodFilter, error) {
 // 按一个永远查不到的名字去筛，然后怀疑功能坏了。
 func (a *API) handleLogFields(w http.ResponseWriter, r *http.Request) {
 	if a.logs == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "集中日志未启用（server.yaml 的 logDir）"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "集中日志未启用（未配置 logVictoriaLogs.addr 或初始化失败）"})
 		return
 	}
 	sources := splitCSV(r.URL.Query().Get("sources"))

@@ -12,14 +12,15 @@ import (
 
 // isConflictError 把 MySQL 的并发冲突翻译成契约里的 ErrVersionConflict。
 //
-// 1062 = duplicate key，1213 = deadlock。两者都表示「另一个写入者先完成了」：
-// 调用方应当重读版本后重试，而不是看到一个原始驱动错误。
+// 1062 = duplicate key，1213 = deadlock，1205 = lock wait timeout。
+// 三者都表示「另一个写入者先完成了」：调用方应当重读版本后重试，
+// 而不是看到一个原始驱动错误。
 func isConflictError(err error) bool {
 	var me *mysql.MySQLError
 	if !errors.As(err, &me) {
 		return false
 	}
-	return me.Number == 1062 || me.Number == 1213
+	return me.Number == 1062 || me.Number == 1213 || me.Number == 1205
 }
 
 // MySQLStore 把配置文档存进 config_documents 表。

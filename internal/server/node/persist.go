@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // Persist 是节点元数据的持久化后端。
@@ -188,6 +189,11 @@ func (p *mysqlPersist) SaveMeta(mf metaFile) error {
 }
 
 // FlushHeartbeat 批量刷新 last_seen/status（单事务）。
+//
+// 用 upsert 而不是 UPDATE：首次注册的 SaveMeta 若因瞬时 DB 错误失败，内存里有节点、
+// 库里没有行，之后 regChanged 一直为 false、不会重试 SaveMeta；只 UPDATE 的话
+// 这个节点会永久缺席（影响 0 行且不报错）。upsert 先把行补出来，注册字段留默认值，
+// 下一次注册变化时 SaveMeta 会补全。
 func (p *mysqlPersist) FlushHeartbeat(states []heartbeat) error {
 	if len(states) == 0 {
 		return nil
@@ -198,9 +204,11 @@ func (p *mysqlPersist) FlushHeartbeat(states []heartbeat) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	now := time.Now().UnixMilli()
+	stmt := `INSERT INTO nodes(hostname, status, last_seen, created_at, updated_at)
+		VALUES(?,?,?,?,?)` + sqlx.Upsert(true, "hostname",
+		"last_seen=MAX(last_seen, excluded.last_seen), status=excluded.status, updated_at=excluded.updated_at")
 	for _, s := range states {
-		if _, err := tx.Exec(`UPDATE nodes SET last_seen=GREATEST(last_seen, ?), status=?, updated_at=?
-			WHERE hostname=?`, s.LastSeen, s.Status, now, s.Hostname); err != nil {
+		if _, err := tx.Exec(stmt, s.Hostname, s.Status, s.LastSeen, now, now); err != nil {
 			return fmt.Errorf("刷新节点 %s 心跳失败: %w", s.Hostname, err)
 		}
 	}

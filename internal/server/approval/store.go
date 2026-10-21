@@ -163,7 +163,12 @@ type Store struct {
 	now   func() int64
 	pmu   sync.Mutex
 	limit int
+	// loadErr 记录读取失败（不是「文档不存在」）：内存为空时写入会覆盖原文档。
+	loadErr error
 }
+
+// LoadError 返回构造时读取文档的错误（nil 表示正常；文档不存在不算错误）。
+func (s *Store) LoadError() error { return s.loadErr }
 
 // NewStore 用文件持久化（测试与迁移源；file 为空时用默认文件名）。
 func NewStore(file string) *Store {
@@ -205,7 +210,8 @@ func (s *Store) load() {
 	data, err := s.p.Load()
 	if err != nil {
 		if !errors.Is(err, configdoc.ErrNotFound) {
-			slog.Warn("读取审批单存储失败", "err", err, "doc", s.p.Name())
+			s.loadErr = fmt.Errorf("读取审批单存储失败: %w", err)
+			slog.Error("读取审批单存储失败，已禁止写入以免覆盖原数据", "err", err, "doc", s.p.Name())
 		}
 		return
 	}
@@ -214,7 +220,8 @@ func (s *Store) load() {
 		Seq      int64      `json:"seq"`
 	}
 	if err := json.Unmarshal(data, &snap); err != nil {
-		slog.Warn("审批单存储解析失败（按空库继续）", "err", err, "doc", s.p.Name())
+		s.loadErr = fmt.Errorf("解析审批单存储失败: %w", err)
+		slog.Error("解析审批单存储失败，已禁止写入以免覆盖原数据", "err", err, "doc", s.p.Name())
 		return
 	}
 	s.mu.Lock()
@@ -229,6 +236,10 @@ func (s *Store) load() {
 }
 
 func (s *Store) save() {
+	if s.loadErr != nil {
+		slog.Error("审批单存储处于读取失败状态，已跳过写入", "doc", s.p.Name(), "err", s.loadErr)
+		return
+	}
 	// 落盘串行化：状态流转会在并发请求下调用 save，不加锁会让 tmp 文件互相覆盖。
 	s.pmu.Lock()
 	defer s.pmu.Unlock()

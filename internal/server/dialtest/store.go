@@ -1,7 +1,9 @@
 package dialtest
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"sync"
@@ -18,7 +20,13 @@ type Store struct {
 	tasks       map[string]Task
 	lastResults map[string]Result // 最近一次拨测结果（按 TaskID），含异常原因，供前端展示
 	p           configdoc.Persister
+	// loadErr 记录读取失败（不是「文档不存在」）。读失败时内存为空，
+	// 任何写入都会覆盖库里的原文档，因此 persistLocked 拒绝写。
+	loadErr error
 }
+
+// LoadError 返回构造时读取文档的错误（nil 表示正常；文档不存在不算错误）。
+func (s *Store) LoadError() error { return s.loadErr }
 
 // NewStore 用文件持久化（测试与迁移源）。
 func NewStore(path string) *Store {
@@ -95,10 +103,16 @@ func (s *Store) Delete(id string) error {
 func (s *Store) load() {
 	data, err := s.p.Load()
 	if err != nil {
+		if !errors.Is(err, configdoc.ErrNotFound) {
+			s.loadErr = fmt.Errorf("读取拨测任务失败: %w", err)
+			slog.Error("读取拨测任务失败，已禁止写入以免覆盖原数据", "doc", s.p.Name(), "err", err)
+		}
 		return
 	}
 	var list []Task
 	if err := yaml.Unmarshal(data, &list); err != nil {
+		s.loadErr = fmt.Errorf("解析拨测任务失败: %w", err)
+		slog.Error("解析拨测任务失败，已禁止写入以免覆盖原数据", "doc", s.p.Name(), "err", err)
 		return
 	}
 	for _, t := range list {
@@ -120,6 +134,10 @@ func normalizeTask(t Task) Task {
 }
 
 func (s *Store) persistLocked() {
+	if s.loadErr != nil {
+		slog.Error("拨测任务存储处于读取失败状态，已跳过写入", "doc", s.p.Name(), "err", s.loadErr)
+		return
+	}
 	list := make([]Task, 0, len(s.tasks))
 	for _, t := range s.tasks {
 		list = append(list, t)

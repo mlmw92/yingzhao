@@ -130,3 +130,48 @@ func TestRemoveNodeDeletesFromMeta(t *testing.T) {
 		}
 	}
 }
+
+// 主机快照里有些字段每轮上报都在变（磁盘已用、在线用户）。它们不是注册信息，
+// 不能让 Register 每次都触发整份 SaveMeta——那会把节点表打成写热点，
+// 还会在写锁里同步做 N 条 upsert 的事务。
+func TestRegisterIgnoresVolatileHostInfo(t *testing.T) {
+	p := &fakePersist{coalesce: true}
+	m := newTestManager(p)
+	p.metaSaves = 0
+
+	withInfo := func(diskUsed uint64, users []model.OnlineUser) *model.ReportPayload {
+		r := report("web-01", "g1", "10.0.0.1")
+		r.HostInfo = model.HostInfo{
+			CPUModel: "x86", CPUCores: 8, MemoryTotal: 16 << 30, DiskTotal: 100 << 30,
+			DiskUsed: diskUsed, BootTime: 1700000000, OnlineUsers: users,
+			Disks: []model.DiskStat{{
+				Mountpoint: "/", Device: "/dev/vda1", Fstype: "ext4",
+				Total: 100 << 30, Used: diskUsed, Free: 100<<30 - diskUsed, UsedPercent: 40,
+			}},
+		}
+		return r
+	}
+
+	m.Register(withInfo(40<<30, nil))
+	if p.metaSaves != 1 {
+		t.Fatalf("首次注册应写一次 meta，实际 %d", p.metaSaves)
+	}
+	// 只有磁盘已用与在线用户变了：不该再写。
+	m.Register(withInfo(41<<30, []model.OnlineUser{{User: "alice", Terminal: "pts/0"}}))
+	m.Register(withInfo(42<<30, []model.OnlineUser{{User: "bob", Terminal: "pts/1"}}))
+	if p.metaSaves != 1 {
+		t.Fatalf("只有磁盘/在线用户变化不应写 meta，实际 %d", p.metaSaves)
+	}
+	// 内存变了：这是注册级信息，必须写。
+	r := withInfo(42<<30, nil)
+	r.HostInfo.MemoryTotal = 32 << 30
+	m.Register(r)
+	if p.metaSaves != 2 {
+		t.Fatalf("内存变化应写 meta，实际 %d", p.metaSaves)
+	}
+	// 内存中的快照仍应更新为最新值（读接口用的是内存，不是库）。
+	got, ok := m.GetNode("web-01")
+	if !ok || got.HostInfo.DiskUsed != 42<<30 {
+		t.Fatalf("内存里的磁盘已用未更新: %+v", got)
+	}
+}

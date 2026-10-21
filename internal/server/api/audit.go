@@ -9,9 +9,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/mlmw92/yingzhao/internal/server/audit"
 )
@@ -96,7 +99,7 @@ func AuditMiddleware(next http.Handler, store *audit.Store) http.Handler {
 		if recorder.status >= 200 && recorder.status < 400 {
 			detail = enrichChangeDetail(r, detail)
 		}
-		_ = store.Record(audit.Event{
+		recordAudit(store, audit.Event{
 			User:      AuthenticatedUser(r),
 			Method:    r.Method,
 			Path:      audit.RedactPath(r),
@@ -146,7 +149,7 @@ func RecordChangeAudit(store *audit.Store, r *http.Request, action string, befor
 	if v, ok := r.Context().Value(auditDedupKey{}).(*bool); ok {
 		*v = true
 	}
-	_ = store.Record(audit.Event{
+	recordAudit(store, audit.Event{
 		User:      AuthenticatedUser(r),
 		Method:    r.Method,
 		Path:      audit.RedactPath(r),
@@ -194,7 +197,7 @@ func RecordLoginAudit(store *audit.Store, r *http.Request, user string, status i
 	if store == nil {
 		return
 	}
-	_ = store.Record(audit.Event{
+	recordAudit(store, audit.Event{
 		User:      user,
 		Method:    http.MethodPost,
 		Path:      "/api/v1/login",
@@ -211,7 +214,7 @@ func RecordPermissionDenied(store *audit.Store, r *http.Request, user, perm stri
 	if store == nil {
 		return
 	}
-	_ = store.Record(audit.Event{
+	recordAudit(store, audit.Event{
 		User:      user,
 		Method:    r.Method,
 		Path:      r.URL.Path,
@@ -237,4 +240,18 @@ func (w *auditResponseWriter) WriteHeader(status int) {
 
 func (w *auditResponseWriter) Write(data []byte) (int, error) {
 	return w.ResponseWriter.Write(data)
+}
+
+// lastAuditErrLog 限制审计写失败日志的频率（DB 故障时每个请求都会失败）。
+var lastAuditErrLog atomic.Int64
+
+// recordAudit 写一条审计；失败不阻断业务（既有语义），但要留下证据。
+// 设计件 §4.4.5 要求审计写失败进自监控——当前至少保证不会静默丢弃。
+func recordAudit(store *audit.Store, e audit.Event) {
+	if err := store.Record(e); err != nil {
+		now := time.Now().UnixMilli()
+		if prev := lastAuditErrLog.Load(); now-prev > 60_000 && lastAuditErrLog.CompareAndSwap(prev, now) {
+			slog.Error("写入审计失败（每分钟最多记一次）", "err", err, "path", e.Path, "action", e.Action)
+		}
+	}
 }

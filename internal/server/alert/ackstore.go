@@ -101,11 +101,17 @@ func NewAckStore(path string) *AckStore {
 	return s
 }
 
-func (s *AckStore) upsertAckSQL() string {
+func (s *AckStore) upsertAckSQL() string { return upsertAckSQLFor(s.mysql) }
+
+// upsertAckSQLFor 按目标方言生成 upsert。
+//
+// 回填发生在 s.mysql 赋值之前，所以回填路径必须显式传方言，不能读 s.mysql——
+// 否则 MySQL 部署会拿到 SQLite 的 ON CONFLICT，UseSQL 直接失败，存储退回本地 JSON。
+func upsertAckSQLFor(mysql bool) string {
 	return `INSERT INTO alert_acks(
 	ack_key, rule, host, instance, starts_at, status, user_name, assignee,
 	time_ms, ack_time_ms, close_time_ms, close_reason, comments
-) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)` + sqlx.Upsert(s.mysql, "ack_key",
+) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)` + sqlx.Upsert(mysql, "ack_key",
 		"status=excluded.status, user_name=excluded.user_name, assignee=excluded.assignee, time_ms=excluded.time_ms, ack_time_ms=excluded.ack_time_ms, close_time_ms=excluded.close_time_ms, close_reason=excluded.close_reason, comments=excluded.comments")
 }
 
@@ -147,13 +153,13 @@ func readJSONAcks(path string) ([]AckInfo, error) {
 }
 
 // insertAcks 单事务批量写入（回填用）。
-func (s *AckStore) insertAcks(db *sql.DB, list []AckInfo) error {
+func (s *AckStore) insertAcks(db *sql.DB, list []AckInfo, mysql bool) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("回填告警处置失败: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.Prepare(s.upsertAckSQL())
+	stmt, err := tx.Prepare(upsertAckSQLFor(mysql))
 	if err != nil {
 		return fmt.Errorf("回填告警处置失败: %w", err)
 	}
@@ -221,7 +227,7 @@ func (s *AckStore) UseSQL(db *sql.DB, mysql bool) error {
 			return err
 		}
 		if len(list) > 0 {
-			if err := s.insertAcks(db, list); err != nil {
+			if err := s.insertAcks(db, list, mysql); err != nil {
 				return err
 			}
 		}
