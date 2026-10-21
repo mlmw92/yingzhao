@@ -25,12 +25,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR=""               # 可选：本地离线包目录（含 node / victoria-metrics tarball）；默认自动探测 ./offline
 DATA_DIR="/var/lib/monitor-server"
 CONFIG_DIR="/etc/monitor-server"
+MASTER_KEY_FILE="$CONFIG_DIR/master.key"   # 配置文档加密主密钥（0600，首次启动自动生成）
 WEB_DIR="/etc/monitor-server/web"
 BIN_DIR="/usr/local/bin"
 SERVICE_DIR="/etc/systemd/system"
 ALERT_WEBHOOK=""
 LOG_ADDR=""             # VictoriaLogs 地址（集中日志的唯一后端，必填；默认本机 :9428）
 LOG_EXPLICIT=0          # 是否由命令行显式指定日志地址，升级时据此决定是否就地更新配置
+DB_DSN=""               # 状态库 DSN（MySQL 8+）。数据库是硬依赖（设计件 §1.4），必填
+DB_EXPLICIT=0           # 是否由命令行显式指定 DSN，升级时据此决定是否就地更新配置
 ENABLE_AGENT_AUTH=""    # yes/no：是否启用 Agent 接入授权密钥（未显式指定时默认 yes）
 AGENT_SECRET=""         # 授权密钥（启用时生成或显式传入）
 AGENT_AUTH_EXPLICIT=0   # 是否由命令行显式指定（--agent-auth/--agent-secret），升级时据此决定是否更新配置
@@ -107,6 +110,9 @@ usage() {
   --packages <dir>              本地离线包目录（默认自动探测 dist/artifacts/packages 或 offline，含 node tarball）
   --node-package <name>         指定离线包内的 Node 压缩包文件名（如 node-v24.18.0-linux-x64.tar.xz）
   --alert-webhook <urls>        告警 webhook 地址（逗号分隔，可选）
+  --db-dsn <dsn>                状态库 DSN（MySQL 8+，必填），如
+                                user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4
+                                库与账号需事先建好；平台启动时自动建表。
   --log-backend <type>          集中日志后端: local(默认)|victorialogs
   --log-addr <url>              外部日志后端地址（victorialogs 时用），如 http://10.0.0.10:9428
   --log-dir <dir>               集中日志存储目录（local 后端用；默认 $DATA_DIR/logs）
@@ -140,6 +146,7 @@ while [[ $# -gt 0 ]]; do
     --packages)        PKG_DIR="$2"; shift 2 ;;
     --node-package)    NODE_PKG="$2"; shift 2 ;;
     --alert-webhook)   ALERT_WEBHOOK="$2"; shift 2 ;;
+    --db-dsn)          DB_DSN="$2"; DB_EXPLICIT=1; shift 2 ;;
     --log-addr)        LOG_ADDR="$2"; LOG_EXPLICIT=1; shift 2 ;;
     # 兼容旧调用：--log-backend / --log-dir 已无意义（日志只走 VictoriaLogs），
     # 保留解析是为了让旧脚本不报"未知参数"，值被忽略并提示一次。
@@ -750,6 +757,56 @@ acquire_binary() {
 }
 
 # ============================ 生成配置 ============================
+# 判断配置里某个顶层块的子项是否已有非空值（升级模式据此补老配置缺的项）。
+config_block_has_value() {
+  local key="$1" field="$2" cfg="$CONFIG_DIR/server.yaml"
+  [[ -f "$cfg" ]] || return 1
+  awk -v key="$key" -v field="$field" '
+    $0 ~ "^"key":" { f=1; next }
+    f && /^[^[:space:]]/ { f=0 }
+    f && ($0 ~ "^[[:space:]]+"field":[[:space:]]*[^\"[:space:]]" || $0 ~ "^[[:space:]]+"field":[[:space:]]*\"[^\"]") { found=1 }
+    END { exit found?0:1 }
+  ' "$cfg"
+}
+
+# 状态库（MySQL 8+）：硬依赖，没有它 Server 直接退出（设计件 §1.4）。
+step_db() {
+  # 已有配置且没显式传 --db-dsn：沿用（升级场景的常态）。
+  if config_block_has_value database dsn && (( ! DB_EXPLICIT )); then
+    c_ok "状态库: 沿用现有 database 配置"
+    return
+  fi
+  if [[ -z "$DB_DSN" ]]; then
+    if (( ASSUME_YES )); then
+      die "缺少 --db-dsn：数据库是硬依赖（设计件 §1.4）。请先建库与账号，再带 --db-dsn 重跑：
+  CREATE DATABASE yingzhao DEFAULT CHARSET utf8mb4;
+  CREATE USER 'yingzhao'@'%' IDENTIFIED BY '<password>';
+  GRANT ALL PRIVILEGES ON yingzhao.* TO 'yingzhao'@'%';
+  --db-dsn 'yingzhao:<password>@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4'"
+    fi
+    prompt DB_DSN "状态库 DSN（MySQL 8+，形如 user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4）" ""
+  fi
+  [[ -n "$DB_DSN" ]] || die "状态库 DSN 不能为空（数据库是硬依赖）"
+  # 只回显主机/库部分，绝不打印密码。
+  c_ok "状态库: ${DB_DSN#*@}"
+}
+
+# 给已有配置写入 database 块（老版本安装升级时用；显式改 DSN 时也会走到）。
+# 先删掉已有的 database 块再追加：重复的顶层键会让 YAML 解析失败。
+patch_db_config() {
+  local cfg="$CONFIG_DIR/server.yaml"
+  [[ -f "$cfg" ]] || return 1
+  local esc; esc="$(printf '%s' "$DB_DSN" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  local tmp; tmp="$(mktemp)"
+  awk '
+    /^database:/ { skip=1; next }
+    skip && /^[^[:space:]]/ { skip=0 }
+    !skip { print }
+  ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+  printf '\ndatabase:\n  dsn: "%s"\n  maxOpenConns: 20\n  maxIdleConns: 5\n  connMaxLifetimeSeconds: 1800\n  masterKeyFile: "%s"\n' \
+    "$esc" "$MASTER_KEY_FILE" >> "$cfg"
+}
+
 generate_config() {
   c_info "生成配置文件"
   mkdir -p "$CONFIG_DIR" "$DATA_DIR" "$DATA_DIR/geoip"
@@ -766,8 +823,14 @@ generate_config() {
       patch_agent_auth_config
       c_ok "已更新 agentAuth: enabled=$([[ "$ENABLE_AGENT_AUTH" == "yes" ]] && echo true || echo false)"
     fi
-    # 显式 --log-backend/--log-addr/--log-dir 时，仅就地更新日志后端那几项
-    if (( LOG_EXPLICIT )); then
+    # 显式 --db-dsn，或老配置根本没有 database 块时补上：缺它 Server 起不来。
+    if (( DB_EXPLICIT )) || ! config_block_has_value database dsn; then
+      patch_db_config
+      c_ok "已补充 database 配置: ${DB_DSN#*@}"
+    fi
+    # 显式 --log-addr，或老配置根本没有 logVictoriaLogs.addr 时补上：
+    # 阶段 6 起日志只走 VictoriaLogs，缺地址会在启动时直接退出。
+    if (( LOG_EXPLICIT )) || ! config_block_has_value logVictoriaLogs addr; then
       patch_log_config
       c_ok "已更新集中日志地址: $LOG_ADDR"
     fi
@@ -775,6 +838,9 @@ generate_config() {
   fi
 
   local tsdb_block
+  # DSN 里可能出现引号/反斜杠，写进 YAML 双引号前先转义。
+  local db_dsn_escaped
+  db_dsn_escaped="$(printf '%s' "$DB_DSN" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   if [[ "$TSDB_BACKEND" == "custom" ]]; then
     tsdb_block=$(printf '  backend: custom\n  addr: "%s"\n  writePath: "%s"\n  queryPath: "%s"\n  queryRangePath: "%s"' \
       "$TSDB_ADDR" "${TSDB_WRITE_PATH:-/api/v1/write}" "${TSDB_QUERY_PATH:-/api/v1/query}" "${TSDB_RANGE_PATH:-/api/v1/query_range}")
@@ -804,6 +870,16 @@ mode: $MODE
 
 listen: "$LISTEN"
 
+# 状态库（MySQL 8+）：所有配置/协作状态/资产/审计的唯一后端。
+# 数据库是硬依赖——连不上或没配置，Server 会直接退出（设计件 §1.4）。
+# 主密钥独立于数据库：它加密 AI Key / 通知口令等敏感字段，必须与库分开备份。
+database:
+  dsn: "$db_dsn_escaped"
+  maxOpenConns: 20
+  maxIdleConns: 5
+  connMaxLifetimeSeconds: 1800
+  masterKeyFile: "$MASTER_KEY_FILE"
+
 # 时序库配置（对接已有实例；时序库由 deploy/install-tsdb.sh 单独安装）
 # backend 可选: victoriametrics|mimir|cortex|thanos|prometheus|custom
 tsdb:
@@ -817,21 +893,21 @@ $tsdb_block
 #   上行的限速（logUploadRateBps）与请求体上限（logMaxBodyBytes）仍然生效——它们在接收侧。
 $log_block
 
-nodeMeta: "$CONFIG_DIR/nodes.json"
+# 数据目录：地理库、巡检报告、升级包、下行的文件内容等**二进制/大文件**仍放本地
+# （它们不是状态；设计件 §1 非目标）。配置/协作状态/资产/审计都在上面的 database 里。
 dataDir: "$DATA_DIR"
 
 offlineTimeout: 60
 
 alert:
   enabled: true
-  rulesFile: "$CONFIG_DIR/rules.yaml"
   evalInterval: 15
   recoverInterval: 30
 
 notify:
-  # 说明：server.yaml 的 notify 段仅作为「首次初始化」来源。Server 启动后会读取独立的
-  # notify 配置文件（默认 /etc/monitor-server/notify.yaml），该文件不存在时用本段初始化并写入；
-  # 之后在 Web 后台「通知配置」页的修改只写入独立文件，运行时以该文件为准，无需改 server.yaml 或重启。
+  # 说明：server.yaml 的 notify 段仅作为「首次初始化」来源。Server 启动后从状态库的
+  # notify 配置文档读取；该文档不存在时用本段初始化并写入。
+  # 之后在 Web 后台「通知配置」页的修改只写入数据库，运行时以数据库为准，无需改 server.yaml 或重启。
   email:
     enabled: false
     smtpHost: "smtp.example.com"
@@ -884,42 +960,7 @@ auth:
 EOF
   # server.yaml 含 Agent 接入密钥、登录口令与通知渠道密钥，禁止全局可读
   chmod 600 "$CONFIG_DIR/server.yaml"
-
-  # 生成默认告警规则（来自示例）
-  if [[ ! -f "$CONFIG_DIR/rules.yaml" ]]; then
-    generate_default_rules "$CONFIG_DIR/rules.yaml"
-  fi
   c_ok "配置已写入: $CONFIG_DIR/server.yaml"
-}
-
-generate_default_rules() {
-  local f="$1"
-  cat > "$f" <<'EOF'
-# 默认告警规则（由安装脚本生成；也可在 Web 界面「告警」中增删改）
-# operator: > < >= <= == != ; for: 持续时间字符串如 "1m" / "60s" ; severity: warning|critical
-# metric 取值参见前端「告警」新建规则时的指标字典（cpu_usage / mem_used_percent / disk_used_percent 等）
-- name: "CPU 高使用率"
-  metric: cpu_usage
-  operator: ">"
-  threshold: 85
-  for: "1m"
-  severity: warning
-  enabled: true
-- name: "内存高使用率"
-  metric: mem_used_percent
-  operator: ">"
-  threshold: 90
-  for: "1m"
-  severity: warning
-  enabled: true
-- name: "磁盘高使用率"
-  metric: disk_used_percent
-  operator: ">"
-  threshold: 90
-  for: "2m"
-  severity: critical
-  enabled: true
-EOF
 }
 
 write_server_service() {
@@ -987,6 +1028,7 @@ summary() {
   echo " 时序库后端    : $TSDB_BACKEND"
   echo " 时序库地址    : $TSDB_ADDR${TSDB_QUERY_ADDR:+ (查询 $TSDB_QUERY_ADDR)}"
   echo " 集中日志后端  : VictoriaLogs @ $LOG_ADDR（保留与容量由该后端负责）"
+  echo " 状态库        : ${DB_DSN:+${DB_DSN#*@}}${DB_DSN:-沿用现有配置}"
   echo " 配置文件      : $CONFIG_DIR/server.yaml"
   echo " 二进制        : $BIN_DIR/monitor-server"
   echo "------------------------------------------------------------"
@@ -1018,6 +1060,7 @@ main() {
   step_alert
   step_agent_auth
   step_auth
+  step_db
   acquire_binary
   stage_web_dist
   stage_agent_dist

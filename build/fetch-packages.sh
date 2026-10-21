@@ -82,13 +82,17 @@ download "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/$
          "${OUT_DIR}/victoria-metrics-linux-arm-${VM_VERSION}.tar.gz"
 
 # ---------- VictoriaLogs（集中日志的唯一后端） ----------
-# 拉不到不阻断整条发布流水线（Server/Agent 仍是主体），但 full 包会缺日志后端，
-# 部署后日志页不可用——发布时必须提示。
+# 阶段 6 起 Server 只支持 VictoriaLogs，缺包等于「装完没有日志功能」——默认按必需处理，
+# 拉取失败直接终止发布。确实要出不含日志后端的包时，显式设 SKIP_VICTORIALOGS=1。
 c_info "VictoriaLogs ${VL_VERSION}（集中日志后端）"
-for arch in amd64 arm64 arm; do
-  download_optional "https://github.com/VictoriaMetrics/VictoriaLogs/releases/download/${VL_VERSION}/victoria-logs-linux-${arch}-${VL_VERSION}.tar.gz" \
-                    "${OUT_DIR}/victoria-logs-linux-${arch}-${VL_VERSION}.tar.gz" || true
-done
+if [[ "${SKIP_VICTORIALOGS:-0}" == "1" ]]; then
+  c_warn "SKIP_VICTORIALOGS=1：跳过 VictoriaLogs。该离线包部署后日志页不可用！"
+else
+  for arch in amd64 arm64 arm; do
+    download "https://github.com/VictoriaMetrics/VictoriaLogs/releases/download/${VL_VERSION}/victoria-logs-linux-${arch}-${VL_VERSION}.tar.gz" \
+             "${OUT_DIR}/victoria-logs-linux-${arch}-${VL_VERSION}.tar.gz"
+  done
+fi
 
 c_ok "所有第三方包已就绪: ${OUT_DIR}/"
 ls -lh "$OUT_DIR"

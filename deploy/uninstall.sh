@@ -191,7 +191,7 @@ if (( VL_PRESENT )); then
   (( VL_BIN )) && echo "  - 二进制:  /usr/local/bin/victoria-logs"
   (( VL_DATA && PURGE )) && echo -e "  - ${C_RED}数据(将删):  /var/lib/victoria-logs-data/${C_RST}"
   (( VL_DATA && !PURGE )) && echo -e "  - ${C_DIM}数据(保留):  /var/lib/victoria-logs-data/${C_RST}"
-  echo -e "  ${C_DIM}注意：日志数据保留下来也没法再被平台读取——Server 侧需同步改回 logBackend: local${C_RST}"
+  echo -e "  ${C_DIM}注意：日志数据保留下来也没法再被平台读取——Server 侧只支持 VictoriaLogs（logVictoriaLogs.addr）${C_RST}"
 fi
 if (( DOCKER_TSDB_PRESENT )); then
   echo -e "${C_BLU}Docker TSDB (Mimir / Cortex / Thanos)${C_RST}"
@@ -296,7 +296,7 @@ if (( VL_PRESENT )); then
   fi
   systemctl daemon-reload
   c_ok "VictoriaLogs 卸载完成"
-  c_warn "若 Server 仍配着 logBackend: victorialogs，检索会回 502；请把它改回 local（或指向另一个后端）后重启 monitor-server"
+  c_warn "Server 的集中日志检索会不可用（设计件阶段 6 起 VictoriaLogs 是唯一后端）；重新部署 VictoriaLogs 并确认 logVictoriaLogs.addr 后再重启 monitor-server"
 fi
 
 # 4) TSDB - Docker (Mimir / Cortex / Thanos)

@@ -15,19 +15,17 @@
 | `tsdb.backend` | 时序库后端：`victoriametrics`(默认) / `mimir` / `cortex` / `thanos` / `prometheus` / `custom` |
 | `tsdb.addr` | 时序库基址，如 `http://10.0.0.10:8428` |
 | `tsdb.queryAddr` | 可选：查询基址（与写入端口不同时，如 Thanos/Cortex） |
-| `alert` | 告警引擎（enabled / rulesFile / evalInterval） |
-| `notify` | 邮件 / Webhook / 钉钉 / 飞书 / 企业微信渠道（**仅首次初始化用**；运行时以独立 `notifyFile` 为准，可在 Web 后台「通知配置」页修改） |
-| `notifyFile` | 通知配置独立文件路径（默认 `/etc/monitor-server/notify.yaml`）；Web 端修改写入此处并热加载 |
+| `alert` | 告警引擎（enabled / evalInterval / recoverInterval）。规则本身存在状态库，`rulesFile` 仅为旧版迁移源 |
+| `notify` | 邮件 / Webhook / 钉钉 / 飞书 / 企业微信渠道（**仅首次初始化用**；运行时以状态库的 notify 配置文档为准，可在 Web 后台「通知配置」页修改） |
 | `agentAuth.enabled` | 启用 Agent 接入授权（默认 false） |
 | `agentAuth.secret` | 授权密钥；启用且留空时启动自动生成 |
 | `agentBinDir` | Agent 二进制分发目录（自带 CDN） |
 | `agentScriptPath` | Agent 安装脚本路径（`/install/agent-install.sh`） |
-| `dialtestFile` | 拨测任务配置文件（默认 `/etc/monitor-server/dialtest.yaml`） |
 | `auth.password` | Web 登录密码。存储为**国密 SM3 加盐哈希**（形如 `sm3:<salt>:<hash>`）；旧明文配置在 Server 启动时自动迁移为哈希并写回，无需手动处理。可在 Web 端「系统设置 → 修改密码」更改。 |
 | `reportDir` | 报告存储目录（默认 `/var/lib/monitor-server/reports`） |
-| `assetStoreFile` | 资产台账库（内嵌 SQLite 单文件，默认 `/var/lib/monitor-server/assets.db`）。**审计事件与告警处置也在这个库里**（同库单连接） |
+| `assetStoreFile` | 旧版资产台账 SQLite 文件路径，仅作为一次性迁移源；运行期资产、审计、告警处置、下行任务都在 `database` 里 |
 | `securityStoreFile` | 安全事件 / 基线持久化文件（默认 `/var/lib/monitor-server/security_store.json`） |
-| `retentionFile` | 数据保留策略文件（默认 `/etc/monitor-server/retention.yaml`，Web 端可改、保存即热生效） |
+| `retentionFile` | 旧版保留策略文件路径，仅作为一次性迁移源；运行期保存在状态库，Web 端可改、保存即热生效 |
 | `auditKeyFile` | **审计防篡改链的 HMAC 密钥文件**（默认 `/etc/monitor-server/audit.key`，0600，首次启动自动生成）。**必须纳入备份**：丢了它，历史审计全部无法校验。**不要把它放进 `server.yaml`**，也不通过任何接口取（接口只返回指纹） |
 | `logVictoriaLogs.addr` | 集中日志后端地址（VictoriaLogs，**唯一后端且必填**，如 `http://127.0.0.1:9428`）。本地分片落盘已退出生产路径，未配置地址时 Server 拒绝启动 |
 | `logVictoriaLogs.queryTimeout` / `writeTimeout` | 查询 / 写入超时（秒），默认 30 / 10 |
@@ -38,7 +36,7 @@
 | `database.connMaxLifetimeSeconds` | 连接最长存活秒数，默认 1800 |
 | `database.masterKeyFile` | 配置文档加密主密钥文件（默认 `/etc/monitor-server/master.key`，0600，首次启动自动生成）。AI Key / 通知口令等敏感配置用它加密后入库。**不进数据库**；多实例必须共用同一份，且**必须纳入备份**（丢了它，加密配置无法解密） |
 
-> **Web 通知配置**：登录后在「通知配置」页可视化配置邮件 / Webhook / 钉钉 / 飞书 / 企业微信，支持多收件人、多群（多 Webhook 地址）、@ 成员；保存即写入独立 `notifyFile` 并热加载，无需重启。敏感字段（SMTP 密码、机器人加签密钥）读取时脱敏，留空表示不修改。
+> **Web 通知配置**：登录后在「通知配置」页可视化配置邮件 / Webhook / 钉钉 / 飞书 / 企业微信，支持多收件人、多群（多 Webhook 地址）、@ 成员；保存即写入状态库的 notify 配置文档并热加载，无需重启。敏感字段（SMTP 密码、机器人加签密钥）读取时脱敏，留空表示不修改。
 
 ### 时序库后端
 
@@ -676,7 +674,7 @@ zookeeperInstances:
 
 ## 告警规则
 
-告警规则由 Web 端「告警中心 → 告警规则」维护，持久化为规则文件（`server.yaml` 的 `alert.rulesFile`，默认 `/etc/monitor-server/rules.yaml`）。规则类型通过 `type` 字段区分。
+告警规则由 Web 端「告警中心 → 告警规则」维护，保存在状态库的 `alert_rules` 配置文档里（`server.yaml` 的 `alert.rulesFile` 已不再决定存储位置）。规则类型通过 `type` 字段区分。
 
 ### PromQL 规则（`type=promql`）
 
