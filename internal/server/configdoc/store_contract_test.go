@@ -1,0 +1,54 @@
+package configdoc
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+// runStoreContract 是文件替身与 MySQL 实现共用的行为契约。
+func runStoreContract(t *testing.T, newStore func(t *testing.T) Store) {
+	t.Helper()
+	ctx := context.Background()
+
+	t.Run("missing namespace", func(t *testing.T) {
+		if _, _, err := newStore(t).Load(ctx, "notify"); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("Load 缺失命名空间应返回 ErrNotFound，实际 %v", err)
+		}
+	})
+
+	t.Run("create and load", func(t *testing.T) {
+		s := newStore(t)
+		v, err := s.Save(ctx, "notify", []byte(`{"a":1}`), 0)
+		if err != nil || v != 1 {
+			t.Fatalf("首次保存 = %d, %v", v, err)
+		}
+		payload, gotV, err := s.Load(ctx, "notify")
+		if err != nil || gotV != 1 || string(payload) != `{"a":1}` {
+			t.Fatalf("Load = %s, %d, %v", payload, gotV, err)
+		}
+	})
+
+	t.Run("version conflict", func(t *testing.T) {
+		s := newStore(t)
+		if _, err := s.Save(ctx, "ui", []byte(`{"v":1}`), 0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Save(ctx, "ui", []byte(`{"v":2}`), 0); !errors.Is(err, ErrVersionConflict) {
+			t.Fatalf("错误版本应返回 ErrVersionConflict，实际 %v", err)
+		}
+		v, err := s.Save(ctx, "ui", []byte(`{"v":2}`), 1)
+		if err != nil || v != 2 {
+			t.Fatalf("正确版本保存 = %d, %v", v, err)
+		}
+	})
+
+	t.Run("reject invalid namespace", func(t *testing.T) {
+		s := newStore(t)
+		for _, ns := range []string{"", "../x", "Notify", "a-b"} {
+			if _, err := s.Save(ctx, ns, []byte(`{}`), 0); err == nil {
+				t.Fatalf("非法命名空间 %q 应被拒绝", ns)
+			}
+		}
+	})
+}
