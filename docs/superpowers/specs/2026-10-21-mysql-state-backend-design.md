@@ -256,3 +256,30 @@ CREATE TABLE config_documents (
 | D6 | 文件后端 | 生产路径删除；文件实现只作为测试替身保留 |
 | D7 | 日志后端 | **已定：统一 VictoriaLogs**。生产配置移除 `local`；本地实现仅保留为契约测试替身 |
 | D8 | 二进制产物与 Server 升级 | **已定：下一阶段**。本阶段保持现状，不纳入 HA 验收 |
+
+---
+
+## 12. 阶段 0 实施记录（2026-10-21）
+
+**已落地**
+
+- `internal/server/db`：连接池、DSN 归一化（驱动 `ParseDSN/FormatDSN`）、日志脱敏。
+- `internal/server/migrate`：版本化迁移、内嵌 SQL、`schema_migrations`、`GET_LOCK` 命名锁、校验和比对。
+- `internal/server/configdoc`：整份配置文档的 `Store` 接口、文件测试替身、MySQL 实现（`FOR UPDATE` 版本冲突）。
+- 首条迁移 `0001_config_documents.sql`。
+- `server.yaml` 的 `database` 段（阶段 0 仅解析，不连接）。
+- `monitor-server migrate` 子命令。
+
+**验证**
+
+- `go test ./...`：38 个包全绿（集成用例在无 DSN 时 SKIP）。
+- MySQL 8.0.46 集成：连接、迁移幂等、已应用迁移被修改报错、并发迁移串行化、配置文档文件/MySQL 契约全部通过。
+- `migrate` 子命令在全新库上首次应用 1 条、再次 0 条。
+- 现有 Server 启动路径未改变：不读 `database.dsn`、不连库、不迁移任何 store。
+
+**实施中的两处修正**
+
+1. `timeout` 是驱动 `mysql.Config` 的专用字段，不在 `Params` 里；DSN 归一化用 `ParseDSN/FormatDSN`，测试按字段断言。
+2. MySQL 的 `JSON` 列会规范化空白（`{"a":1}` → `{"a": 1}`）；配置文档契约用例按语义比较，不按字节比较。
+
+**测试环境**：dev-server 上的 MySQL 8.0.46（容器 `mw-mysql`），独立测试库 `nebula_test` 与账号；凭据记录在服务器 `/root/.nebula-test-mysql.cnf`（0600），不进仓库。集成测试通过 SSH 隧道 `127.0.0.1:13306` 访问。
