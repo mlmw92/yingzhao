@@ -216,3 +216,25 @@ func TestRoutes_Alerts_BackfillsHistoricalRuleType(t *testing.T) {
 		t.Fatalf("历史事件应回填 ruleType，实际 %v", rt)
 	}
 }
+
+// 规则已被删除时按 ruleId 查不到：PromQL 事件的消息由 promQLMessage 生成，
+// 固定以「PromQL 规则」开头，用它兜底即可，不必迁移历史数据。
+func TestRoutes_Alerts_BackfillsRuleTypeFromMessage(t *testing.T) {
+	a := scopeTestAPI(t)
+	a.alerts = &fakeAlerts{active: []model.AlertEvent{{
+		RuleID: "gone", RuleName: "verify-ai-critical", Node: "web-01",
+		Metric: "cpu_usage > 0", State: model.AlertStateFiring, StartsAt: 1000,
+		Message: "PromQL 规则「verify-ai-critical」命中：cpu_usage = 4.89",
+	}}}
+	a.rules = fakeRules{}
+
+	rec := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(rec, reqWith(globalPrincipal("alerts:read"), http.MethodGet, "/api/v1/alerts?state=active", ""))
+	got, _ := decodeBody(t, rec)["alerts"].([]any)
+	if len(got) != 1 {
+		t.Fatalf("alerts = %v", got)
+	}
+	if rt := got[0].(map[string]any)["ruleType"]; rt != model.RuleTypePromQL {
+		t.Fatalf("应据消息前缀回填 ruleType，实际 %v", rt)
+	}
+}

@@ -1349,8 +1349,17 @@ func (a *API) fillEventRuleTypes(events []model.AlertEvent) {
 		types[r.ID] = r.Type
 	}
 	for i := range events {
-		if events[i].RuleType == "" {
-			events[i].RuleType = types[events[i].RuleID]
+		if events[i].RuleType != "" {
+			continue
+		}
+		if t := types[events[i].RuleID]; t != "" {
+			events[i].RuleType = t
+			continue
+		}
+		// 规则已被删除：PromQL 事件的消息由 promQLMessage 生成，
+		// 固定以「PromQL 规则」开头，用它兜底（历史数据无需迁移）。
+		if strings.HasPrefix(events[i].Message, "PromQL 规则") {
+			events[i].RuleType = model.RuleTypePromQL
 		}
 	}
 }
