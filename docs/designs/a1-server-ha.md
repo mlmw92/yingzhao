@@ -3,6 +3,7 @@
 > 状态：**设计件待评审**（未开始实施）。
 > 范围：`cmd/server` 与 `internal/server/**` 的**运行期状态归属**改造；不涉及 Agent 与 Web 的协议变更（新增的实例标识只影响 Server 之间）。
 > 关联：路线图 `docs/archive/refactor-plan.md` 的 A1；权限矩阵 `docs/guides/permission-matrix.md`；数据保留 `docs/…`（A3）。
+> **2026-10-21 修订**：配置/协作状态/资产/审计改为**统一存 MySQL**（取消"共享目录"与文件后端双模式），单机与多实例同一套架构。详见 `docs/superpowers/specs/2026-10-21-mysql-state-backend-design.md`；本文 §3 选项 B 中"低频配置用共享目录"的部分以该设计件为准。
 
 ---
 
