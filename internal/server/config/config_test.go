@@ -98,3 +98,22 @@ tsdb:
 		}
 	})
 }
+
+func TestDatabaseConfigDefaultsAndParse(t *testing.T) {
+	cfg := Default()
+	if cfg.Database.MaxOpenConns != 20 || cfg.Database.MaxIdleConns != 5 || cfg.Database.ConnMaxLifetime != 1800 {
+		t.Fatalf("默认值 = %+v", cfg.Database)
+	}
+	path := writeConfigFile(t, `
+database:
+  dsn: "u:p@tcp(127.0.0.1:3306)/nebula?charset=utf8mb4"
+  maxOpenConns: 50
+`)
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Database.DSN == "" || got.Database.MaxOpenConns != 50 || got.Database.MaxIdleConns != 5 {
+		t.Fatalf("解析结果 = %+v", got.Database)
+	}
+}

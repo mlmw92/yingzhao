@@ -59,6 +59,17 @@ type Config struct {
 	LogMaxBodyBytes   int64              `yaml:"logMaxBodyBytes"`   // 单次日志上行请求体上限（字节）
 	LogBackend        string             `yaml:"logBackend"`        // 日志后端：local（默认，自研分片落盘）| victorialogs（外部后端）
 	LogVictoriaLogs   VictoriaLogsConfig `yaml:"logVictoriaLogs"`   // 外部日志后端连接配置（logBackend=victorialogs 时生效）
+	Database          DatabaseConfig     `yaml:"database"`          // 关系型数据库（MySQL 8+）；阶段 1 起为必填
+}
+
+// DatabaseConfig 是 MySQL 连接配置。
+//
+// 阶段 0 只解析、不连接：Server 启动路径不变。阶段 1 起 DSN 为空将拒绝启动。
+type DatabaseConfig struct {
+	DSN             string `yaml:"dsn"`
+	MaxOpenConns    int    `yaml:"maxOpenConns"`
+	MaxIdleConns    int    `yaml:"maxIdleConns"`
+	ConnMaxLifetime int    `yaml:"connMaxLifetimeSeconds"`
 }
 
 // VictoriaLogsConfig 是外部日志后端（VictoriaLogs）的连接配置。
@@ -455,6 +466,8 @@ func Default() *Config {
 		LogMaxBodyBytes:   4 << 20, // 4 MiB/请求
 		// 日志后端默认自研落盘：外部后端是可选能力，默认值必须保持"离线单机可用"。
 		LogBackend: "local",
+		// 数据库连接池默认值；阶段 0 只解析，阶段 1 起 DSN 必填。
+		Database:          DatabaseConfig{MaxOpenConns: 20, MaxIdleConns: 5, ConnMaxLifetime: 1800},
 		GeoIPFile:         "/var/lib/monitor-server/geoip/ip2region_v4.xdb",
 		MiddlewareViewFile: "/etc/monitor-server/middleware_view.yaml",
 		Auth:              AuthConfig{Enabled: false, Username: "admin", Password: "admin", Secret: "", UsersFile: "/var/lib/monitor-server/users.yaml", MigrateSingleAdmin: true},
