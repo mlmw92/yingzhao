@@ -39,6 +39,7 @@ vi.mock('vue-router', () => ({
 
 import ElementPlus from 'element-plus'
 import AlertsView from './AlertsView.vue'
+import http from '../api/http'
 
 let wrappers = []
 beforeEach(() => { wrappers = [] })
@@ -58,5 +59,39 @@ describe('AlertsView PromQL 规则展示', () => {
     const text = w.text()
     expect(text).toContain('PromQL')
     expect(text).toContain('kafka_consumer_lag > 100')
+  })
+
+  // PromQL 事件的 metric 是表达式，不是指标名：拿它去查 /query/range 只会得到错误。
+  // 详情里必须明确说明「不提供单指标趋势」，而不是画一个永远失败的图。
+  it('PromQL 事件详情不请求单指标趋势，改为文字说明', async () => {
+    const event = {
+      id: 'e1', ruleId: 'p1', ruleName: 'CPU 高', ruleType: 'promql',
+      node: 'web-01', metric: 'cpu_usage > 0', value: 4.89,
+      severity: 'critical', state: 'firing', startsAt: Date.now(), message: 'PromQL 命中',
+    }
+    http.get.mockImplementation(async (url) => {
+      if (url === '/api/v1/rules') return { rules: [] }
+      if (url.startsWith('/api/v1/alerts/impact')) return {}
+      if (url.startsWith('/api/v1/alerts')) {
+        return {
+          alerts: [event], groups: [], templates: [], acks: {}, inhibits: [],
+          firing: 1, suppressed: 0, total: 1,
+          bySeverity: { critical: 1, warning: 0, info: 0 },
+        }
+      }
+      if (url.startsWith('/api/v1/ai/investigations')) return { investigation: null }
+      return {}
+    })
+
+    const w = mountView()
+    await flushPromises()
+
+    const btn = w.findAll('button').find((b) => b.text().includes('详情'))
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('不提供单指标趋势')
+    expect(http.get.mock.calls.some(([u]) => u.startsWith('/api/v1/query/range'))).toBe(false)
   })
 })

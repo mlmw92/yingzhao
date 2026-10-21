@@ -176,6 +176,21 @@ describe('AIInvestigationPanel', () => {
     expect(w.text()).toContain('已提交审批')
   })
 
+  it('结论按 Markdown 渲染，而不是把 ** 原样显示', async () => {
+    http.get.mockResolvedValue({
+      investigation: {
+        state: 'done', stopped: 'done',
+        answer: '**排查思路**\n\n- 看 `cpu_usage`\n- 结论正常',
+      },
+    })
+    const w = mountPanel()
+    await flushPromises()
+    expect(w.find('.inv-answer strong').text()).toBe('排查思路')
+    expect(w.find('.inv-answer code').text()).toBe('cpu_usage')
+    expect(w.findAll('.inv-answer li')).toHaveLength(2)
+    expect(w.text()).not.toContain('**排查思路**')
+  })
+
   it('没有建议时不显示建议区', async () => {
     http.get.mockResolvedValue({ investigation: { id: 'inv-1', state: 'done', answer: '一切正常' } })
     const w = mountPanel()

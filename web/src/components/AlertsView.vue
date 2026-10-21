@@ -493,7 +493,7 @@
     <el-drawer
       v-model="drawer"
       :title="detail?.ruleName || '告警详情'"
-      size="560px"
+      size="680px"
       :modal="false"
       :close-on-click-modal="false"
       :lock-scroll="false"
@@ -501,6 +501,7 @@
       @closed="onDrawerClosed"
     >
       <template v-if="detail">
+        <div class="ev-section-title">事件信息</div>
         <div class="ev-field"><span>级别</span><el-tag :type="sevType(detail.severity)" effect="dark">{{ sevLabel(detail.severity) }}</el-tag></div>
         <div class="ev-field"><span>状态</span>{{ stateLabel(detail) }}</div>
         <div class="ev-field">
@@ -520,6 +521,7 @@
         <div class="ev-field" v-if="ackInfo(detail)?.closeReason">
           <span>关闭原因</span><span>{{ ackInfo(detail).closeReason }}</span>
         </div>
+        <div class="ev-section-title">触发信息</div>
         <div class="ev-field">
           <span>触发条件</span>
           <span v-if="detail.ruleType === 'promql'" class="mono">{{ detail.metric }}</span>
@@ -531,7 +533,9 @@
         <div class="ev-field"><span>恢复</span><span>{{ detail.state === 'resolved' ? fmt(detail.endsAt) : '—' }}</span></div>
         <div class="ev-chart-title">AI 调查</div>
         <AIInvestigationPanel v-if="detail.id" :alert-id="detail.id" />
-        <template v-if="detail.metric">
+        <!-- PromQL 规则的事件里 metric 存的是表达式，不是单一指标名：
+             拿它去查 /query/range 必然失败（以前是 500）。这里直接不画单指标趋势。 -->
+        <template v-if="detail.ruleType !== 'promql' && detail.metric">
           <div class="ev-chart-title">触发指标近 1 小时趋势</div>
           <TrendChart
             :option="trendOption"
@@ -541,6 +545,12 @@
             empty-text="该时间段没有数据"
             @retry="loadTrend(detail)"
           />
+        </template>
+        <template v-else-if="detail.ruleType === 'promql'">
+          <div class="ev-chart-title">触发指标近 1 小时趋势</div>
+          <div class="ev-chart-note">
+            PromQL 规则可能命中多条序列，不提供单指标趋势。可在「指标浏览」里按表达式查询。
+          </div>
         </template>
 
         <!-- 资产与影响面：这条告警落在哪条资产上、它刚改过什么、会影响谁 -->
@@ -1475,7 +1485,9 @@ function buildTrendOption(row, points) {
 }
 
 async function loadTrend(row) {
-  if (!row || !row.metric) return
+  // PromQL 事件的 metric 是表达式（如 `cpu_usage > 0`），不是指标名：
+  // 发到 /query/range 只会拿到 400/500，趋势图永远画不出来。
+  if (!row || !row.metric || row.ruleType === 'promql') return
   trendOption.value = null
   trendError.value = ''
   trendPoints = []
@@ -1718,10 +1730,20 @@ onUnmounted(() => {
   font-size: var(--fs-sm);
   color: var(--t2);
 }
+.ev-section-title {
+  margin: 18px 0 4px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--t3);
+}
+.ev-section-title:first-child {
+  margin-top: 0;
+}
 .ev-field {
   display: flex;
   gap: 12px;
-  padding: 8px 0;
+  padding: 10px 0;
   border-bottom: 1px solid var(--bd);
   font-size: var(--fs-sm);
 }
@@ -1729,6 +1751,18 @@ onUnmounted(() => {
   width: 64px;
   color: var(--t2);
   flex-shrink: 0;
+}
+.ev-field > span:last-child {
+  min-width: 0;
+  word-break: break-word;
+}
+.ev-chart-note {
+  padding: 14px;
+  border: 1px dashed var(--bd);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  color: var(--t3);
+  line-height: 1.6;
 }
 .ev-chart-title {
   margin: 16px 0 8px;

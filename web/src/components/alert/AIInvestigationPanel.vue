@@ -16,7 +16,7 @@
       <div v-if="canRetry" class="inv-actions">
         <el-button size="small" :loading="retrying" @click="retry">重新调查</el-button>
       </div>
-      <p v-if="inv.answer" class="inv-answer">{{ inv.answer }}</p>
+      <div v-if="inv.answer" class="inv-answer" v-html="renderMarkdown(inv.answer)"></div>
       <p v-if="inv.error" class="inv-error">{{ inv.error }}</p>
 
       <div v-if="(inv.suggestions || []).length" class="inv-suggestions">
@@ -61,6 +61,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../../api/http'
+import { renderMarkdown } from '../../utils/markdown'
 
 const props = defineProps({ alertId: { type: String, required: true } })
 const inv = ref(null)
@@ -216,7 +217,20 @@ onUnmounted(stopPolling)
 .sug-reason { font-size: var(--fs-sm); color: var(--t2); margin-top: 4px; }
 .sug-params { font-family: var(--mono); font-size: var(--fs-sm); color: var(--t3); margin-top: 4px; }
 .sug-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
-.inv-answer { white-space: pre-wrap; line-height: 1.6; }
+.inv-answer { line-height: 1.7; font-size: var(--fs-sm); }
+/* v-html 注入的节点拿不到 scoped 的 data 属性，必须用 :deep 才能着色 */
+.inv-answer :deep(p) { margin: 4px 0; }
+.inv-answer :deep(h4) { margin: 12px 0 4px; font-size: var(--fs-base); }
+.inv-answer :deep(ul),
+.inv-answer :deep(ol) { margin: 4px 0; padding-left: 20px; }
+.inv-answer :deep(li) { margin: 2px 0; }
+.inv-answer :deep(code) {
+  font-family: var(--mono);
+  background: var(--fill-1);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.inv-answer :deep(hr) { border: none; border-top: 1px solid var(--bd); margin: 10px 0; }
 .inv-error { color: var(--danger); }
 .inv-step { margin: 8px 0; }
 .inv-step pre { white-space: pre-wrap; font-size: var(--fs-sm); background: var(--fill-1); padding: 8px; border-radius: 6px; }
