@@ -8,25 +8,31 @@
 package ai
 
 import (
+	"errors"
 	"log/slog"
-	"os"
 	"sync"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
-// Manager AI 配置管理器（内存态 + 独立文件，读写都带锁）。
+// Manager AI 配置管理器（内存态 + 配置文档，读写都带锁）。
 type Manager struct {
-	path string
-	mu   sync.RWMutex
-	cur  config.AIConfig
+	p   configdoc.Persister
+	mu  sync.RWMutex
+	cur config.AIConfig
 }
 
-// New 创建管理器并加载配置：文件存在则读取；不存在则用 initial 初始化并落盘（向后兼容旧部署）。
+// New 用文件持久化（测试与迁移源）。
 func New(path string, initial config.AIConfig) (*Manager, error) {
-	m := &Manager{path: path}
+	return NewWithPersister(configdoc.NewFilePersister(path), initial)
+}
+
+// NewWithPersister 用指定持久化后端加载配置；文档不存在则用 initial 初始化并落盘。
+func NewWithPersister(p configdoc.Persister, initial config.AIConfig) (*Manager, error) {
+	m := &Manager{p: p}
 	if err := m.loadOrInit(initial); err != nil {
 		return nil, err
 	}
@@ -35,7 +41,7 @@ func New(path string, initial config.AIConfig) (*Manager, error) {
 
 // loadOrInit 加载或初始化配置。
 func (m *Manager) loadOrInit(initial config.AIConfig) error {
-	data, err := os.ReadFile(m.path)
+	data, err := m.p.Load()
 	if err == nil {
 		var c config.AIConfig
 		if err := yaml.Unmarshal(data, &c); err != nil {
@@ -43,15 +49,15 @@ func (m *Manager) loadOrInit(initial config.AIConfig) error {
 		}
 		// 归一化：配置文件可能是手写的（超时为 0 会变成"无限等待"）。
 		m.cur = c.Normalize()
-		slog.Info("已加载 AI 配置文件", "path", m.path, "enabled", m.cur.Enabled, "model", m.cur.Model)
+		slog.Info("已加载 AI 配置", "doc", m.p.Name(), "enabled", m.cur.Enabled, "model", m.cur.Model)
 		return nil
 	}
-	if os.IsNotExist(err) {
+	if errors.Is(err, configdoc.ErrNotFound) {
 		m.cur = initial.Normalize()
 		if err := m.persist(); err != nil {
 			return err
 		}
-		slog.Info("AI 配置文件不存在，已用默认值初始化（默认关闭）", "path", m.path)
+		slog.Info("AI 配置不存在，已用默认值初始化（默认关闭）", "doc", m.p.Name())
 		return nil
 	}
 	return err
@@ -76,20 +82,20 @@ func (m *Manager) Save(c config.AIConfig) error {
 	if err != nil {
 		return err
 	}
-	if err := config.AtomicWrite(m.path, data); err != nil {
+	if err := m.p.Save(data); err != nil {
 		return err
 	}
 	m.cur = c
 	// 只记端点主机与模型，**不记 APIKey**。
-	slog.Info("AI 配置已保存并生效", "path", m.path, "enabled", c.Enabled, "model", c.Model)
+	slog.Info("AI 配置已保存并生效", "doc", m.p.Name(), "enabled", c.Enabled, "model", c.Model)
 	return nil
 }
 
-// persist 原子写当前配置（初始化阶段使用，调用方已持锁或尚无并发）。
+// persist 写当前配置（初始化阶段使用，调用方已持锁或尚无并发）。
 func (m *Manager) persist() error {
 	data, err := yaml.Marshal(m.cur)
 	if err != nil {
 		return err
 	}
-	return config.AtomicWrite(m.path, data)
+	return m.p.Save(data)
 }

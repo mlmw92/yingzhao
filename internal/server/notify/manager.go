@@ -4,13 +4,14 @@
 package notify
 
 import (
+	"errors"
 	"log/slog"
-	"os"
 	"sync"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // ApplyFunc 热加载回调：保存后由调用方重建内存通知器（如 engine.SetNotifiers）。
@@ -18,15 +19,20 @@ type ApplyFunc func(config.NotifyConfig)
 
 // Manager 通知配置管理器。
 type Manager struct {
-	path   string
-	apply  ApplyFunc
-	mu     sync.RWMutex
+	p     configdoc.Persister
+	apply ApplyFunc
+	mu    sync.RWMutex
 	current config.NotifyConfig
 }
 
-// New 创建管理器并加载配置：文件存在则读取；不存在则用 initial 初始化并落盘（向后兼容旧部署）。
+// New 用文件持久化（测试与迁移源）。
 func New(path string, initial config.NotifyConfig, apply ApplyFunc) (*Manager, error) {
-	m := &Manager{path: path, apply: apply}
+	return NewWithPersister(configdoc.NewFilePersister(path), initial, apply)
+}
+
+// NewWithPersister 用指定持久化后端加载配置；文档不存在则用 initial 初始化并落盘。
+func NewWithPersister(p configdoc.Persister, initial config.NotifyConfig, apply ApplyFunc) (*Manager, error) {
+	m := &Manager{p: p, apply: apply}
 	if err := m.loadOrInit(initial); err != nil {
 		return nil, err
 	}
@@ -35,22 +41,22 @@ func New(path string, initial config.NotifyConfig, apply ApplyFunc) (*Manager, e
 
 // loadOrInit 加载或初始化配置。
 func (m *Manager) loadOrInit(initial config.NotifyConfig) error {
-	data, err := os.ReadFile(m.path)
+	data, err := m.p.Load()
 	if err == nil {
 		var c config.NotifyConfig
 		if err := yaml.Unmarshal(data, &c); err != nil {
 			return err
 		}
 		m.current = c
-		slog.Info("已加载通知配置文件", "path", m.path)
+		slog.Info("已加载通知配置", "doc", m.p.Name())
 		return nil
 	}
-	if os.IsNotExist(err) {
+	if errors.Is(err, configdoc.ErrNotFound) {
 		m.current = initial
 		if err := m.persist(); err != nil {
 			return err
 		}
-		slog.Info("通知配置文件不存在，已用 server.yaml 的 notify 段初始化", "path", m.path)
+		slog.Info("通知配置不存在，已用 server.yaml 的 notify 段初始化", "doc", m.p.Name())
 		return nil
 	}
 	return err
@@ -71,22 +77,22 @@ func (m *Manager) Save(c config.NotifyConfig) error {
 	if err != nil {
 		return err
 	}
-	if err := config.AtomicWrite(m.path, data); err != nil {
+	if err := m.p.Save(data); err != nil {
 		return err
 	}
 	m.current = c
 	if m.apply != nil {
 		m.apply(c)
 	}
-	slog.Info("通知配置已保存并热加载", "path", m.path)
+	slog.Info("通知配置已保存并热加载", "doc", m.p.Name())
 	return nil
 }
 
-// persist 原子写当前配置到文件（内部加锁外使用，调用方需持有写锁或初始化阶段）。
+// persist 写当前配置（内部加锁外使用，调用方需持有写锁或初始化阶段）。
 func (m *Manager) persist() error {
 	data, err := yaml.Marshal(m.current)
 	if err != nil {
 		return err
 	}
-	return config.AtomicWrite(m.path, data)
+	return m.p.Save(data)
 }

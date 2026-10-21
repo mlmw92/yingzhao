@@ -2,13 +2,12 @@ package alert
 
 import (
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/model"
-	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 	"gopkg.in/yaml.v3"
 )
 
@@ -94,21 +93,26 @@ func (c *GroupingConfig) normalize() {
 
 // GroupingStore 分组配置存储，支持热更新。
 type GroupingStore struct {
-	mu   sync.RWMutex
-	cfg  GroupingConfig
-	path string
+	mu  sync.RWMutex
+	cfg GroupingConfig
+	p   configdoc.Persister
 }
 
-// NewGroupingStore 创建分组配置存储并加载已有配置。
+// NewGroupingStore 用文件持久化（测试与迁移源）。
 func NewGroupingStore(path string) *GroupingStore {
-	s := &GroupingStore{path: path}
+	return NewGroupingStoreWithPersister(configdoc.NewFilePersister(path))
+}
+
+// NewGroupingStoreWithPersister 用指定持久化后端创建存储并加载已有配置。
+func NewGroupingStoreWithPersister(p configdoc.Persister) *GroupingStore {
+	s := &GroupingStore{p: p}
 	s.cfg = s.load()
 	return s
 }
 
 func (s *GroupingStore) load() GroupingConfig {
 	var cfg GroupingConfig
-	data, err := os.ReadFile(s.path)
+	data, err := s.p.Load()
 	if err != nil {
 		cfg.normalize()
 		return cfg
@@ -135,7 +139,7 @@ func (s *GroupingStore) Save(cfg GroupingConfig) error {
 	if err != nil {
 		return err
 	}
-	if err := config.AtomicWrite(s.path, data); err != nil {
+	if err := s.p.Save(data); err != nil {
 		return err
 	}
 	s.mu.Lock()

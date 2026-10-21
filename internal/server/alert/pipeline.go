@@ -2,9 +2,9 @@ package alert
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/model"
-	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 	"gopkg.in/yaml.v3"
 )
 
@@ -77,24 +77,33 @@ type PipelineConfig struct {
 type PipelineStore struct {
 	mu   sync.RWMutex
 	cfg  PipelineConfig
-	path string
+	p configdoc.Persister
 }
 
-// NewPipelineStore 创建管道配置存储；文件不存在表示空管道，文件损坏时忽略并告警。
+// NewPipelineStore 用文件持久化（测试与迁移源）。
 func NewPipelineStore(path string) *PipelineStore {
-	s := &PipelineStore{path: path}
+	return NewPipelineStoreWithPersister(configdoc.NewFilePersister(path))
+}
+
+// NewPipelineStoreWithPersister 用指定持久化后端创建存储；
+// 文档不存在表示空管道，损坏时忽略并告警。
+func NewPipelineStoreWithPersister(p configdoc.Persister) *PipelineStore {
+	s := &PipelineStore{p: p}
 	cfg, err := s.load()
 	if err != nil {
-		slog.Warn("告警管道配置解析失败，已忽略（通知回退内置格式）", "path", path, "err", err)
+		slog.Warn("告警管道配置解析失败，已忽略（通知回退内置格式）", "doc", p.Name(), "err", err)
 	}
 	s.cfg = cfg
 	return s
 }
 
 func (s *PipelineStore) load() (PipelineConfig, error) {
-	data, err := os.ReadFile(s.path)
+	data, err := s.p.Load()
+	if errors.Is(err, configdoc.ErrNotFound) {
+		return PipelineConfig{}, nil // 未配置 = 空管道
+	}
 	if err != nil {
-		return PipelineConfig{}, nil // 文件不存在 = 空管道
+		return PipelineConfig{}, err
 	}
 	var cfg PipelineConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
@@ -134,7 +143,7 @@ func (s *PipelineStore) Save(cfg PipelineConfig) error {
 	if err != nil {
 		return err
 	}
-	if err := config.AtomicWrite(s.path, data); err != nil {
+	if err := s.p.Save(data); err != nil {
 		return err
 	}
 	s.mu.Lock()

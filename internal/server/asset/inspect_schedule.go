@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -13,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // 配置巡检的周期化调度。
@@ -193,7 +192,7 @@ type InspectScheduleStatus struct {
 // InspectScheduler 周期化执行配置巡检。
 type InspectScheduler struct {
 	mu   sync.Mutex
-	path string
+	p configdoc.Persister
 	cfg  InspectScheduleConfig
 	svc  *Service
 	// resolve 按用户名取回**当前**范围快照；ok=false 表示这个身份已解析不到（账号被删/被禁）。
@@ -212,23 +211,30 @@ type InspectScheduler struct {
 	running bool
 }
 
-// NewInspectScheduler 创建调度器。配置文件不存在时用 initial 初始化并落盘（与保留策略一致）。
+// NewInspectScheduler 用文件持久化（测试与迁移源）。
 func NewInspectScheduler(path string, initial InspectScheduleConfig, svc *Service,
+	resolve func(string) (ScopeSnapshot, bool)) (*InspectScheduler, error) {
+	return NewInspectSchedulerWithPersister(configdoc.NewFilePersister(path), initial, svc, resolve)
+}
+
+// NewInspectSchedulerWithPersister 用指定持久化后端创建调度器；
+// 文档不存在时用 initial 初始化并落盘。
+func NewInspectSchedulerWithPersister(p configdoc.Persister, initial InspectScheduleConfig, svc *Service,
 	resolve func(string) (ScopeSnapshot, bool)) (*InspectScheduler, error) {
 	if resolve == nil {
 		return nil, errors.New("周期化巡检缺少范围解析器")
 	}
-	s := &InspectScheduler{path: path, svc: svc, resolve: resolve, now: time.Now}
+	s := &InspectScheduler{p: p, svc: svc, resolve: resolve, now: time.Now}
 	cfg := initial
-	data, err := os.ReadFile(path)
+	data, err := p.Load()
 	switch {
 	case err == nil:
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("解析周期化巡检配置失败: %w", err)
 		}
-	case errors.Is(err, os.ErrNotExist):
+	case errors.Is(err, configdoc.ErrNotFound):
 		cfg.normalize()
-		if err := writeInspectSchedule(path, cfg); err != nil {
+		if err := writeInspectSchedule(p, cfg); err != nil {
 			return nil, err
 		}
 	default:
@@ -269,7 +275,7 @@ func (s *InspectScheduler) Save(cfg InspectScheduleConfig, changedBy string) err
 	cfg.LastChangedBy = changedBy
 	cfg.LastChangedAt = s.now().UnixMilli()
 	cfg.normalize()
-	if err := writeInspectSchedule(s.path, cfg); err != nil {
+	if err := writeInspectSchedule(s.p, cfg); err != nil {
 		return err
 	}
 	s.cfg = cfg
@@ -396,7 +402,7 @@ func (s *InspectScheduler) record(run InspectScheduleRun) {
 	if run.RunID > 0 {
 		s.cfg.LastRunID = run.RunID
 	}
-	if err := writeInspectSchedule(s.path, s.cfg); err != nil {
+	if err := writeInspectSchedule(s.p, s.cfg); err != nil {
 		// 落盘失败只影响"跨重启的去重"，不影响本轮结果：记日志继续。
 		slog.Warn("周期化巡检状态落盘失败（下次重启可能重复执行一轮）", "err", err)
 	}
@@ -480,12 +486,12 @@ func (s *InspectScheduler) tick() {
 	s.RunNow("", false)
 }
 
-func writeInspectSchedule(path string, cfg InspectScheduleConfig) error {
+func writeInspectSchedule(p configdoc.Persister, cfg InspectScheduleConfig) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("序列化周期化巡检配置失败: %w", err)
 	}
-	if err := config.AtomicWrite(path, data); err != nil {
+	if err := p.Save(data); err != nil {
 		return fmt.Errorf("保存周期化巡检配置失败: %w", err)
 	}
 	return nil

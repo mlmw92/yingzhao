@@ -16,18 +16,18 @@ package retention
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/server/alert"
 	"github.com/mlmw92/yingzhao/internal/server/audit"
-	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 	"github.com/mlmw92/yingzhao/internal/server/logstore"
 	"github.com/mlmw92/yingzhao/internal/server/report"
 	"github.com/mlmw92/yingzhao/internal/server/security"
@@ -159,7 +159,7 @@ type Status struct {
 type Manager struct {
 	mu   sync.RWMutex
 	cfg  Config
-	path string
+	p    configdoc.Persister
 
 	acks     *alert.AckStore
 	reports  *report.Generator
@@ -180,21 +180,31 @@ type Manager struct {
 	last   *CleanupResult
 }
 
-// New 创建保留策略管理器：配置文件不存在时用 initial 初始化并落盘（与其它 Web 可编辑配置一致）。
+// New 用文件持久化（测试与迁移源）。
 func New(path string, initial Config, acks *alert.AckStore, reports *report.Generator,
+	auditStore *audit.Store, sec *security.Store, tsdbAddr string) (*Manager, error) {
+	return NewWithPersister(configdoc.NewFilePersister(path), initial, acks, reports, auditStore, sec, tsdbAddr)
+}
+
+// NewWithPersister 用指定持久化后端创建保留策略管理器；
+// 文档不存在时用 initial 初始化并落盘。
+func NewWithPersister(p configdoc.Persister, initial Config, acks *alert.AckStore, reports *report.Generator,
 	auditStore *audit.Store, sec *security.Store, tsdbAddr string) (*Manager, error) {
 	initial.normalize()
 	m := &Manager{
-		cfg: initial, path: path, acks: acks, reports: reports,
+		cfg: initial, p: p, acks: acks, reports: reports,
 		audit: auditStore, security: sec, tsdbAddr: tsdbAddr,
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		// 首次运行：落盘默认值，便于运维直接在文件里看到可调项
+	data, err := p.Load()
+	if errors.Is(err, configdoc.ErrNotFound) {
+		// 首次运行：落盘默认值，便于运维直接看到可调项
 		if err := m.Save(initial); err != nil {
 			return nil, fmt.Errorf("初始化数据保留配置失败: %w", err)
 		}
 		return m, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取数据保留配置失败: %w", err)
 	}
 	// 从**默认值**起解，而不是从零值起：否则配置文件里**没有**的字段会解成 0，而 0 在本
 	// 配置里的含义是「不清理该类」——新增一个保留类（本批的 auditDays、C2 的 logsDays）后，
@@ -252,7 +262,7 @@ func (m *Manager) Save(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if err := config.AtomicWrite(m.path, data); err != nil {
+	if err := m.p.Save(data); err != nil {
 		return err
 	}
 	m.mu.Lock()

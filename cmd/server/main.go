@@ -25,6 +25,7 @@ import (
 	"github.com/mlmw92/yingzhao/internal/server/audit"
 	"github.com/mlmw92/yingzhao/internal/server/auth"
 	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 	servercrypto "github.com/mlmw92/yingzhao/internal/server/crypto"
 	"github.com/mlmw92/yingzhao/internal/server/dashboard"
 	"github.com/mlmw92/yingzhao/internal/server/dialtest"
@@ -83,6 +84,21 @@ func main() {
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()
 
+	// 状态库：配置文档入库后它是硬依赖，连不上就启动失败（不退回文件）。
+	stateDB, err := openStateDB(runCtx, *cfg)
+	if err != nil {
+		slog.Error("初始化状态库失败", "err", err)
+		os.Exit(1)
+	}
+	defer stateDB.Close()
+	masterKey, err := configdoc.LoadKey(cfg.Database.MasterKeyFile)
+	if err != nil {
+		slog.Error("加载配置主密钥失败", "err", err, "path", cfg.Database.MasterKeyFile)
+		os.Exit(1)
+	}
+	docs := persisterFactory{store: configdoc.NewMySQLStore(stateDB), key: masterKey}
+	slog.Info("状态库已就绪", "migrated", true)
+
 	// 存储层
 	store, err := storage.NewStorage(cfg.TSDB)
 	if err != nil {
@@ -135,12 +151,12 @@ func main() {
 	rules := alert.NewRulesStore(cfg.Alert.RulesFile)
 	alertStore := alert.NewVMAlertStore(store)
 	ackStore := alert.NewAckStore(filepath.Join(filepath.Dir(cfg.Alert.RulesFile), "alert_acks.json"))
-	maintenance := alert.NewMaintenanceStore(cfg.Alert.MaintenanceFile)
+	maintenance := alert.NewMaintenanceStoreWithPersister(docs.plain(nsMaintenance))
 	// 抑制规则与分组配置（P4）：热加载 YAML，可经 Web 端增删改。
-	inhibitStore := alert.NewInhibitStore(filepath.Join(filepath.Dir(cfg.Alert.RulesFile), "alert_inhibit.yaml"))
-	groupingStore := alert.NewGroupingStore(filepath.Join(filepath.Dir(cfg.Alert.RulesFile), "alert_grouping.yaml"))
+	inhibitStore := alert.NewInhibitStoreWithPersister(docs.plain(nsInhibit))
+	groupingStore := alert.NewGroupingStoreWithPersister(docs.plain(nsGrouping))
 	// 告警事件管道（relabel / enrich / 消息模板）：独立 YAML，Web 端可编辑，保存即热生效。
-	pipelineStore := alert.NewPipelineStore(filepath.Join(filepath.Dir(cfg.Alert.RulesFile), "alert_pipeline.yaml"))
+	pipelineStore := alert.NewPipelineStoreWithPersister(docs.plain(nsPipeline))
 	// 通知器统一经自监控装饰器包装：按渠道统计发送成功/失败（含配置热加载路径）
 	buildNotifiers := func(c config.NotifyConfig) []alert.Notifier {
 		return selfmon.WrapNotifiers(alert.BuildNotifiers(c), mon)
@@ -151,7 +167,7 @@ func main() {
 
 	// 通知配置管理：独立文件（Web 端可配置），启动时优先加载该文件，不存在则
 	// 用 server.yaml 的 notify 段初始化并落盘；保存时通过 SetNotifiers 热加载。
-	notifyMgr, err := notify.New(cfg.NotifyFile, cfg.Notify, func(c config.NotifyConfig) {
+	notifyMgr, err := notify.NewWithPersister(docs.sensitive(nsNotify), cfg.Notify, func(c config.NotifyConfig) {
 		engine.SetNotifiers(buildNotifiers(c))
 	})
 	if err != nil {
@@ -164,7 +180,7 @@ func main() {
 	// AI 助手（大模型）：独立配置文件，**默认关闭**——不配置就不存在任何外呼路径，
 	// 离线部署的默认真空因此不变（设计件 2026-10-08-ai-assistant-design.md）。
 	// 传零值：由 Normalize 补齐超时/上限等默认，避免"超时为 0 = 无限等待"这类零值陷阱。
-	aiMgr, err := ai.New(cfg.AIFile, config.AIConfig{})
+	aiMgr, err := ai.NewWithPersister(docs.sensitive(nsAI), config.AIConfig{})
 	if err != nil {
 		slog.Error("初始化 AI 配置失败", "err", err)
 		os.Exit(1)
@@ -195,7 +211,7 @@ func main() {
 	}
 
 	// 中间件监控页面展示开关（哪些类型出现在 Tab 上）：空清单 = 全部展示
-	mwview.Default.SetPath(cfg.MiddlewareViewFile)
+	mwview.Default.SetPersister(docs.plain(nsMWView))
 
 	// 上报接收（Nginx access log 地理聚合窗口：TTL 1h，实时大屏场景）
 	ngxWin := nginxaccess.NewWindow(nginxaccess.NewGeo(), time.Hour)
@@ -312,7 +328,7 @@ func main() {
 	// 报告周期化调度：默认**关闭**（要人显式打开），配置文件不存在时用默认值建立。
 	// 建不起来（如目录不可写）不阻断启动：报告仍可在 Web 端手动生成。
 	var reportSched *report.Scheduler
-	if sched, err := report.NewScheduler(filepath.Join(cfg.DataDir, "report_schedule.yaml"),
+	if sched, err := report.NewSchedulerWithPersister(docs.plain(nsReportSched),
 		report.ScheduleConfig{Enabled: false, Type: string(report.ReportWeekly), IntervalHours: report.DefaultScheduleIntervalHours},
 		reportGen); err != nil {
 		slog.Error("初始化报告调度失败（周期化报告不可用，手动生成不受影响）", "err", err)
@@ -321,7 +337,7 @@ func main() {
 	}
 
 	// 数据大屏模块显隐配置管理：独立文件（Web 端设置写入），不存在则用默认全开初始化并落盘。
-	screenMgr, err := screencfg.New(cfg.ScreenFile, config.DefaultScreenConfig())
+	screenMgr, err := screencfg.NewWithPersister(docs.plain(nsScreen), config.DefaultScreenConfig())
 	if err != nil {
 		slog.Error("初始化大屏配置失败", "err", err)
 		os.Exit(1)
@@ -332,14 +348,14 @@ func main() {
 	k8sLiveMgr := k8sproxy.New(filepath.Join(cfg.DataDir, "k8s-live.yaml"))
 
 	// 系统 UI 品牌配置（系统名称/Logo）：独立文件（Web 端设置写入），不存在则用默认初始化并落盘。
-	uiMgr, err := uicfg.New(cfg.UIFile, uicfg.DefaultUIConfig())
+	uiMgr, err := uicfg.NewWithPersister(docs.plain(nsUI), uicfg.DefaultUIConfig())
 	if err != nil {
 		slog.Error("初始化 UI 配置失败", "err", err)
 		os.Exit(1)
 	}
 
 	// 自定义仪表盘配置（文件缺失则初始化为空，不阻断启动）
-	dashMgr, err := dashboard.New(cfg.DashboardsFile)
+	dashMgr, err := dashboard.NewWithPersister(docs.plain(nsDashboards))
 	if err != nil {
 		slog.Error("初始化仪表盘配置失败", "err", err)
 		os.Exit(1)
@@ -408,7 +424,7 @@ func main() {
 	if retentionFile == "" {
 		retentionFile = filepath.Join(cfg.DataDir, "retention.yaml")
 	}
-	retentionMgr, err := retention.New(retentionFile, retention.DefaultConfig(), ackStore, reportGen, auditStore, securityStore, cfg.TSDB.Addr)
+	retentionMgr, err := retention.NewWithPersister(docs.plain(nsRetention), retention.DefaultConfig(), ackStore, reportGen, auditStore, securityStore, cfg.TSDB.Addr)
 	if err != nil {
 		slog.Error("初始化数据保留策略失败", "err", err)
 		os.Exit(1)
@@ -470,7 +486,7 @@ func main() {
 		// 周期化巡检：配置与运行状态同文件；范围折算由 API 层提供（它持有身份仓库与节点管理器，
 		// 而 asset 包刻意不依赖 auth 包，依赖方向保持清晰）。
 		// 构造失败**不阻断启动**：它是次要能力，缺它时巡检仍可手动触发。
-		if s, err := asset.NewInspectScheduler(filepath.Join(cfg.DataDir, "inspect_schedule.yaml"),
+		if s, err := asset.NewInspectSchedulerWithPersister(docs.plain(nsInspectSched),
 			asset.InspectScheduleConfig{}, assetSvc, rest.InspectScopeSnapshot); err != nil {
 			slog.Error("周期化巡检配置不可用，该能力已关闭", "err", err)
 		} else {

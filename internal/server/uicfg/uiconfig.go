@@ -1,16 +1,17 @@
 // Package uicfg 管理系统 UI 品牌配置：系统名称、Logo 与侧栏副标题。
-// 配置独立持久化到文件（默认 /etc/monitor-server/ui.yaml），由 Web 端设置写入，
+// 配置独立持久化（生产为 MySQL 的 config_documents，测试用文件替身），由 Web 端设置写入，
 // 与 notify/screen 配置同级，独立于 server.yaml，便于运行时修改且不受升级覆盖。
 package uicfg
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 const (
@@ -87,16 +88,21 @@ func DefaultUIConfig() UIConfig {
 
 // Manager 负责 UI 配置的加载与落盘。
 type Manager struct {
-	path string
+	p configdoc.Persister
 	// mu 保护 cfg：Disabled 会被调度器每秒读，Web 保存可能同时写。
 	mu  sync.RWMutex
 	cfg UIConfig
 }
 
-// New 从 path 加载配置；文件不存在则用 initial 初始化并落盘；解析失败返回错误。
+// New 用文件持久化（测试与迁移源）。
 func New(path string, initial UIConfig) (*Manager, error) {
-	m := &Manager{path: path, cfg: initial}
-	data, err := os.ReadFile(path)
+	return NewWithPersister(configdoc.NewFilePersister(path), initial)
+}
+
+// NewWithPersister 用指定持久化后端加载配置；文档不存在则用 initial 初始化并落盘。
+func NewWithPersister(p configdoc.Persister, initial UIConfig) (*Manager, error) {
+	m := &Manager{p: p, cfg: initial}
+	data, err := p.Load()
 	if err == nil {
 		var c UIConfig
 		if err := yaml.Unmarshal(data, &c); err != nil {
@@ -107,7 +113,8 @@ func New(path string, initial UIConfig) (*Manager, error) {
 		}
 		m.cfg = c
 		return m, nil
-	} else if os.IsNotExist(err) {
+	}
+	if errors.Is(err, configdoc.ErrNotFound) {
 		if err := m.Save(initial); err != nil {
 			return nil, err
 		}
@@ -151,14 +158,11 @@ func (m *Manager) Save(c UIConfig) error {
 		return err
 	}
 	c.Disabled = normalized
-	if err := os.MkdirAll(filepath.Dir(m.path), 0o755); err != nil {
-		return err
-	}
 	data, err := yaml.Marshal(c)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(m.path, data, 0o644); err != nil {
+	if err := m.p.Save(data); err != nil {
 		return err
 	}
 	m.cfg = c

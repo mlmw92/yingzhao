@@ -6,26 +6,30 @@
 package mwview
 
 import (
-	"os"
+	"errors"
 	"sync"
 
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 	"gopkg.in/yaml.v3"
 )
 
-// Store 是展示配置的文件存储（空清单 = 全部展示）。
+// Store 是展示配置的持久化存储（空清单 = 全部展示）。
 type Store struct {
-	mu  sync.RWMutex
-	path string
+	mu sync.RWMutex
+	p  configdoc.Persister
 }
 
-// Default 全局默认存储，main 启动时 SetPath 指定文件位置。
+// Default 全局默认存储，main 启动时注入持久化后端。
 var Default = &Store{}
 
-// SetPath 设置配置文件路径。
-func (s *Store) SetPath(path string) {
+// SetPath 用文件持久化（测试与迁移源）。
+func (s *Store) SetPath(path string) { s.SetPersister(configdoc.NewFilePersister(path)) }
+
+// SetPersister 设置持久化后端。
+func (s *Store) SetPersister(p configdoc.Persister) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.path = path
+	s.p = p
 }
 
 type viewFile struct {
@@ -35,12 +39,12 @@ type viewFile struct {
 // Enabled 返回启用的类型清单；空切片表示「全部展示」。
 func (s *Store) Enabled() []string {
 	s.mu.RLock()
-	path := s.path
+	p := s.p
 	s.mu.RUnlock()
-	if path == "" {
+	if p == nil {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := p.Load()
 	if err != nil {
 		return nil
 	}
@@ -54,18 +58,14 @@ func (s *Store) Enabled() []string {
 // Save 保存启用的类型清单（空清单 = 恢复全部展示）。
 func (s *Store) Save(enabled []string) error {
 	s.mu.RLock()
-	path := s.path
+	p := s.p
 	s.mu.RUnlock()
-	if path == "" {
-		return os.ErrNotExist
+	if p == nil {
+		return errors.New("中间件展示配置未启用")
 	}
 	data, err := yaml.Marshal(viewFile{Enabled: enabled})
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return p.Save(data)
 }

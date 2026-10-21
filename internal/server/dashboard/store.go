@@ -1,16 +1,16 @@
 // Package dashboard 管理用户自定义仪表盘。
 //
-// 仪表盘配置独立持久化到 YAML 文件（默认 /etc/monitor-server/dashboards.yaml），
-// 与 ui/screen 配置同级，由 Web 端增删改写入，不受升级覆盖；保存即落盘热生效。
+// 仪表盘配置独立持久化（生产为 MySQL 的 config_documents，测试用文件替身），
+// 与 ui/screen 配置同级，由 Web 端增删改写入，不受升级覆盖；保存即生效。
 package dashboard
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"time"
 
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 	"gopkg.in/yaml.v3"
 )
 
@@ -66,19 +66,24 @@ type fileModel struct {
 
 // Manager 仪表盘配置管理。
 type Manager struct {
-	path       string
+	p          configdoc.Persister
 	dashboards []Dashboard
 }
 
-// New 加载仪表盘配置；文件不存在则初始化为空。
+// New 用文件持久化（测试与迁移源）。
 func New(path string) (*Manager, error) {
-	m := &Manager{path: path}
-	data, err := os.ReadFile(path)
+	return NewWithPersister(configdoc.NewFilePersister(path))
+}
+
+// NewWithPersister 用指定持久化后端加载仪表盘配置；文档不存在则初始化为空。
+func NewWithPersister(p configdoc.Persister) (*Manager, error) {
+	m := &Manager{p: p}
+	data, err := p.Load()
+	if errors.Is(err, configdoc.ErrNotFound) {
+		m.dashboards = []Dashboard{}
+		return m, nil
+	}
 	if err != nil {
-		if os.IsNotExist(err) {
-			m.dashboards = []Dashboard{}
-			return m, nil
-		}
 		return nil, fmt.Errorf("读取仪表盘配置失败: %w", err)
 	}
 	var fm fileModel
@@ -157,32 +162,15 @@ func (m *Manager) Delete(id string) error {
 	return fmt.Errorf("看板不存在: %s", id)
 }
 
-// save 先备份再写盘。
+// save 写入持久化后端。
+//
+// 不再保留旧文件的 .bak 副本：dev-server 迁移前会单独备份现有文件，
+// 生产环境的历史由数据库备份负责。
 func (m *Manager) save() error {
-	if err := os.MkdirAll(filepath.Dir(m.path), 0o755); err != nil {
-		return err
-	}
-	// 备份旧文件
-	if _, err := os.Stat(m.path); err == nil {
-		_ = copyFile(m.path, m.path+".bak")
-	}
 	fm := fileModel{Dashboards: m.dashboards}
 	data, err := yaml.Marshal(fm)
 	if err != nil {
 		return err
 	}
-	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, m.path)
-}
-
-// copyFile 复制文件（用于备份）。
-func copyFile(src, dst string) error {
-	b, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, b, 0o644)
+	return m.p.Save(data)
 }

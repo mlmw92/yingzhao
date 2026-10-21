@@ -2,11 +2,10 @@ package alert
 
 import (
 	"log/slog"
-	"os"
 	"regexp"
 	"sync"
 
-	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 	"gopkg.in/yaml.v3"
 )
 
@@ -67,22 +66,27 @@ func compileRegexps(m map[string]string) map[string]*regexp.Regexp {
 // InhibitConfig 抑制规则配置（顶层为规则列表）。
 type InhibitConfig []InhibitRule
 
-// InhibitStore 抑制规则存储，支持从 YAML 加载与 Web 写入。
+// InhibitStore 抑制规则存储，支持从持久化文档加载与 Web 写入。
 type InhibitStore struct {
 	mu    sync.RWMutex
 	rules InhibitConfig
-	path  string
+	p     configdoc.Persister
 }
 
-// NewInhibitStore 创建抑制规则存储并加载已有配置（文件不存在时为空）。
+// NewInhibitStore 用文件持久化（测试与迁移源）。
 func NewInhibitStore(path string) *InhibitStore {
-	s := &InhibitStore{path: path}
+	return NewInhibitStoreWithPersister(configdoc.NewFilePersister(path))
+}
+
+// NewInhibitStoreWithPersister 用指定持久化后端创建存储（文档不存在时为空）。
+func NewInhibitStoreWithPersister(p configdoc.Persister) *InhibitStore {
+	s := &InhibitStore{p: p}
 	s.rules = s.load()
 	return s
 }
 
 func (s *InhibitStore) load() InhibitConfig {
-	data, err := os.ReadFile(s.path)
+	data, err := s.p.Load()
 	if err != nil {
 		return nil
 	}
@@ -113,7 +117,7 @@ func (s *InhibitStore) Save(rules []InhibitRule) error {
 	if err != nil {
 		return err
 	}
-	if err := config.AtomicWrite(s.path, data); err != nil {
+	if err := s.p.Save(data); err != nil {
 		return err
 	}
 	s.mu.Lock()

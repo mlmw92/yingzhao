@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -13,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/mlmw92/yingzhao/internal/server/asset"
-	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // 报告的周期化调度（全景表 11-4）。
@@ -89,7 +88,7 @@ const ScheduleActor = "schedule"
 // Scheduler 周期化生成报告。
 type Scheduler struct {
 	mu   sync.RWMutex
-	path string
+	p configdoc.Persister
 	cfg  ScheduleConfig
 	// generate 是生成报告的函数（默认 gen.GenerateWith）。
 	//
@@ -120,18 +119,24 @@ func (s *Scheduler) SetScopeResolver(fn func(string) (ScopeResolution, bool)) {
 	s.resolve = fn
 }
 
-// NewScheduler 创建调度器。配置文件不存在时用 initial 初始化并落盘（与保留策略一致）。
+// NewScheduler 用文件持久化（测试与迁移源）。
 func NewScheduler(path string, initial ScheduleConfig, gen *Generator) (*Scheduler, error) {
-	s := &Scheduler{path: path, generate: gen.GenerateWith, now: time.Now}
+	return NewSchedulerWithPersister(configdoc.NewFilePersister(path), initial, gen)
+}
+
+// NewSchedulerWithPersister 用指定持久化后端创建调度器；
+// 文档不存在时用 initial 初始化并落盘。
+func NewSchedulerWithPersister(p configdoc.Persister, initial ScheduleConfig, gen *Generator) (*Scheduler, error) {
+	s := &Scheduler{p: p, generate: gen.GenerateWith, now: time.Now}
 	cfg := initial
-	data, err := os.ReadFile(path)
+	data, err := p.Load()
 	switch {
 	case err == nil:
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("解析报告调度配置失败: %w", err)
 		}
-	case errors.Is(err, os.ErrNotExist):
-		if err := writeSchedule(path, cfg); err != nil {
+	case errors.Is(err, configdoc.ErrNotFound):
+		if err := writeSchedule(p, cfg); err != nil {
 			return nil, err
 		}
 	default:
@@ -179,7 +184,7 @@ func (s *Scheduler) Save(cfg ScheduleConfig) error {
 	cfg.LastReportID = s.cfg.LastReportID
 	cfg.LastError = s.cfg.LastError
 	cfg.normalize()
-	if err := writeSchedule(s.path, cfg); err != nil {
+	if err := writeSchedule(s.p, cfg); err != nil {
 		return err
 	}
 	s.cfg = cfg
@@ -292,7 +297,7 @@ func (s *Scheduler) recordRun(run ScheduleRun) {
 	s.cfg.LastRunAt = run.At
 	s.cfg.LastReportID = run.ReportID
 	s.cfg.LastError = run.Error
-	if err := writeSchedule(s.path, s.cfg); err != nil {
+	if err := writeSchedule(s.p, s.cfg); err != nil {
 		// 落盘失败只影响"跨重启的去重"，不影响本次生成结果：记日志继续。
 		slog.Warn("报告调度状态落盘失败（下次重启可能重复生成一次）", "err", err)
 	}
@@ -360,12 +365,12 @@ func (s *Scheduler) moduleDisabled() bool {
 	return disabled
 }
 
-func writeSchedule(path string, cfg ScheduleConfig) error {
+func writeSchedule(p configdoc.Persister, cfg ScheduleConfig) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("序列化报告调度配置失败: %w", err)
 	}
-	if err := config.AtomicWrite(path, data); err != nil {
+	if err := p.Save(data); err != nil {
 		return fmt.Errorf("保存报告调度配置失败: %w", err)
 	}
 	return nil

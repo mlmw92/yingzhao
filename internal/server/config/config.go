@@ -70,6 +70,10 @@ type DatabaseConfig struct {
 	MaxOpenConns    int    `yaml:"maxOpenConns"`
 	MaxIdleConns    int    `yaml:"maxIdleConns"`
 	ConnMaxLifetime int    `yaml:"connMaxLifetimeSeconds"`
+	// MasterKeyFile 是配置文档加密主密钥文件（0600，首次启动自动生成）。
+	// 它**不进数据库**：AI Key / 通知口令 / 签名 secret 用 AES-256-GCM 加密后入库，
+	// 主密钥随库泄露就等于没有加密。两台实例必须部署同一份。
+	MasterKeyFile string `yaml:"masterKeyFile"`
 }
 
 // VictoriaLogsConfig 是外部日志后端（VictoriaLogs）的连接配置。
@@ -467,7 +471,7 @@ func Default() *Config {
 		// 日志后端默认自研落盘：外部后端是可选能力，默认值必须保持"离线单机可用"。
 		LogBackend: "local",
 		// 数据库连接池默认值；阶段 0 只解析，阶段 1 起 DSN 必填。
-		Database:          DatabaseConfig{MaxOpenConns: 20, MaxIdleConns: 5, ConnMaxLifetime: 1800},
+		Database:          DatabaseConfig{MaxOpenConns: 20, MaxIdleConns: 5, ConnMaxLifetime: 1800, MasterKeyFile: "/etc/monitor-server/master.key"},
 		GeoIPFile:         "/var/lib/monitor-server/geoip/ip2region_v4.xdb",
 		MiddlewareViewFile: "/etc/monitor-server/middleware_view.yaml",
 		Auth:              AuthConfig{Enabled: false, Username: "admin", Password: "admin", Secret: "", UsersFile: "/var/lib/monitor-server/users.yaml", MigrateSingleAdmin: true},

@@ -2,25 +2,28 @@ package alert
 
 import (
 	"log/slog"
-	"os"
 	"sync"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/mlmw92/yingzhao/internal/model"
-	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
+	"gopkg.in/yaml.v3"
 )
 
-// MaintenanceStore 管理维护窗口配置，持久化到 YAML 文件。
+// MaintenanceStore 管理维护窗口配置，持久化到配置文档存储。
 type MaintenanceStore struct {
-	mu   sync.RWMutex
-	mw   model.MaintenanceWindow
-	path string
+	mu sync.RWMutex
+	mw model.MaintenanceWindow
+	p  configdoc.Persister
 }
 
-// NewMaintenanceStore 创建维护窗口存储并加载。
+// NewMaintenanceStore 用文件持久化（测试与迁移源）。
 func NewMaintenanceStore(path string) *MaintenanceStore {
-	s := &MaintenanceStore{path: path}
+	return NewMaintenanceStoreWithPersister(configdoc.NewFilePersister(path))
+}
+
+// NewMaintenanceStoreWithPersister 用指定持久化后端创建存储并加载。
+func NewMaintenanceStoreWithPersister(p configdoc.Persister) *MaintenanceStore {
+	s := &MaintenanceStore{p: p}
 	s.load()
 	return s
 }
@@ -51,7 +54,7 @@ func (s *MaintenanceStore) IsActive(now int64) bool {
 }
 
 func (s *MaintenanceStore) load() {
-	data, err := os.ReadFile(s.path)
+	data, err := s.p.Load()
 	if err != nil {
 		return
 	}
@@ -63,7 +66,7 @@ func (s *MaintenanceStore) persistLocked() {
 	if err != nil {
 		return
 	}
-	if err := config.AtomicWrite(s.path, data); err != nil {
-		slog.Warn("写入维护窗口配置失败", "err", err, "path", s.path)
+	if err := s.p.Save(data); err != nil {
+		slog.Warn("写入维护窗口配置失败", "err", err, "doc", s.p.Name())
 	}
 }

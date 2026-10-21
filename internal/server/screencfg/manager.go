@@ -4,25 +4,31 @@
 package screencfg
 
 import (
+	"errors"
 	"log/slog"
-	"os"
 	"sync"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // Manager 大屏配置管理器。
 type Manager struct {
-	path    string
+	p       configdoc.Persister
 	mu      sync.RWMutex
 	current config.ScreenConfig
 }
 
-// New 创建管理器并加载配置：文件存在则读取；不存在则用 initial 初始化并落盘。
+// New 用文件持久化（测试与迁移源）。
 func New(path string, initial config.ScreenConfig) (*Manager, error) {
-	m := &Manager{path: path}
+	return NewWithPersister(configdoc.NewFilePersister(path), initial)
+}
+
+// NewWithPersister 用指定持久化后端加载配置；文档不存在则用 initial 初始化并落盘。
+func NewWithPersister(p configdoc.Persister, initial config.ScreenConfig) (*Manager, error) {
+	m := &Manager{p: p}
 	if err := m.loadOrInit(initial); err != nil {
 		return nil, err
 	}
@@ -31,7 +37,7 @@ func New(path string, initial config.ScreenConfig) (*Manager, error) {
 
 // loadOrInit 加载或初始化配置。
 func (m *Manager) loadOrInit(initial config.ScreenConfig) error {
-	data, err := os.ReadFile(m.path)
+	data, err := m.p.Load()
 	if err == nil {
 		var c config.ScreenConfig
 		if err := yaml.Unmarshal(data, &c); err != nil {
@@ -56,15 +62,15 @@ func (m *Manager) loadOrInit(initial config.ScreenConfig) error {
 			c.DeployLocation = initial.DeployLocation
 		}
 		m.current = c
-		slog.Info("已加载大屏配置文件", "path", m.path)
+		slog.Info("已加载大屏配置文件", "doc", m.p.Name())
 		return nil
 	}
-	if os.IsNotExist(err) {
+	if errors.Is(err, configdoc.ErrNotFound) {
 		m.current = initial
 		if err := m.persist(); err != nil {
 			return err
 		}
-		slog.Info("大屏配置文件不存在，已用默认配置初始化", "path", m.path)
+		slog.Info("大屏配置不存在，已用默认配置初始化", "doc", m.p.Name())
 		return nil
 	}
 	return err
@@ -88,19 +94,19 @@ func (m *Manager) Save(c config.ScreenConfig) error {
 	if err != nil {
 		return err
 	}
-	if err := config.AtomicWrite(m.path, data); err != nil {
+	if err := m.p.Save(data); err != nil {
 		return err
 	}
 	m.current = c
-	slog.Info("大屏配置已保存", "path", m.path)
+	slog.Info("大屏配置已保存", "doc", m.p.Name())
 	return nil
 }
 
-// persist 原子写当前配置到文件（初始化阶段使用）。
+// persist 原子写当前配置（初始化阶段使用）。
 func (m *Manager) persist() error {
 	data, err := yaml.Marshal(m.current)
 	if err != nil {
 		return err
 	}
-	return config.AtomicWrite(m.path, data)
+	return m.p.Save(data)
 }
