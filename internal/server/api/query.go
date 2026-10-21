@@ -1320,7 +1320,39 @@ func (a *API) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	// 资源范围：受限用户只能看到范围内节点产生的告警。
 	events = filterByNodeScope(a, Principal(r), events, func(e model.AlertEvent) string { return e.Node })
 	events = withStableIDs(events)
+	a.fillEventRuleTypes(events)
 	writeJSON(w, 200, map[string]interface{}{"alerts": events})
+}
+
+// fillEventRuleTypes 为早期事件回填规则类型。
+//
+// ruleType 是后加到事件上的字段；在此之前写入时序库的事件没有它。
+// 规则类型是**规则的属性**而不是事件的属性，按 ruleId 查一次规则表即可回填，
+// 不需要（也无法）对时序库做数据迁移。规则已删除时保持为空，由前端按
+// 「metric 是不是合法指标名」兜底。
+func (a *API) fillEventRuleTypes(events []model.AlertEvent) {
+	if a.rules == nil || len(events) == 0 {
+		return
+	}
+	need := false
+	for i := range events {
+		if events[i].RuleType == "" {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return
+	}
+	types := make(map[string]string)
+	for _, r := range a.rules.List() {
+		types[r.ID] = r.Type
+	}
+	for i := range events {
+		if events[i].RuleType == "" {
+			events[i].RuleType = types[events[i].RuleID]
+		}
+	}
 }
 
 // unacknowledgedAlerts 返回尚未人工确认的告警，用于待处理告警的展示与统计。

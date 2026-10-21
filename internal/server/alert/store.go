@@ -44,6 +44,11 @@ func (s *VMAlertStore) Add(e model.AlertEvent) {
 	if e.Metric != "" {
 		labels["metric"] = e.Metric
 	}
+	// 规则类型必须落库：事件从时序库重建时靠它区分 PromQL 与阈值规则。
+	// 缺了它，历史 PromQL 事件会被当成阈值事件（触发条件与趋势都会错）。
+	if e.RuleType != "" {
+		labels["ruleType"] = e.RuleType
+	}
 	if e.Operator != "" {
 		labels["operator"] = e.Operator
 	}
@@ -185,6 +190,7 @@ func buildEvent(labels map[string]string, ts int64, value float64) model.AlertEv
 		ev.GroupKey = labels["group"]
 	}
 	ev.Metric = labels["metric"]
+	ev.RuleType = labels["ruleType"]
 	ev.Operator = labels["operator"]
 	if v, err := strconv.ParseFloat(labels["threshold"], 64); err == nil {
 		ev.Threshold = v

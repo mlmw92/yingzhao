@@ -189,3 +189,30 @@ func TestRoutes_Rules_SilenceNeedsSilenceWrite(t *testing.T) {
 		t.Fatalf("silence:write 应放行至 handler 并返回 404，实际 code = %d，body = %s", rec.Code, rec.Body.String())
 	}
 }
+
+// 早期版本的告警事件没有把 ruleType 落库。规则类型是规则的属性，
+// 按 ruleId 回填，历史 PromQL 事件才不会在详情里被当成阈值事件。
+type promqlRules struct{ fakeRules }
+
+func (promqlRules) List() []model.AlertRule {
+	return []model.AlertRule{{ID: "r1", Name: "CPU 使用率过高", Type: model.RuleTypePromQL, Expr: "cpu_usage > 0"}}
+}
+
+func TestRoutes_Alerts_BackfillsHistoricalRuleType(t *testing.T) {
+	a := scopeTestAPI(t)
+	a.alerts = &fakeAlerts{active: []model.AlertEvent{{
+		RuleID: "r1", RuleName: "CPU 使用率过高", Node: "web-01",
+		Metric: "cpu_usage > 0", State: model.AlertStateFiring, StartsAt: 1000,
+	}}}
+	a.rules = promqlRules{}
+
+	rec := httptest.NewRecorder()
+	newRoutesMux(a).ServeHTTP(rec, reqWith(globalPrincipal("alerts:read"), http.MethodGet, "/api/v1/alerts?state=active", ""))
+	got, _ := decodeBody(t, rec)["alerts"].([]any)
+	if len(got) != 1 {
+		t.Fatalf("alerts = %v", got)
+	}
+	if rt := got[0].(map[string]any)["ruleType"]; rt != model.RuleTypePromQL {
+		t.Fatalf("历史事件应回填 ruleType，实际 %v", rt)
+	}
+}

@@ -524,7 +524,7 @@
         <div class="ev-section-title">触发信息</div>
         <div class="ev-field">
           <span>触发条件</span>
-          <span v-if="detail.ruleType === 'promql'" class="mono">{{ detail.metric }}</span>
+          <span v-if="isPromQLEvent(detail)" class="mono">{{ detail.metric }}</span>
           <span v-else class="mono">{{ detail.metric }} {{ detail.operator }} {{ detail.threshold }}</span>
         </div>
         <div class="ev-field"><span>触发值</span><span class="mono">{{ detail.value }}</span></div>
@@ -535,7 +535,7 @@
         <AIInvestigationPanel v-if="detail.id" :alert-id="detail.id" />
         <!-- PromQL 规则的事件里 metric 存的是表达式，不是单一指标名：
              拿它去查 /query/range 必然失败（以前是 500）。这里直接不画单指标趋势。 -->
-        <template v-if="detail.ruleType !== 'promql' && detail.metric">
+        <template v-if="!isPromQLEvent(detail) && detail.metric">
           <div class="ev-chart-title">触发指标近 1 小时趋势</div>
           <TrendChart
             :option="trendOption"
@@ -546,7 +546,7 @@
             @retry="loadTrend(detail)"
           />
         </template>
-        <template v-else-if="detail.ruleType === 'promql'">
+        <template v-else-if="isPromQLEvent(detail)">
           <div class="ev-chart-title">触发指标近 1 小时趋势</div>
           <div class="ev-chart-note">
             PromQL 规则可能命中多条序列，不提供单指标趋势。可在「指标浏览」里按表达式查询。
@@ -1484,10 +1484,19 @@ function buildTrendOption(row, points) {
   return opt
 }
 
+// 历史事件可能没有 ruleType（早期未落库，且规则已被删除）：
+// metric 不是合法指标名时按 PromQL 事件处理，避免拿表达式去查趋势。
+// 这是兜底，正常路径由服务端按 ruleId 回填 ruleType。
+function isPromQLEvent(row) {
+  if (!row) return false
+  if (row.ruleType === 'promql') return true
+  return !!row.metric && !/^[A-Za-z_:][A-Za-z0-9_:]*$/.test(row.metric)
+}
+
 async function loadTrend(row) {
   // PromQL 事件的 metric 是表达式（如 `cpu_usage > 0`），不是指标名：
-  // 发到 /query/range 只会拿到 400/500，趋势图永远画不出来。
-  if (!row || !row.metric || row.ruleType === 'promql') return
+  // 发到 /query/range 只会拿到 400，趋势图永远画不出来。
+  if (!row || !row.metric || isPromQLEvent(row)) return
   trendOption.value = null
   trendError.value = ''
   trendPoints = []

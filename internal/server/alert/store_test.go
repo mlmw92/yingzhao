@@ -167,3 +167,35 @@ func TestEngineRestoresSpecialAlertFiringIndex(t *testing.T) {
 		t.Fatal("certificate active state was not restored")
 	}
 }
+
+// ruleType 必须落库：告警事件从时序库重建时，丢失它会把 PromQL 事件
+// 当成阈值事件展示（触发条件、趋势查询都会错）。
+func TestVMAlertStorePersistsRuleType(t *testing.T) {
+	storage := &captureAlertStorage{}
+	store := NewVMAlertStore(storage)
+	store.Add(model.AlertEvent{
+		RuleID: "r1", RuleName: "cpu", RuleType: model.RuleTypePromQL,
+		Node: "n1", State: model.AlertStateFiring, StartsAt: 1000, Metric: "cpu_usage > 0",
+	})
+	if len(storage.writes) != 1 {
+		t.Fatalf("writes = %d", len(storage.writes))
+	}
+	if got := storage.writes[0].Labels["ruleType"]; got != model.RuleTypePromQL {
+		t.Fatalf("ruleType label = %q，want %q", got, model.RuleTypePromQL)
+	}
+}
+
+func TestVMAlertStoreRestoresRuleType(t *testing.T) {
+	storage := &captureAlertStorage{active: []model.Series{{
+		Labels: map[string]string{
+			"rule": "r1", "name": "cpu", "host": "n1", "state": "firing",
+			"ruleType": model.RuleTypePromQL, "metric": "cpu_usage > 0",
+		},
+		Points: []model.Point{{Timestamp: 1000, Value: 1}},
+	}}}
+	store := NewVMAlertStore(storage)
+	evs := store.Active()
+	if len(evs) != 1 || evs[0].RuleType != model.RuleTypePromQL {
+		t.Fatalf("重建后 ruleType = %+v", evs)
+	}
+}

@@ -61,14 +61,13 @@ describe('AlertsView PromQL 规则展示', () => {
     expect(text).toContain('kafka_consumer_lag > 100')
   })
 
-  // PromQL 事件的 metric 是表达式，不是指标名：拿它去查 /query/range 只会得到错误。
-  // 详情里必须明确说明「不提供单指标趋势」，而不是画一个永远失败的图。
-  it('PromQL 事件详情不请求单指标趋势，改为文字说明', async () => {
-    const event = {
-      id: 'e1', ruleId: 'p1', ruleName: 'CPU 高', ruleType: 'promql',
-      node: 'web-01', metric: 'cpu_usage > 0', value: 4.89,
-      severity: 'critical', state: 'firing', startsAt: Date.now(), message: 'PromQL 命中',
-    }
+  const PROMQL_EVENT = {
+    id: 'e1', ruleId: 'p1', ruleName: 'CPU 高', ruleType: 'promql',
+    node: 'web-01', metric: 'cpu_usage > 0', value: 4.89,
+    severity: 'critical', state: 'firing', startsAt: Date.now(), message: 'PromQL 命中',
+  }
+
+  async function openDetailFor(event) {
     http.get.mockImplementation(async (url) => {
       if (url === '/api/v1/rules') return { rules: [] }
       if (url.startsWith('/api/v1/alerts/impact')) return {}
@@ -85,12 +84,26 @@ describe('AlertsView PromQL 规则展示', () => {
 
     const w = mountView()
     await flushPromises()
-
     const btn = w.findAll('button').find((b) => b.text().includes('详情'))
     expect(btn).toBeTruthy()
     await btn.trigger('click')
     await flushPromises()
+    return w
+  }
 
+  // PromQL 事件的 metric 是表达式，不是指标名：拿它去查 /query/range 只会得到错误。
+  // 详情里必须明确说明「不提供单指标趋势」，而不是画一个永远失败的图。
+  it('PromQL 事件详情不请求单指标趋势，改为文字说明', async () => {
+    await openDetailFor(PROMQL_EVENT)
+    expect(document.body.textContent).toContain('不提供单指标趋势')
+    expect(http.get.mock.calls.some(([u]) => u.startsWith('/api/v1/query/range'))).toBe(false)
+  })
+
+  // 早期事件没有 ruleType（未落库，规则可能已删除）：靠「metric 不是合法指标名」兜底。
+  it('历史事件缺少 ruleType 时也能识别 PromQL，不请求趋势', async () => {
+    const legacy = { ...PROMQL_EVENT }
+    delete legacy.ruleType
+    await openDetailFor(legacy)
     expect(document.body.textContent).toContain('不提供单指标趋势')
     expect(http.get.mock.calls.some(([u]) => u.startsWith('/api/v1/query/range'))).toBe(false)
   })
