@@ -173,18 +173,33 @@
               <span v-for="a in podAssetsOf(row)" :key="a.id" class="asset-chip" @click="openAsset(a)">
                 <el-tag size="small" effect="plain" type="warning">{{ a.name || a.naturalKey }}</el-tag>
               </span>
-              <!-- 「只看」按容器身份收窄：即使台账里没有这个 Pod 也能用（过滤用的是日志自带的身份） -->
-              <el-button link size="small" @click="onlyPod(row)">只看</el-button>
+              <!-- 「只看该 Pod」按容器身份收窄：即使台账里没有这个 Pod 也能用（过滤用的是日志自带的身份） -->
+              <el-button
+                link
+                size="small"
+                title="把检索范围收窄到该 Pod：节点 + 来源 + 容器"
+                @click="onlyPod(row)"
+              >
+                只看该 Pod
+              </el-button>
             </template>
             <!-- 资产映射来自服务端：资产上用人工属性 logSource 声明"这条来源属于我"。
-                 点标签打开台账，点「只看」把节点 + 来源一起收窄到该资产。 -->
+                 点标签打开台账，点「只看该资产」把节点 + 来源一起收窄到该资产。 -->
             <template v-else-if="assetsOf(row).length">
               <!-- 点击挂在原生 span 上而不是 el-tag 上：标签组件的 attrs 透传行为不由我们决定，
                    而"点了没反应"是那种不会被报错暴露的失败 -->
               <span v-for="a in assetsOf(row)" :key="a.id" class="asset-chip" @click="openAsset(a)">
                 <el-tag size="small" effect="plain">{{ a.name || a.naturalKey }}</el-tag>
               </span>
-              <el-button v-if="assetsOf(row).length === 1" link size="small" @click="onlyAsset(row)">只看</el-button>
+              <el-button
+                v-if="assetsOf(row).length === 1"
+                link
+                size="small"
+                title="把检索范围收窄到该资产：节点 + 来源"
+                @click="onlyAsset(row)"
+              >
+                只看该资产
+              </el-button>
             </template>
           </template>
         </el-table-column>

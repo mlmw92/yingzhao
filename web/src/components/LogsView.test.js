@@ -170,8 +170,8 @@ describe('LogsView 日志 → 资产联动', () => {
     expect(chip.exists()).toBe(true)
     expect(chip.text()).toContain('web-01')
 
-    // 「只看」= 节点 + 来源一起收窄（资产已声明来源，节点就是它的归属节点）
-    const only = w.findAll('button').find((b) => b.text().includes('只看'))
+    // 「只看该资产」= 节点 + 来源一起收窄（资产已声明来源，节点就是它的归属节点）
+    const only = w.findAll('button').find((b) => b.text().includes('只看该资产'))
     expect(only).toBeTruthy()
     await only.trigger('click')
     await flushPromises()

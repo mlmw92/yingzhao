@@ -109,11 +109,11 @@ describe('LogsView 容器日志（Pod 日志）', () => {
     expect(routerPush).toHaveBeenCalledWith({ path: '/assets', query: { id: '11' } })
   })
 
-  it('「只看」按容器身份收窄：拼出 pods 参数并可删除过滤条件', async () => {
+  it('「只看该 Pod」按容器身份收窄：拼出 pods 参数并可删除过滤条件', async () => {
     const w = mountView()
     await flushPromises()
 
-    const only = w.findAll('button').filter((b) => b.text().includes('只看'))
+    const only = w.findAll('button').filter((b) => b.text().includes('只看该 Pod'))
     expect(only.length).toBeGreaterThan(0)
     await only[0].trigger('click')
     await flushPromises()
