@@ -384,3 +384,28 @@ CREATE TABLE config_documents (
 
 - `nodes.json` 不再被读取（迁移后），文件保留作备份。
 - 阶段 6（日志统一 VictoriaLogs）、阶段 7（主备切换与跨实例可见性）未开始。
+
+---
+
+## 17. 阶段 6 实施记录（2026-10-21）
+
+**已落地**
+
+- `server.yaml` 删除 `logBackend` / `logDir` / `logMaxBytesPerDay`，只保留 `logVictoriaLogs.addr`。
+- 启动时直接构造 VictoriaLogs 客户端；**地址缺失即启动失败**（不再静默关闭日志能力）。
+- 本地分片实现（`logstore.Store`）退出生产路径，只作为契约测试的对照实现保留。
+- 安装/发布脚本同步：`install-logs.sh` 成为 Server 部署的必选前置；`--log-backend` / `--log-dir` 保留解析但被忽略，升级时会清掉老配置里的这两项。
+- 配置契约用例改为验证新形状，并保留「老配置含 logBackend/logDir 仍能解析」的兼容断言。
+
+**dev-server 实机（1.40.0）**
+
+- 启动 VictoriaLogs（`:9428`，`-retentionPeriod=7d`），Server 日志显示
+  `集中日志已启用 backend=victorialogs addr=http://127.0.0.1:9428`。
+- 制造一条 404 → 约 11 秒后出现在 VictoriaLogs（`_stream={node=...,source=nginx_access}`）。
+- 平台接口：`/api/v1/logs` 返回该行、关键词检索命中、`/api/v1/logs/backend` 报告
+  `fullTextIndex: true`、`/api/v1/system/retention` 的 `logsBackend=victorialogs`。
+
+**未覆盖**
+
+- 历史本地分片不会迁入 VL（换后端是换存储）；旧目录保留作备份，可人工清理。
+- 阶段 7（主备切换与跨实例可见性）未开始。
