@@ -50,7 +50,7 @@ func MigrateSingleAdmin(s *Store, seedUsername, seedPasswordHash string, seedHas
 	if err := s.CreateUserDirect(u); err != nil {
 		return false, err
 	}
-	slog.Info("已将单管理员账号迁移为超级管理员", "username", seedUsername, "file", s.path)
+	slog.Info("已将单管理员账号迁移为超级管理员", "username", seedUsername, "doc", s.p.Name())
 	return true, nil
 }
 

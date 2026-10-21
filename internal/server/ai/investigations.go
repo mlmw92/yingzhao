@@ -2,10 +2,10 @@ package ai
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // Suggestion 是模型提出的一条处置建议。它只是一个记录，不代表任何动作已被提交。
@@ -42,20 +42,24 @@ type Investigation struct {
 // InvestigationStore 是调查结果的独立存储（不写进告警事件：长文本进时序库标签会放大基数与体积）。
 type InvestigationStore struct {
 	mu      sync.Mutex
-	path    string
+	p       configdoc.Persister
 	max     int
 	keepFor time.Duration
 	items   []Investigation
 }
 
 func NewInvestigationStore(path string, max int, keepFor time.Duration) *InvestigationStore {
-	s := &InvestigationStore{path: path, max: max, keepFor: keepFor}
+	return NewInvestigationStoreWithPersister(configdoc.NewFilePersister(path), max, keepFor)
+}
+
+func NewInvestigationStoreWithPersister(p configdoc.Persister, max int, keepFor time.Duration) *InvestigationStore {
+	s := &InvestigationStore{p: p, max: max, keepFor: keepFor}
 	s.load()
 	return s
 }
 
 func (s *InvestigationStore) load() {
-	data, err := os.ReadFile(s.path)
+	data, err := s.p.Load()
 	if err != nil {
 		return
 	}
@@ -77,9 +81,8 @@ func (s *InvestigationStore) load() {
 }
 
 func (s *InvestigationStore) persistLocked() {
-	_ = os.MkdirAll(filepath.Dir(s.path), 0o755)
 	data, _ := json.MarshalIndent(s.items, "", "  ")
-	_ = os.WriteFile(s.path, data, 0o644)
+	_ = s.p.Save(data)
 }
 
 func (s *InvestigationStore) pruneLocked() {

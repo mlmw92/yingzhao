@@ -20,11 +20,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // 状态取值。终态 = 除 pending 之外的全部（超时也会落到 expired）。
@@ -157,21 +158,26 @@ func (r *Request) Targets() []string {
 type Store struct {
 	mu    sync.RWMutex
 	reqs  map[string]*Request
-	path  string
+	p     configdoc.Persister
 	seq   int64
 	now   func() int64
 	pmu   sync.Mutex
 	limit int
 }
 
-// NewStore 创建审批单存储并加载既有数据（file 为空时用默认文件名）。
+// NewStore 用文件持久化（测试与迁移源；file 为空时用默认文件名）。
 func NewStore(file string) *Store {
 	if file == "" {
 		file = defaultStoreFile
 	}
+	return NewStoreWithPersister(configdoc.NewFilePersister(file))
+}
+
+// NewStoreWithPersister 用指定持久化后端创建审批单存储并加载既有数据。
+func NewStoreWithPersister(p configdoc.Persister) *Store {
 	s := &Store{
 		reqs:  map[string]*Request{},
-		path:  file,
+		p:     p,
 		now:   func() int64 { return time.Now().UnixMilli() },
 		limit: maxRequests,
 	}
@@ -196,10 +202,10 @@ func (s *Store) SetLimit(n int) {
 }
 
 func (s *Store) load() {
-	data, err := os.ReadFile(s.path)
+	data, err := s.p.Load()
 	if err != nil {
-		if !os.IsNotExist(err) {
-			slog.Warn("读取审批单存储失败", "err", err, "path", s.path)
+		if !errors.Is(err, configdoc.ErrNotFound) {
+			slog.Warn("读取审批单存储失败", "err", err, "doc", s.p.Name())
 		}
 		return
 	}
@@ -208,7 +214,7 @@ func (s *Store) load() {
 		Seq      int64      `json:"seq"`
 	}
 	if err := json.Unmarshal(data, &snap); err != nil {
-		slog.Warn("审批单存储解析失败（按空库继续）", "err", err, "path", s.path)
+		slog.Warn("审批单存储解析失败（按空库继续）", "err", err, "doc", s.p.Name())
 		return
 	}
 	s.mu.Lock()
@@ -249,13 +255,8 @@ func (s *Store) save() {
 		slog.Warn("审批单序列化失败", "err", err)
 		return
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		slog.Warn("审批单写入失败", "err", err)
-		return
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		slog.Warn("审批单落盘失败", "err", err)
+	if err := s.p.Save(data); err != nil {
+		slog.Warn("审批单写入失败", "err", err, "doc", s.p.Name())
 	}
 }
 

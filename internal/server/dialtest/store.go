@@ -8,22 +8,29 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
-// Store 管理拨测任务配置，持久化到 YAML 文件。
+// Store 管理拨测任务配置，持久化到配置文档。
 type Store struct {
 	mu          sync.RWMutex
 	tasks       map[string]Task
 	lastResults map[string]Result // 最近一次拨测结果（按 TaskID），含异常原因，供前端展示
-	path        string
+	p           configdoc.Persister
 }
 
-// NewStore 创建拨测任务存储并加载。
+// NewStore 用文件持久化（测试与迁移源）。
 func NewStore(path string) *Store {
+	return NewStoreWithPersister(configdoc.NewFilePersister(path))
+}
+
+// NewStoreWithPersister 用指定持久化后端创建拨测任务存储并加载。
+func NewStoreWithPersister(p configdoc.Persister) *Store {
 	s := &Store{
 		tasks:       map[string]Task{},
 		lastResults: map[string]Result{},
-		path:        path,
+		p:           p,
 	}
 	s.load()
 	return s
@@ -86,7 +93,7 @@ func (s *Store) Delete(id string) error {
 }
 
 func (s *Store) load() {
-	data, err := os.ReadFile(s.path)
+	data, err := s.p.Load()
 	if err != nil {
 		return
 	}
@@ -121,8 +128,7 @@ func (s *Store) persistLocked() {
 	if err != nil {
 		return
 	}
-	_ = os.MkdirAll(dirOf(s.path), 0o755)
-	_ = os.WriteFile(s.path, data, 0o644)
+	_ = s.p.Save(data)
 }
 
 func dirOf(path string) string {

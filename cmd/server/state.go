@@ -28,6 +28,13 @@ const (
 	nsMWView       = "middleware_view"
 	nsReportSched  = "report_schedule"
 	nsInspectSched = "inspect_schedule"
+
+	// 阶段 2：协作状态
+	nsRules          = "alert_rules"
+	nsDialtest       = "dialtest"
+	nsApprovals      = "approvals"
+	nsInvestigations = "ai_investigations"
+	nsUsers          = "users"
 )
 
 // openStateDB 打开 MySQL 状态库并执行 Schema 迁移。

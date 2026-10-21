@@ -133,7 +133,7 @@ func main() {
 	}
 	var authStore *auth.Store
 	if cfg.Auth.Enabled {
-		st, err := auth.NewStore(usersFile)
+		st, err := auth.NewStoreWithPersister(docs.sensitive(nsUsers))
 		if err != nil {
 			slog.Error("初始化用户权限存储失败", "err", err)
 			os.Exit(1)
@@ -148,7 +148,7 @@ func main() {
 	}
 
 	// 告警相关
-	rules := alert.NewRulesStore(cfg.Alert.RulesFile)
+	rules := alert.NewRulesStoreWithPersister(docs.plain(nsRules), filepath.Join(cfg.DataDir, "alert_rules.yaml"))
 	alertStore := alert.NewVMAlertStore(store)
 	ackStore := alert.NewAckStore(filepath.Join(filepath.Dir(cfg.Alert.RulesFile), "alert_acks.json"))
 	maintenance := alert.NewMaintenanceStoreWithPersister(docs.plain(nsMaintenance))
@@ -305,7 +305,7 @@ func main() {
 	mwRegistry := mwreg.New()
 
 	// 拨测模块
-	dialtestStore := dialtest.NewStore(cfg.DialtestFile)
+	dialtestStore := dialtest.NewStoreWithPersister(docs.plain(nsDialtest))
 	dialtestSched := dialtest.NewScheduler(dialtestStore, store)
 	// 拨测状态跃迁联动告警事件（P2）：故障/恢复统一进入告警中心并通知。
 	if cfg.Alert.Enabled {
@@ -443,7 +443,7 @@ func main() {
 	rest.SetAIManager(aiMgr)
 	// AI 调查结果独立存储 + 自动调查器（仅 critical 告警触发；默认关闭，
 	// 见 ai.yaml 的 autoInvestigate）
-	aiInvStore := ai.NewInvestigationStore(filepath.Join(cfg.DataDir, "ai_investigations.json"), 500, 30*24*time.Hour)
+	aiInvStore := ai.NewInvestigationStoreWithPersister(docs.plain(nsInvestigations), 500, 30*24*time.Hour)
 	rest.SetInvestigationStore(aiInvStore)
 	if aiMgr != nil {
 		investigator := ai.NewInvestigator(aiMgr.Get, rest.CriticalAlertsForAI(), aiInvStore, rest.RunAutoInvestigation)
@@ -457,7 +457,7 @@ func main() {
 	// 且不能丢"的小体量状态）。配置**默认关闭**——单管理员部署下开启会让任何动作都执行不了，
 	// 开启必须是管理员在界面上显式做的决定。
 	rest.SetApproval(
-		approval.NewStore(filepath.Join(opsDataDir, "approvals.json")),
+		approval.NewStoreWithPersister(docs.plain(nsApprovals)),
 		approval.NewConfigStore(filepath.Join(opsDataDir, "approval.json")),
 	)
 	rest.SetAnalyzer(analyzer)

@@ -14,22 +14,30 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/mlmw92/yingzhao/internal/model"
-	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
-// RulesStore 管理告警规则，持久化到 YAML 文件。
+// RulesStore 管理告警规则，持久化到配置文档。
 type RulesStore struct {
 	mu    sync.RWMutex
 	rules map[string]model.AlertRule
-	path  string
+	p     configdoc.Persister
+	// path 只用于「内置规则已播种」标记文件；规则本体已走持久化后端。
+	path string
 }
 
-// NewRulesStore 创建规则存储并加载。若规则文件不存在（全新安装），
-// 自动播种一组开箱即用的推荐规则，避免告警中心初始为空、看起来“没用起来”。
+// NewRulesStore 用文件持久化（测试与迁移源）。
 func NewRulesStore(path string) *RulesStore {
+	return NewRulesStoreWithPersister(configdoc.NewFilePersister(path), path)
+}
+
+// NewRulesStoreWithPersister 用指定持久化后端创建规则存储并加载。
+// 若尚无规则（全新安装），自动播种一组开箱即用的推荐规则。
+func NewRulesStoreWithPersister(p configdoc.Persister, markerPath string) *RulesStore {
 	s := &RulesStore{
 		rules: map[string]model.AlertRule{},
-		path:  path,
+		p:     p,
+		path:  markerPath,
 	}
 	s.load()
 	s.SeedDefaults()
@@ -101,7 +109,7 @@ func DefaultTemplates() []model.AlertRule {
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true, Desc: "postgres_instance_up 归零"},
 		{Name: "PostgreSQL 主从切换", TemplateGroup: "PostgreSQL", Type: model.RuleTypeRoleChange, Service: "postgres", Topology: "replication", For: "0s",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true,
-			Desc:       "角色标签发生变化：可能是故障切换（此时应立即确认新主库可用），也可能是人工操作"},
+			Desc: "角色标签发生变化：可能是故障切换（此时应立即确认新主库可用），也可能是人工操作"},
 		{Name: "PostgreSQL 复制延迟过大", TemplateGroup: "PostgreSQL", Metric: "postgres_replication_lag_bytes", Operator: ">", Threshold: 67108864, For: "5m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true, Desc: "落后超过 64MiB（按 WAL 字节数衡量）"},
 		{Name: "PostgreSQL 缓存命中率过低", TemplateGroup: "PostgreSQL", Metric: "postgres_cache_hit_ratio", Operator: "<", Threshold: 95, For: "10m",
@@ -122,7 +130,7 @@ func DefaultTemplates() []model.AlertRule {
 			Desc: "建议设为 redis_maxclients 的 80%（默认 10000 时约 8000）；触顶会出现连接被拒"},
 		{Name: "Redis 主从延迟过大", TemplateGroup: "Redis", Metric: "redis_replication_lag", Operator: ">", Threshold: 10, For: "5m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true,
-			Desc:       "从库落后 10 秒以上；过大会让故障切换时丢数据，也会读到旧值"},
+			Desc: "从库落后 10 秒以上；过大会让故障切换时丢数据，也会读到旧值"},
 		{Name: "Redis 集群槽位异常", TemplateGroup: "Redis", Metric: "redis_cluster_slots_fail", Operator: ">", Threshold: 0, For: "5m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true, Desc: "存在故障槽位意味着这部分键彻底不可用"},
 
@@ -138,7 +146,7 @@ func DefaultTemplates() []model.AlertRule {
 		// ===== Kafka =====
 		{Name: "Kafka 服务离线", TemplateGroup: "Kafka", Type: model.RuleTypeServiceDown, Service: "kafka", Operator: "<=", Threshold: 0, For: "3m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true,
-			Desc:       "kafka_instance_up 归零；按 Broker 实例维度判定"},
+			Desc: "kafka_instance_up 归零；按 Broker 实例维度判定"},
 		{Name: "Kafka 副本不足分区", TemplateGroup: "Kafka", Metric: "kafka_under_replicated_partitions", Operator: ">", Threshold: 0, For: "5m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true, Desc: "持续不为 0：有 Broker 掉线或磁盘故障，副本机制暂时失效"},
 		{Name: "Kafka 离线分区", TemplateGroup: "Kafka", Metric: "kafka_offline_partitions", Operator: ">", Threshold: 0, For: "2m",
@@ -161,7 +169,7 @@ func DefaultTemplates() []model.AlertRule {
 		// ===== ClickHouse =====
 		{Name: "ClickHouse 服务离线", TemplateGroup: "ClickHouse", Type: model.RuleTypeServiceDown, Service: "clickhouse", Operator: "<=", Threshold: 0, For: "3m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true,
-			Desc:       "clickhouse_instance_up 归零"},
+			Desc: "clickhouse_instance_up 归零"},
 		{Name: "ClickHouse 合并积压", TemplateGroup: "ClickHouse", Metric: "clickhouse_merges_running", Operator: ">", Threshold: 20, For: "10m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true, Desc: "合并长期排队说明写入过快或分区粒度过细"},
 
@@ -170,12 +178,12 @@ func DefaultTemplates() []model.AlertRule {
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true, Desc: "注册中心不可用会让服务发现整体失效"},
 		{Name: "ZooKeeper 服务离线", TemplateGroup: "ZooKeeper", Type: model.RuleTypeServiceDown, Service: "zookeeper", Operator: "<=", Threshold: 0, For: "3m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true,
-			Desc:       "zookeeper_instance_up 归零；ZK 掉节点会影响依赖它的注册中心与协调服务"},
+			Desc: "zookeeper_instance_up 归零；ZK 掉节点会影响依赖它的注册中心与协调服务"},
 		{Name: "ZooKeeper 请求排队", TemplateGroup: "ZooKeeper", Metric: "zookeeper_outstanding_requests", Operator: ">", Threshold: 10, For: "5m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true, Desc: "持续排队说明请求处理跟不上，常见于磁盘慢或快照/事务日志同盘"},
 		{Name: "RabbitMQ 服务离线", TemplateGroup: "RabbitMQ", Type: model.RuleTypeServiceDown, Service: "rabbitmq", Operator: "<=", Threshold: 0, For: "3m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true,
-			Desc:       "rabbitmq_instance_up 归零"},
+			Desc: "rabbitmq_instance_up 归零"},
 		{Name: "RabbitMQ 队列积压", TemplateGroup: "RabbitMQ", Metric: "rabbitmq_queue_messages", Operator: ">", Threshold: 10000, For: "10m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true, Desc: "积压持续增长说明消费者跟不上生产"},
 		{Name: "RabbitMQ 文件描述符接近上限", TemplateGroup: "RabbitMQ", Metric: "rabbitmq_fd_used", Operator: ">", Threshold: 50000, For: "10m",
@@ -184,19 +192,19 @@ func DefaultTemplates() []model.AlertRule {
 		// ===== RocketMQ / MongoDB / FastDFS / Docker =====
 		{Name: "RocketMQ 服务离线", TemplateGroup: "RocketMQ", Type: model.RuleTypeServiceDown, Service: "rocketmq", Operator: "<=", Threshold: 0, For: "3m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true,
-			Desc:       "rocketmq_instance_up 归零"},
+			Desc: "rocketmq_instance_up 归零"},
 		{Name: "RocketMQ 消息积压", TemplateGroup: "RocketMQ", Metric: "rocketmq_message_accumulation", Operator: ">", Threshold: 10000, For: "10m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true,
-			Desc:       "积压超过 1 万条且持续 10 分钟；按业务吞吐与可接受延迟调整"},
+			Desc: "积压超过 1 万条且持续 10 分钟；按业务吞吐与可接受延迟调整"},
 		{Name: "MongoDB 服务离线", TemplateGroup: "MongoDB", Type: model.RuleTypeServiceDown, Service: "mongodb", Operator: "<=", Threshold: 0, For: "3m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true,
-			Desc:       "mongodb_up 归零"},
+			Desc: "mongodb_up 归零"},
 		{Name: "MongoDB 副本延迟过大", TemplateGroup: "MongoDB", Metric: "mongodb_repl_lag", Operator: ">", Threshold: 10, For: "5m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true,
-			Desc:       "从节点落后 10 秒以上；过大会让「读从库」拿到旧数据"},
+			Desc: "从节点落后 10 秒以上；过大会让「读从库」拿到旧数据"},
 		{Name: "FastDFS 服务离线", TemplateGroup: "FastDFS", Type: model.RuleTypeServiceDown, Service: "fastdfs", Operator: "<=", Threshold: 0, For: "3m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true,
-			Desc:       "fastdfs_up 归零（Tracker/Storage 整体不可用）"},
+			Desc: "fastdfs_up 归零（Tracker/Storage 整体不可用）"},
 		{Name: "FastDFS Storage 掉线", TemplateGroup: "FastDFS", Metric: "fastdfs_storage_offline_count", Operator: ">", Threshold: 0, For: "5m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true, Desc: "有 Storage 节点离线，存储容量与冗余随之下降"},
 		{Name: "Docker 容器离线", TemplateGroup: "Docker", Type: model.RuleTypeServiceDown, Service: "docker", Operator: "<=", Threshold: 0, For: "3m",
@@ -205,10 +213,10 @@ func DefaultTemplates() []model.AlertRule {
 		// ===== Kubernetes =====
 		{Name: "Kubernetes 集群离线", TemplateGroup: "Kubernetes", Type: model.RuleTypeServiceDown, Service: "k8s", Operator: "<=", Threshold: 0, For: "3m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true,
-			Desc:       "k8s_cluster_up 归零：采集侧连不上 apiserver"},
+			Desc: "k8s_cluster_up 归零：采集侧连不上 apiserver"},
 		{Name: "Kubernetes 集群状态损坏", TemplateGroup: "Kubernetes", Type: model.RuleTypeClusterFault, Service: "k8s", Topology: "cluster", For: "2m",
 			Severity: model.SeverityCritical, Scope: "all", Enabled: true,
-			Desc:       "就绪节点数低于期望或出现分裂状态"},
+			Desc: "就绪节点数低于期望或出现分裂状态"},
 		{Name: "Kubernetes 异常 Deployment", TemplateGroup: "Kubernetes", Metric: "k8s_deployments_unhealthy", Operator: ">", Threshold: 0, For: "10m",
 			Severity: model.SeverityWarning, Scope: "all", Enabled: true, Desc: "就绪副本数未达期望，通常是镜像拉取或探针失败"},
 		{Name: "Kubernetes Pending Pod 过多", TemplateGroup: "Kubernetes", Metric: "k8s_pods_pending", Operator: ">", Threshold: 10, For: "10m",
@@ -281,11 +289,19 @@ func seedTemplates() []model.AlertRule {
 }
 
 // seedMarkerPath 返回播种记录文件路径，记录已经播种过的内置规则名。
-func (s *RulesStore) seedMarkerPath() string { return s.path + ".seeded" }
+func (s *RulesStore) seedMarkerPath() string {
+	if s.path == "" {
+		return ""
+	}
+	return s.path + ".seeded"
+}
 
 // loadSeedMarker 读取已播种的内置规则名集合。文件不存在时返回空集合。
 func (s *RulesStore) loadSeedMarker() map[string]bool {
 	seeded := map[string]bool{}
+	if s.seedMarkerPath() == "" {
+		return seeded
+	}
 	data, err := os.ReadFile(s.seedMarkerPath())
 	if err != nil {
 		return seeded
@@ -304,6 +320,9 @@ func (s *RulesStore) loadSeedMarker() map[string]bool {
 // saveSeedMarker 记录当前版本全部内置规则名，表示它们均已播种过。
 // 之后用户删除其中任何一条都不会被重新写回。
 func (s *RulesStore) saveSeedMarker(names []string) {
+	if s.seedMarkerPath() == "" {
+		return
+	}
 	data, err := yaml.Marshal(names)
 	if err != nil {
 		return
@@ -334,8 +353,11 @@ func (s *RulesStore) SeedDefaults() {
 		names = append(names, t.Name)
 	}
 
-	_, statErr := os.Stat(s.path)
-	freshInstall := os.IsNotExist(statErr)
+	freshInstall := false
+	if s.path != "" {
+		_, statErr := os.Stat(s.path)
+		freshInstall = os.IsNotExist(statErr)
+	}
 
 	seeded := s.loadSeedMarker()
 	if freshInstall {
@@ -488,20 +510,15 @@ func (s *RulesStore) ImportRules(rules []model.AlertRule, replace bool) (created
 }
 
 func (s *RulesStore) load() {
-	data, err := os.ReadFile(s.path)
+	data, err := s.p.Load()
 	if err != nil {
 		return
 	}
 	var list []model.AlertRule
 	if err := yaml.Unmarshal(data, &list); err != nil {
-		// 备份损坏文件（通常为旧版本残留格式），避免内容静默丢失；
-		// 下次通过界面保存规则时会以新格式覆盖原文件。
-		backup := fmt.Sprintf("%s.corrupt-%d", s.path, time.Now().Unix())
-		if werr := os.WriteFile(backup, data, 0o644); werr == nil {
-			slog.Warn("解析规则文件失败，已备份为损坏文件", "path", s.path, "backup", backup, "err", err)
-		} else {
-			slog.Warn("解析规则文件失败", "path", s.path, "err", err, "backupErr", werr)
-		}
+		// 解析失败时保留内存为空（不清空数据库），下次保存会覆盖；
+		// 原内容仍在持久化后端里，可人工恢复。
+		slog.Warn("解析规则失败（保留原始内容，下次保存覆盖）", "doc", s.p.Name(), "err", err)
 		return
 	}
 	for _, r := range list {
@@ -523,12 +540,8 @@ func (s *RulesStore) persistLocked() {
 		slog.Warn("序列化规则失败", "err", err)
 		return
 	}
-	if err := os.MkdirAll(dirOf(s.path), 0o755); err != nil {
-		slog.Warn("创建规则目录失败", "err", err)
-		return
-	}
-	if err := config.AtomicWrite(s.path, data); err != nil {
-		slog.Warn("写入规则文件失败", "err", err, "path", s.path)
+	if err := s.p.Save(data); err != nil {
+		slog.Warn("写入规则失败", "err", err, "doc", s.p.Name())
 	}
 }
 

@@ -1,15 +1,14 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
-	"log/slog"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 	"github.com/mlmw92/yingzhao/internal/server/crypto"
 )
 
@@ -29,16 +28,22 @@ type DataFile struct {
 // Store 管理用户与角色数据：加载、原子保存、缓存、备份与并发保护。
 type Store struct {
 	mu      sync.RWMutex
-	path    string
+	p       configdoc.Persister
 	data    DataFile
 	roles   map[string]Role // 角色名 -> 角色（含内置）
 	userIdx map[string]int  // 用户名 -> data.Users 下标
 }
 
-// NewStore 创建 Store 并尝试从 path 加载；文件不存在时以内置角色初始化（无用户）。
+// NewStore 用文件持久化（测试与迁移源）。
 func NewStore(path string) (*Store, error) {
-	s := &Store{path: path}
-	// 始终注入内置角色，自定义角色从文件加载追加/覆盖。
+	return NewStoreWithPersister(configdoc.NewFilePersister(path))
+}
+
+// NewStoreWithPersister 用指定持久化后端创建 Store 并尝试加载；
+// 文档不存在时以内置角色初始化（无用户）。
+func NewStoreWithPersister(p configdoc.Persister) (*Store, error) {
+	s := &Store{p: p}
+	// 始终注入内置角色，自定义角色从文档加载追加/覆盖。
 	for _, r := range BuiltinRoles() {
 		s.roles = setRole(s.roles, r)
 	}
@@ -74,15 +79,20 @@ func setRole(m map[string]Role, r Role) map[string]Role {
 func (s *Store) load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, err := os.ReadFile(s.path)
-	if os.IsNotExist(err) {
-		// 文件不存在：以内置角色初始化，无用户（迁移由调用方触发）。
+	if s.p == nil {
+		s.data = DataFile{Roles: cloneBuiltinRoles()}
+		s.reindexLocked()
+		return nil
+	}
+	data, err := s.p.Load()
+	if errors.Is(err, configdoc.ErrNotFound) {
+		// 文档不存在：以内置角色初始化，无用户（迁移由调用方触发）。
 		s.data = DataFile{Roles: cloneBuiltinRoles()}
 		s.reindexLocked()
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("读取用户数据文件失败: %w", err)
+		return fmt.Errorf("读取用户数据失败: %w", err)
 	}
 	var df DataFile
 	if err := yaml.Unmarshal(data, &df); err != nil {
@@ -529,30 +539,14 @@ func (s *Store) BumpTokenVersion(username string) error {
 
 // saveLocked 在持有写锁时原子保存（调用方负责加锁）。
 func (s *Store) saveLocked() error {
-	if s.path == "" {
+	if s.p == nil {
 		return nil
 	}
 	out, err := yaml.Marshal(s.data)
 	if err != nil {
 		return err
 	}
-	// 备份原文件。
-	if _, err := os.Stat(s.path); err == nil {
-		bak := s.path + ".bak"
-		if data, rerr := os.ReadFile(s.path); rerr == nil {
-			_ = os.WriteFile(bak, data, 0o644)
-		}
-	}
-	if dir := filepath.Dir(s.path); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			slog.Warn("创建用户数据目录失败", "err", err)
-		}
-	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, out, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return s.p.Save(out)
 }
 
 // UserPatch 为用户更新请求的字段集合（指针区分「未提供」与「清空」）。

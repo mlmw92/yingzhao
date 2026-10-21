@@ -1,12 +1,14 @@
 package alert
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // TestLoadRulesCanonical 校验规则文件采用顶层序列格式（与持久化格式一致）。
@@ -73,5 +75,19 @@ func TestValidateRuleRejectsInvalidInput(t *testing.T) {
 	bad.QuietPeriods = []model.QuietPeriod{{Start: "02:00", End: "06:00"}}
 	if err := ValidateRule(bad); err != nil {
 		t.Fatalf("valid quiet period rejected: %v", err)
+	}
+}
+
+// 规则存储经持久化接口读写：换成数据库后端后行为不变。
+func TestRulesStorePersisterRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	p := configdoc.NewFilePersister(filepath.Join(dir, "rules.yaml"))
+	s := NewRulesStoreWithPersister(p, "")
+	r := s.Create(model.AlertRule{Name: "cpu", Metric: "cpu_usage", Operator: ">", Threshold: 90})
+
+	reloaded := NewRulesStoreWithPersister(configdoc.NewFilePersister(filepath.Join(dir, "rules.yaml")), "")
+	got, ok := reloaded.Get(r.ID)
+	if !ok || got.Name != "cpu" || got.Threshold != 90 {
+		t.Fatalf("重新加载 = %+v, %v", got, ok)
 	}
 }

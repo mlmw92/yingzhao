@@ -65,16 +65,26 @@ func (p *FilePersister) Save(data []byte) error {
 // 文档以 JSON 信封存储（format=yaml + base64 内容）；传入 key 时用 AES-256-GCM
 // 加密（AI Key、通知口令等敏感配置必须走这条路径）。
 type DBPersister struct {
-	store Store
-	ns    string
-	key   []byte
+	store  Store
+	ns     string
+	key    []byte
+	format string
 
 	mu      sync.Mutex
 	version int64
 }
 
 func NewDBPersister(store Store, ns string, key []byte) *DBPersister {
-	return &DBPersister{store: store, ns: ns, key: key}
+	return &DBPersister{store: store, ns: ns, key: key, format: "yaml"}
+}
+
+// NewDBPersisterFormat 指定文档格式（yaml / json）。
+// 格式只是标签：数据一律按原始字节保存，读取时不做转换。
+func NewDBPersisterFormat(store Store, ns string, key []byte, format string) *DBPersister {
+	if format == "" {
+		format = "yaml"
+	}
+	return &DBPersister{store: store, ns: ns, key: key, format: format}
 }
 
 func (p *DBPersister) Name() string { return "db:" + p.ns }
@@ -102,7 +112,7 @@ func (p *DBPersister) Load() ([]byte, error) {
 	if err := json.Unmarshal(payload, &env); err != nil {
 		return nil, fmt.Errorf("配置文档 %s 不是合法信封: %w", p.ns, err)
 	}
-	if env.Format != "yaml" {
+	if env.Format != "yaml" && env.Format != "json" {
 		return nil, fmt.Errorf("配置文档 %s 的格式 %q 不受支持", p.ns, env.Format)
 	}
 	raw, err := base64.StdEncoding.DecodeString(env.Data)
@@ -130,7 +140,7 @@ func (p *DBPersister) Save(data []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	env := documentEnvelope{Format: "yaml", Encoding: "base64"}
+	env := documentEnvelope{Format: p.format, Encoding: "base64"}
 	if len(p.key) > 0 {
 		nonce, cipherText, err := encrypt(p.key, data)
 		if err != nil {
