@@ -13,6 +13,10 @@ import (
 	"github.com/nebula/monitor/internal/server/config"
 )
 
+// ValidMetricName 供 API 层在查询前校验指标名：非法名称是客户端错误（400），
+// 不该一路走到时序库再以 500 返回。
+func ValidMetricName(n string) bool { return isValidMetricName(n) }
+
 // isValidMetricName 校验 PromQL 指标名（含 __name__ 等保留名同样适用）。
 // 规则：首字符为字母/_:，后续可为字母/数字/_:。
 func isValidMetricName(n string) bool {

@@ -1111,6 +1111,12 @@ func (a *API) handleQueryRange(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "metric required", http.StatusBadRequest)
 		return
 	}
+	// 非法指标名是客户端错误：PromQL 表达式被误当成指标名时，
+	// 不该一路走到时序库再以 500 返回（详情页只会显示「趋势加载失败」）。
+	if !storage.ValidMetricName(name) {
+		http.Error(w, "metric 不是合法的指标名", http.StatusBadRequest)
+		return
+	}
 	start, errStart := strconv.ParseInt(q.Get("start"), 10, 64)
 	end, errEnd := strconv.ParseInt(q.Get("end"), 10, 64)
 	if errStart != nil || errEnd != nil || start <= 0 || end <= start {
@@ -1169,6 +1175,10 @@ func (a *API) handleQueryLatest(w http.ResponseWriter, r *http.Request) {
 	}
 	if node == "" || name == "" {
 		http.Error(w, "node and metric required", http.StatusBadRequest)
+		return
+	}
+	if !storage.ValidMetricName(name) {
+		http.Error(w, "metric 不是合法的指标名", http.StatusBadRequest)
 		return
 	}
 	series, err := a.store.QueryInstant(node, name, labels)

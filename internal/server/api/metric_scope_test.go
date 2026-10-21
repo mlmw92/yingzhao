@@ -463,3 +463,23 @@ func TestNodesLatestScope_GlobalKeepsUnregisteredNode(t *testing.T) {
 		t.Fatalf("全局用户应看到全部已注册节点: %v", out)
 	}
 }
+
+// 指标名不合法是客户端错误（400），不是 500：
+// PromQL 规则的表达式被当成指标名时，以前会一路走到时序库并返回 500，
+// 详情页只能显示「趋势数据加载失败」。
+func TestMetricScope_InvalidMetricNameIsBadRequest(t *testing.T) {
+	for _, path := range []string{
+		"/api/v1/query/range?metric=cpu_usage%20%3E%200&start=1000&end=61000&step=1000",
+		"/api/v1/query/latest?node=web-01&metric=cpu_usage%20%3E%200",
+	} {
+		t.Run(path, func(t *testing.T) {
+			a, s := metricScopeFixture(t)
+			rec := httptest.NewRecorder()
+			newRoutesMux(a).ServeHTTP(rec, reqWith(globalPrincipal("nodes:read"), http.MethodGet, path, ""))
+			if rec.Code != http.StatusBadRequest || s.rangeCalls != 0 || s.instantCalls != 0 {
+				t.Fatalf("status=%d rangeCalls=%d instantCalls=%d body=%s",
+					rec.Code, s.rangeCalls, s.instantCalls, rec.Body.String())
+			}
+		})
+	}
+}
