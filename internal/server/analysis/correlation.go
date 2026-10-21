@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // Correlation 是由可观测信号推导出的只读故障链路，不代表确定因果关系。

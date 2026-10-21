@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/db"
-	"github.com/nebula/monitor/internal/server/migrate"
+	"github.com/mlmw92/yingzhao/internal/server/db"
+	"github.com/mlmw92/yingzhao/internal/server/migrate"
 )
 
 func TestMySQLStoreContract(t *testing.T) {

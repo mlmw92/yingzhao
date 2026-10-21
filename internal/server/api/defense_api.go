@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/approval"
-	"github.com/nebula/monitor/internal/server/audit"
-	"github.com/nebula/monitor/internal/server/security"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/approval"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/security"
 )
 
 // DefenseStatusView 在节点防护状态基础上附带 Agent 是否支持结构化防御指令的判断，

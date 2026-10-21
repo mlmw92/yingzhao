@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 func newPipelineTestStore(t *testing.T) *PipelineStore {

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
 )
 
 // 这三类与已声明化的中间件同构：注册表补元信息、指标走 metrics 数组。

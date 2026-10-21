@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // 资产与配置章节（设计件 §4.2）。

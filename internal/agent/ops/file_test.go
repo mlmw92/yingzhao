@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/agent/config"
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // requireUnixFS 跳过需要真实文件系统落盘的用例。
@@ -73,7 +73,7 @@ func TestFilePush_WritesNewFile(t *testing.T) {
 	// 临时文件不能残留
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".nebula-filepush-") {
+		if strings.HasPrefix(e.Name(), ".yingzhao-filepush-") {
 			t.Fatalf("不应残留临时文件：%s", e.Name())
 		}
 	}

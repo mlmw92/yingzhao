@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/analysis"
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/security"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/analysis"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/security"
 )
 
 func TestCollectSecurityInitializesLowScores(t *testing.T) {

@@ -506,15 +506,15 @@ P0 首批落地后，按全景表 §五「建议的 P1 候选」推进。本批�
 ### 12.4 实机验证（2026-10-07，dev-server 真实 k3s）与发现的 CRI 缺陷
 
 **环境**：dev-server（124.223.77.206）上真实 k3s（coredns/metrics-server 在线），测试 Pod
-`nebula-podlog/logtest` 每 3s 往 stdout 打一行 `ERROR podlog-e2e tick=N`；Agent 侧加一段 `podLogs` 来源
-指向 `/var/log/pods/nebula-podlog_logtest_*/logtest/*.log`。Server 1.30.36 + Agent 1.30.37（仅 Agent 含本批修复）。
+`yingzhao-podlog/logtest` 每 3s 往 stdout 打一行 `ERROR podlog-e2e tick=N`；Agent 侧加一段 `podLogs` 来源
+指向 `/var/log/pods/yingzhao-podlog_logtest_*/logtest/*.log`。Server 1.30.36 + Agent 1.30.37（仅 Agent 含本批修复）。
 
 | # | 判据 | 结果 |
 |---|---|---|
-| 1 | 通配符匹配真实文件 | **通过**。Agent 启动后逐文件打印"首次采集，从文件末尾开始"，路径为 `/var/log/pods/nebula-podlog_logtest_631f4919-…/logtest/0.log` |
-| 2 | 身份随行上报 | **通过**。每行 `origin={namespace:"nebula-podlog",pod:"logtest",container:"logtest"}`（注意 `origin` 是**对象**，不是字符串） |
-| 3 | 标到 Pod 资产 | **通过**。响应 `podAssets: {"nebula-podlog\|logtest":[{id:50,typeKey:"pod",name:"logtest",node:"VM-0-10-ubuntu",status:"online"}]}` |
-| 4 | 按容器收窄 | **通过**。`pods=nebula-podlog%7Clogtest` 命中；不存在的 Pod 名 0 条 |
+| 1 | 通配符匹配真实文件 | **通过**。Agent 启动后逐文件打印"首次采集，从文件末尾开始"，路径为 `/var/log/pods/yingzhao-podlog_logtest_631f4919-…/logtest/0.log` |
+| 2 | 身份随行上报 | **通过**。每行 `origin={namespace:"yingzhao-podlog",pod:"logtest",container:"logtest"}`（注意 `origin` 是**对象**，不是字符串） |
+| 3 | 标到 Pod 资产 | **通过**。响应 `podAssets: {"yingzhao-podlog\|logtest":[{id:50,typeKey:"pod",name:"logtest",node:"VM-0-10-ubuntu",status:"online"}]}` |
+| 4 | 按容器收窄 | **通过**。`pods=yingzhao-podlog%7Clogtest` 命中；不存在的 Pod 名 0 条 |
 | 5 | 指标 | **通过**。`podlog_log_up=1`，无丢弃序列 |
 | 6 | 无解析告警 | **通过**。Agent 未报"路径不符合容器日志格式" |
 | 7 | **时间取行内值** | **通过**（决定性判据）。平台返回的 `ts` 与容器日志文件里的行内时间戳**逐毫秒相等**：`1791329428636` == `2026-10-07T07:30:28.636355229+08:00`（5/5 行比对一致） |

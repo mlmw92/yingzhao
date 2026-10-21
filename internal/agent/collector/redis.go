@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // RedisCollector 采集 Redis 实例指标，支持四种部署模式与 exporter 拉取模式。

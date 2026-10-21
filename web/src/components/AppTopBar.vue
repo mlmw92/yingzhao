@@ -80,17 +80,17 @@ const route = useRoute()
 
 /* ===== 换肤（自 MainLayout 原样迁入，逻辑未改） ===== */
 const THEMES = { b: '#4a9df0', a: '#00d9a3', c: '#8b5cf6' }
-const theme = ref(localStorage.getItem('nebula_theme') || 'b')
+const theme = ref(localStorage.getItem('yingzhao_theme') || 'b')
 const themeColor = computed(() => THEMES[theme.value] || THEMES.b)
 function applyTheme(t) {
   theme.value = t
   document.body.dataset.theme = t
-  localStorage.setItem('nebula_theme', t)
+  localStorage.setItem('yingzhao_theme', t)
 }
 function changeTheme(t) {
   applyTheme(t)
   // 触发图表组件重新取色
-  window.dispatchEvent(new CustomEvent('nebula:theme-changed', { detail: t }))
+  window.dispatchEvent(new CustomEvent('yingzhao:theme-changed', { detail: t }))
 }
 applyTheme(theme.value)
 

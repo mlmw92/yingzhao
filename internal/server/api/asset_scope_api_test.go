@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
 )
 
 // 业务范围（资产标签维度）在接口层的用例。

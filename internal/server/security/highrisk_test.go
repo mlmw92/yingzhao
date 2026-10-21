@@ -3,7 +3,7 @@ package security
 import (
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 每条规则都要能命中它该命中的形态。

@@ -59,7 +59,7 @@ describe('侧栏菜单高亮', () => {
   })
 
   it('置顶的对外状态页用新标签页打开', async () => {
-    localStorage.setItem('nebula-pinned-pages', JSON.stringify(['status']))
+    localStorage.setItem('yingzhao-pinned-pages', JSON.stringify(['status']))
     http.get.mockResolvedValue({ server: '1.30.63', buildTime: '' })
     await useModules().load(true)
 

@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/approval"
-	"github.com/nebula/monitor/internal/server/audit"
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/approval"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 // 统一下行操作通道的接口层：动作目录 / 创建任务 / 任务查询。

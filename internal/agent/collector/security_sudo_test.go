@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nebula/monitor/internal/agent/config"
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // TestSecurityCollector_SudoUsesOwnOffset sudo 与 SSH 读同一个文件、但关注的是不同内容，

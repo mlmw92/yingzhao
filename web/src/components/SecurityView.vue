@@ -47,7 +47,7 @@
     <!-- 入侵防御（受控 fail2ban 专属 SSH 防护） -->
     <SectionCard id="sec-defense" title="入侵防御" dense v-loading="defenseLoading" :error="defenseErr" error-retry @retry="loadDefense">
       <template #actions>
-        <span class="defense-tip">仅托管 nebula-monitor-sshd 专属 jail，不覆盖既有 fail2ban 配置</span>
+        <span class="defense-tip">仅托管 yingzhao-monitor-sshd 专属 jail，不覆盖既有 fail2ban 配置</span>
       </template>
 
       <div class="defense-kpi" v-if="defenseSummary">
@@ -81,7 +81,7 @@
         </el-table-column>
         <el-table-column label="jail" min-width="160">
           <template #default="{ row }">
-            <span v-if="row.managedJail" class="jail-tag">nebula-monitor-sshd</span>
+            <span v-if="row.managedJail" class="jail-tag">yingzhao-monitor-sshd</span>
             <span v-else-if="row.jails && row.jails.length" class="dim">{{ row.jails.join(', ') }}</span>
             <span v-else class="muted">-</span>
             <div v-if="row.firewallAction" class="dim defense-action">{{ row.firewallAction }}</div>
@@ -136,9 +136,9 @@
         <p>即将对节点 <b>{{ defTarget.node }}</b> 执行
           <b>{{ defTarget.action === 'enable' ? '启用' : '停用' }}</b> 防护。</p>
         <ul class="def-confirm">
-          <li>仅托管 <code>nebula-monitor-sshd</code> 专属 jail，不会修改你的 jail.local 或既有 jail。</li>
+          <li>仅托管 <code>yingzhao-monitor-sshd</code> 专属 jail，不会修改你的 jail.local 或既有 jail。</li>
           <li>启用后会自动将你的操作来源 IP 加入 fail2ban 白名单，避免误封自己。</li>
-          <li v-if="defTarget.action === 'disable'">停用只移除 nebula 专属配置并重载，<b>不卸载 fail2ban 软件包</b>。</li>
+          <li v-if="defTarget.action === 'disable'">停用只移除 yingzhao 专属配置并重载，<b>不卸载 fail2ban 软件包</b>。</li>
           <li>任务将在节点下次上报后由 Agent 异步执行，可在状态栏观察结果。</li>
         </ul>
       </div>

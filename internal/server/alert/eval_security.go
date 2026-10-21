@@ -1,6 +1,6 @@
 package alert
 
-import "github.com/nebula/monitor/internal/model"
+import "github.com/mlmw92/yingzhao/internal/model"
 
 // 安全事件规则是事件队列驱动（IngestSecurityEvents 入队、评估循环消费），
 // 与周期性评估器是两条路径，因此不实现 evaluator 接口。

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nebula/monitor/internal/agent/config"
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 本文件处理一件事：**把「两个护栏配在一起就等于任意代码执行」这个隐性依赖显式化**。

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/approval"
-	"github.com/nebula/monitor/internal/server/auth"
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/server/approval"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 // 提交一次 svc.restart（用 unit 区分"危险/普通"，无需上传文件）。

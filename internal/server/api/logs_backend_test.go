@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
 )
 
 // stubLogStore 是接口层的日志后端替身：只用来断言**错误分类**，

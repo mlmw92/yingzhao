@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
 )
 
 func TestAuditRequestDetailSummarizesFieldsWithoutBody(t *testing.T) {

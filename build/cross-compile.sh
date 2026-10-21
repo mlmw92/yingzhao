@@ -11,7 +11,7 @@ cd "$ROOT"
 
 VERSION="${VERSION:-$(bash "$ROOT/build/version.sh")}"
 BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-LDFLAGS="-X github.com/nebula/monitor/internal/version.Version=${VERSION} -X github.com/nebula/monitor/internal/version.BuildTime=${BUILD_TIME}"
+LDFLAGS="-X github.com/mlmw92/yingzhao/internal/version.Version=${VERSION} -X github.com/mlmw92/yingzhao/internal/version.BuildTime=${BUILD_TIME}"
 
 OUT_DIR="dist/artifacts/bin"
 mkdir -p "$OUT_DIR"

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 func newSpool(t *testing.T, name string, maxBytes int64) (*Spool, string) {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // ClickHouseCollector 采集 ClickHouse 实例指标，直连 HTTP 端口（默认 8123）执行

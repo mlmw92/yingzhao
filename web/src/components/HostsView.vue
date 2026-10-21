@@ -407,7 +407,7 @@
                 <div class="cmd-header"><span class="cmd-label">bash</span></div>
                 <pre class="cmd-text"># 1) 生成自签名 CA（根证书）
 openssl genrsa -out ca.key 2048
-openssl req -x509 -new -nodes -key ca.key -subj "/CN=nebula-ca" -days 3650 -out ca.crt
+openssl req -x509 -new -nodes -key ca.key -subj "/CN=yingzhao-ca" -days 3650 -out ca.crt
 
 # 2) 生成 Hub 证书（SAN 填 Hub 主机 IP）
 openssl req -newkey rsa:2048 -nodes -keyout hub.key -subj "/CN=hub" -out hub.csr

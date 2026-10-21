@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/auth"
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 // 动作目录自带的域权限点（Action.Perm）必须真的存在于权限目录里。

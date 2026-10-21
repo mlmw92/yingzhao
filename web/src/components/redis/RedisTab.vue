@@ -572,7 +572,7 @@ function instStatus(i) {
 
 const AXIS_COLOR = tokenColor('t2', '#9fb3c8')
 
-// 图表配色从 CSS 令牌读取：切主题后 nebula:theme-changed 会失效重取
+// 图表配色从 CSS 令牌读取：切主题后 yingzhao:theme-changed 会失效重取
 const TEXT_COLOR = tokenColor('t1', '#e5edf7')
 const SPLIT_COLOR = 'rgba(148, 163, 184, 0.12)'
 

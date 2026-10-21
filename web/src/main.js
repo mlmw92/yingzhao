@@ -42,7 +42,7 @@ use([
 document.documentElement.classList.add('dark')
 
 // 启动时还原主题（登录页也生效），默认极光蓝 'b'
-const savedTheme = localStorage.getItem('nebula_theme') || 'b'
+const savedTheme = localStorage.getItem('yingzhao_theme') || 'b'
 document.body.dataset.theme = savedTheme
 
 const app = createApp(App)

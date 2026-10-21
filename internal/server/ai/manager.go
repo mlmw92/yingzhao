@@ -14,7 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // Manager AI 配置管理器（内存态 + 独立文件，读写都带锁）。

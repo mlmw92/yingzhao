@@ -4,7 +4,7 @@
 import { reactive } from 'vue'
 import http from '../api/http'
 
-const STORAGE_KEY = 'nebula_principal'
+const STORAGE_KEY = 'yingzhao_principal'
 
 function defaults() {
   return {

@@ -19,7 +19,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 权限点：看与做分开。执行属高风险——即使是只读查询，它也是"在成百上千台机器上执行东西"的能力。

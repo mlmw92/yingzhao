@@ -52,7 +52,7 @@ const router = useRouter()
 const auth = useAuth()
 const collapsed = ref(false)
 const alertCount = ref(0)
-const username = ref(localStorage.getItem('nebula_user') || 'admin')
+const username = ref(localStorage.getItem('yingzhao_user') || 'admin')
 const view = ref(null)
 const palette = ref(null)
 
@@ -94,7 +94,7 @@ function refresh() {
 
 function logout() {
   setToken('')
-  localStorage.removeItem('nebula_user')
+  localStorage.removeItem('yingzhao_user')
   auth.clear()
   ws && ws.close()
   router.replace('/login')
@@ -124,14 +124,14 @@ onMounted(() => {
   ws = connectWS('alerts', null, { onMessage: onAlertPushed })
   timer = setInterval(refreshAlertCount, 30000)
   document.addEventListener('visibilitychange', onVisibility)
-  window.addEventListener('nebula:refresh', onPaletteRefresh)
+  window.addEventListener('yingzhao:refresh', onPaletteRefresh)
 })
 onUnmounted(() => {
   ws && ws.close()
   timer && clearInterval(timer)
   if (alertDebounceTimer) clearTimeout(alertDebounceTimer)
   document.removeEventListener('visibilitychange', onVisibility)
-  window.removeEventListener('nebula:refresh', onPaletteRefresh)
+  window.removeEventListener('yingzhao:refresh', onPaletteRefresh)
 })
 </script>
 

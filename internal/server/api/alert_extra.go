@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
 )
 
 // handleInhibitGet 返回当前抑制规则列表。
@@ -245,7 +245,7 @@ func (a *API) handleRulesExport(w http.ResponseWriter, r *http.Request) {
 	rules := a.rules.List()
 	data, err := json.MarshalIndent(map[string]any{
 		"version": 1,
-		"kind":    "nebula-alert-rules",
+		"kind":    "yingzhao-alert-rules",
 		"rules":   rules,
 	}, "", "  ")
 	if err != nil {

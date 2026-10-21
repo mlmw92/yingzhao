@@ -1,6 +1,6 @@
 ## 产品概述
 
-为 nebula-monitor 一次性实现 10 个功能模块：5 个原有模块（MySQL 监控、告警静默/维护期、服务拨测、端口监控、报告生成）+ 5 个追加模块（PostgreSQL 监控、Nginx 监控、Kafka 监控、Docker 监控、RocketMQ 监控）。所有中间件监控模块完全复用 Redis 采集器已验证的三层架构：Agent 采集器（直连 + Prometheus exporter 双模式）→ Server API 聚合查询（QueryAllLatest 获取实例清单 → 批量查询指标 → 按 node|instance 匹配填充）→ 前端 MiddlewareView Tab 可视化（概览卡片 + 环形图 + 柱状图 + 实例列表 + 详情抽屉趋势图）。
+为 yingzhao-monitor 一次性实现 10 个功能模块：5 个原有模块（MySQL 监控、告警静默/维护期、服务拨测、端口监控、报告生成）+ 5 个追加模块（PostgreSQL 监控、Nginx 监控、Kafka 监控、Docker 监控、RocketMQ 监控）。所有中间件监控模块完全复用 Redis 采集器已验证的三层架构：Agent 采集器（直连 + Prometheus exporter 双模式）→ Server API 聚合查询（QueryAllLatest 获取实例清单 → 批量查询指标 → 按 node|instance 匹配填充）→ 前端 MiddlewareView Tab 可视化（概览卡片 + 环形图 + 柱状图 + 实例列表 + 详情抽屉趋势图）。
 
 ## 核心功能
 
@@ -163,7 +163,7 @@ graph TB
 ## 目录结构（新增/修改文件）
 
 ```
-nebula-monitor/
+yingzhao-monitor/
 ├── internal/
 │   ├── agent/
 │   │   ├── collector/
@@ -257,7 +257,7 @@ nebula-monitor/
 
 ## 设计风格
 
-延续 nebula-monitor 现有暗色主题 Glassmorphism 风格：深色背景 + 半透明玻璃面板 + 渐变色彩点缀 + 微动画过渡。前端使用 Vue3 + Element Plus + ECharts 实现。
+延续 yingzhao-monitor 现有暗色主题 Glassmorphism 风格：深色背景 + 半透明玻璃面板 + 渐变色彩点缀 + 微动画过渡。前端使用 Vue3 + Element Plus + ECharts 实现。
 
 ## MiddlewareView 中间件 Tab 布局
 

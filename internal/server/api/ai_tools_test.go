@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/ai"
-	"github.com/nebula/monitor/internal/server/logstore"
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/ai"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 type fakeLogStore struct{}

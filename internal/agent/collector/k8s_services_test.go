@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // Service 清单采集：把 apiserver 的 Service + EndpointSlice 变成台账清单与后端 Pod 名。

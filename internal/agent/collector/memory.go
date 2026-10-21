@@ -3,7 +3,7 @@ package collector
 import (
 	"github.com/shirou/gopsutil/v4/mem"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 func collectVirtualMemory() *mem.VirtualMemoryStat {

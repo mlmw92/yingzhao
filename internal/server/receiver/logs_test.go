@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/logstore"
-	"github.com/nebula/monitor/internal/server/node"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/server/node"
 )
 
 // 集中日志上行（C2）：鉴权、体积上限、限速、来源校验、落盘。
@@ -87,7 +87,7 @@ func TestHandleLogs_RejectsInvalidOrigin(t *testing.T) {
 	r, _ := newLogsReceiver(t, root, 0, 0, 0)
 
 	bad := sampleBatch("podlog", 1)
-	bad.Origin = &model.LogOrigin{Namespace: "nebula-demo", Pod: "web_1", Container: "nginx"}
+	bad.Origin = &model.LogOrigin{Namespace: "yingzhao-demo", Pod: "web_1", Container: "nginx"}
 	if rec := postLogs(r, logBody(t, bad), nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("非法身份应 400，got %d（%s）", rec.Code, rec.Body.String())
 	}
@@ -100,7 +100,7 @@ func TestHandleLogs_RejectsInvalidOrigin(t *testing.T) {
 
 	// 合法身份：照常接收，且身份随行落盘（大写会被规范化为小写）
 	ok := sampleBatch("podlog", 1)
-	ok.Origin = &model.LogOrigin{Namespace: "nebula-demo", Pod: "Web-1", Container: "NGINX"}
+	ok.Origin = &model.LogOrigin{Namespace: "yingzhao-demo", Pod: "Web-1", Container: "NGINX"}
 	if rec := postLogs(r, logBody(t, ok), nil); rec.Code != http.StatusOK {
 		t.Fatalf("合法身份应 200，got %d（%s）", rec.Code, rec.Body.String())
 	}

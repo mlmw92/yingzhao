@@ -1,7 +1,7 @@
 // config_adapter.go 提供 config.ProxyConfig 到 edgeCfg/hubCfg 的适配函数。
 package proxy
 
-import "github.com/nebula/monitor/internal/agent/config"
+import "github.com/mlmw92/yingzhao/internal/agent/config"
 
 // EdgeCfgFromConfig 从 Agent 配置的 ProxyConfig 构建 Edge 运行配置。
 func EdgeCfgFromConfig(p config.ProxyConfig) edgeCfg {

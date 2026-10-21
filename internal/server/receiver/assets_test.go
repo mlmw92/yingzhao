@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/node"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/node"
 )
 
 // assetTestStorage 是 storage.Storage 的最小替身：只记录写入，其余方法返回空。
@@ -274,16 +274,16 @@ func TestHandleReportFoldsHostNameCase(t *testing.T) {
 		Node:         "VM-0-10-ubuntu",
 		K8sInstances: []model.K8sInstance{{Instance: cluster, Name: "k3s-dev", Up: true}},
 		K8sWorkloads: []model.K8sWorkload{{
-			Cluster: cluster, Namespace: "nebula-demo", Kind: "deployment", Name: "web", Desired: 1, Ready: 1,
+			Cluster: cluster, Namespace: "yingzhao-demo", Kind: "deployment", Name: "web", Desired: 1, Ready: 1,
 		}},
 		K8sPods: []model.K8sPod{{
-			Cluster: cluster, Namespace: "nebula-demo", Name: "web-abc", Node: "vm-0-10-ubuntu",
+			Cluster: cluster, Namespace: "yingzhao-demo", Name: "web-abc", Node: "vm-0-10-ubuntu",
 			Phase: "Running", Status: "Running", Ready: 1, Total: 1,
 			OwnerKind: "deployment", OwnerName: "web",
 		}},
 	})
 
-	podRef := asset.Ref{TypeKey: asset.TypePod, NaturalKey: asset.PodNaturalKey(cluster, "nebula-demo", "web-abc")}
+	podRef := asset.Ref{TypeKey: asset.TypePod, NaturalKey: asset.PodNaturalKey(cluster, "yingzhao-demo", "web-abc")}
 	pod, ok, err := svc.Get(podRef)
 	if err != nil || !ok {
 		t.Fatalf("容器资产未写入: ok=%v err=%v", ok, err)

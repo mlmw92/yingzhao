@@ -1,11 +1,11 @@
-# nebula-monitor 中间件监控测试报告（dev-server）
+# yingzhao-monitor 中间件监控测试报告（dev-server）
 
 > **已归档（2026-10-08）｜针对旧版本**：本文测的是 **1.29.0**，此后中间件监控已有多轮改动（集群归属、类型展示开关等）。
 > 结论仍可作当时基线参考，但**不代表现状**。
 
 - 报告日期：2026-09-30（2026-09-29 初版，本次为补齐实测后的修订版）
 - 被测环境：dev-server（124.223.77.206，Ubuntu 24.04，3.6 GB 内存 + 2 GB swap，4 vCPU）
-- 被测版本：Server / Agent **1.29.0**（离线包 `dist/release/nebula-monitor-v1.29.0-full.tar.gz` /
+- 被测版本：Server / Agent **1.29.0**（离线包 `dist/release/yingzhao-monitor-v1.29.0-full.tar.gz` /
   `-upgrade.tar.gz`，含本轮集群判定与采集修复）；此前为验证修复，dev-server 上曾部署本地构建的
   server / agent 二进制（备份见 `/usr/local/bin/monitor-server.bak-dedupe`、
   `/usr/local/bin/monitor-agent.bak-1.28.8`）

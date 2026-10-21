@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // K8s 排障写动作的目录形态：非只读、归入「容器操作」分组、带 container:write 域权限点。

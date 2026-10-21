@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
 )
 
 // TestRocketMQInstances_DeclarativeShape 锁定 RocketMQ 声明化后的形状。

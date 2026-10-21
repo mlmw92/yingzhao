@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // openOpsTestDB 用**真实台账库**建表：三张 ops 表的 DDL 就在 asset 的 schemaStatements 里，

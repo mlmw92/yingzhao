@@ -3,7 +3,7 @@ package alert
 import (
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/metrics"
+	"github.com/mlmw92/yingzhao/internal/server/metrics"
 )
 
 // TestServiceMetricNamesAreRegistered 「服务离线」规则用 serviceMetric 取存活指标，

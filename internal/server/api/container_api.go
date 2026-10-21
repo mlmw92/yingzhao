@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
 )
 
 // 容器只读管理面（见 docs/superpowers/specs/2026-09-30-container-observability-design.md §3）。

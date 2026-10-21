@@ -16,6 +16,6 @@ describe('usePinnedPages', () => {
   it('置顶列表持久化到 localStorage', () => {
     const p = usePinnedPages()
     p.toggle('logs')
-    expect(JSON.parse(localStorage.getItem('nebula-pinned-pages'))).toContain('logs')
+    expect(JSON.parse(localStorage.getItem('yingzhao-pinned-pages'))).toContain('logs')
   })
 })

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/node"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/node"
 )
 
 // evalStore 是评估测试用的存储替身：按指标名返回预置序列，并可为 PromQL 注入结果/错误。

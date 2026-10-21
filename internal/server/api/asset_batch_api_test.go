@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // 夹具（见 assetTestAPI）：web-01 → g1，db-01 → g2，另有 web-01 上的 redis 实例（属 g1）。

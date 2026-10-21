@@ -25,7 +25,7 @@
 
 ## 技术栈
 
-- 后端：Go（现有 `github.com/nebula/monitor` 模块，`internal/server/alert` 包扩展）
+- 后端：Go（现有 `github.com/mlmw92/yingzhao` 模块，`internal/server/alert` 包扩展）
 - 前端：Vue 3 + Vite + Element Plus（现有 `web/src/components` 扩展）
 - 存储：沿用 VictoriaMetrics 即时查询（`storage.QueryInstant` / `QueryAllLatest`）；规则持久化沿用 YAML
 

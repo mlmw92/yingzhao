@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/report"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/report"
 )
 
 // stubReportSched 是接口层的替身：真实调度语义（到点判断、跨重启保留、失败落盘）

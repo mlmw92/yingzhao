@@ -12,8 +12,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // 报告的周期化调度（全景表 11-4）。

@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
 )
 
 const (

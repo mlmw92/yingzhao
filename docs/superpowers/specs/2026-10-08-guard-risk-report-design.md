@@ -114,7 +114,7 @@ Agent 侧：`CheckGuardRisks` 的结论（启动时算一次）存到采集器�
 
 ## 6. 实机验证计划（dev-server）
 
-1. **空态**：该机当前**没有**组合风险（`guards.ops.file.dirs` 只有 `/tmp/nebula-filepush`，
+1. **空态**：该机当前**没有**组合风险（`guards.ops.file.dirs` 只有 `/tmp/yingzhao-filepush`，
    units 为空）→ 上报 `[]` → 界面显示"未发现"，**不是**"未上报"；
 2. **有风险（决定性）**：临时把 `guards.ops` 配成风险组合（例如 `file.dirs` 加上 `/etc/cron.d`
    ——那是"系统自己会执行的目录"，**不需要** units 清单）→ 重启 Agent → 上报该风险 →

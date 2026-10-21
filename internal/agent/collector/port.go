@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // PortCollector 执行 TCP 端口存活检测。

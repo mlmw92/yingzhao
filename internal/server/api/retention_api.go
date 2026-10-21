@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/nebula/monitor/internal/server/retention"
+	"github.com/mlmw92/yingzhao/internal/server/retention"
 )
 
 // SetRetention 注入数据保留策略管理器（可选；未注入时接口仍可用，只是展示默认策略）。

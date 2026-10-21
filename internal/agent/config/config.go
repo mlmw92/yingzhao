@@ -12,8 +12,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/nebula/monitor/internal/agent/crypto"
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/agent/crypto"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // Agent 运行模式。

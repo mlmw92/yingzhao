@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // Distributor serves agent binaries and install scripts.

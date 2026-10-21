@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/crypto"
+	"github.com/mlmw92/yingzhao/internal/server/crypto"
 )
 
 // MigrateSingleAdmin 将 server.yaml 中的单管理员账号（auth.username/password）

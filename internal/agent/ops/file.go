@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // file.push：把中心上传的文件写到本机指定路径（**写操作**）。
@@ -112,7 +112,7 @@ func (e *Executor) runFilePush(cmd model.OpsCommand) model.OpsResult {
 	}
 
 	// ---- 5. 写临时文件 → 定权限 → 备份原文件 → 原子替换 ----
-	f, err := os.CreateTemp(dir, ".nebula-filepush-*")
+	f, err := os.CreateTemp(dir, ".yingzhao-filepush-*")
 	if err != nil {
 		return fail("创建临时文件失败：" + err.Error())
 	}

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 这一组用例守的是**方言与参数**：契约用例看的是"结果对不对"，

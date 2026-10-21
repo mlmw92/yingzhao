@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // NacosCollector 采集 Nacos 实例存活状态，走控制台健康检查接口：

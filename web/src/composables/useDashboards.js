@@ -4,7 +4,7 @@
 import { reactive } from 'vue'
 import http from '../api/http'
 
-const STORAGE_KEY = 'nebula_dashboards'
+const STORAGE_KEY = 'yingzhao_dashboards'
 
 function loadCache() {
   try {

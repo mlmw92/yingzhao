@@ -16,7 +16,7 @@
 - MySQL 8.0+；字符集 `utf8mb4`；时间统一 `BIGINT` epoch 毫秒。
 - 迁移**每个文件一条 SQL 语句**（MySQL 驱动默认不允许一次执行多条）；文件里不写注释与多余分隔符。
 - 迁移 SQL 必须**可重复执行**（DDL 一律 `IF NOT EXISTS`）：MySQL 的 DDL 隐式提交，执行成功但写 `schema_migrations` 失败时，下次会重跑该迁移。
-- 迁移执行必须持有 MySQL 命名锁 `nebula_schema_migrate`，且锁必须在**同一条连接**上获取与释放。
+- 迁移执行必须持有 MySQL 命名锁 `yingzhao_schema_migrate`，且锁必须在**同一条连接**上获取与释放。
 - 日志与错误信息里**不得出现 DSN 明文密码**。
 - 单元测试不得依赖外部 MySQL；集成测试用 `TEST_MYSQL_DSN` 环境变量门控，未设置时 `t.Skip`。
 - 文件测试替身只用于测试，不提供生产配置入口。
@@ -63,7 +63,7 @@ import (
 )
 
 func TestNormalizeDSNAddsCharset(t *testing.T) {
-	got, err := NormalizeDSN("u:p@tcp(127.0.0.1:3306)/nebula")
+	got, err := NormalizeDSN("u:p@tcp(127.0.0.1:3306)/yingzhao")
 	if err != nil {
 		t.Fatalf("NormalizeDSN: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestNormalizeDSNAddsCharset(t *testing.T) {
 }
 
 func TestNormalizeDSNKeepsExplicitCharset(t *testing.T) {
-	got, err := NormalizeDSN("u:p@tcp(127.0.0.1:3306)/nebula?charset=utf8mb4&timeout=3s")
+	got, err := NormalizeDSN("u:p@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4&timeout=3s")
 	if err != nil {
 		t.Fatalf("NormalizeDSN: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestNormalizeDSNKeepsExplicitCharset(t *testing.T) {
 }
 
 func TestNormalizeDSNRejectsMalformed(t *testing.T) {
-	for _, in := range []string{"", "   ", "127.0.0.1:3306", "nebula"} {
+	for _, in := range []string{"", "   ", "127.0.0.1:3306", "yingzhao"} {
 		if _, err := NormalizeDSN(in); err == nil {
 			t.Fatalf("NormalizeDSN(%q) 应报错", in)
 		}
@@ -97,8 +97,8 @@ func TestNormalizeDSNRejectsMalformed(t *testing.T) {
 
 func TestRedactDSNHidesPassword(t *testing.T) {
 	for _, in := range []string{
-		"u:secret@tcp(127.0.0.1:3306)/nebula?charset=utf8mb4",
-		"u:p@ss@tcp(127.0.0.1:3306)/nebula",
+		"u:secret@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4",
+		"u:p@ss@tcp(127.0.0.1:3306)/yingzhao",
 	} {
 		got := RedactDSN(in)
 		if strings.Contains(got, "secret") || strings.Contains(got, "p@ss") {
@@ -558,7 +558,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/db"
+	"github.com/mlmw92/yingzhao/internal/server/db"
 )
 
 func testDB(t *testing.T) *sql.DB {
@@ -649,7 +649,7 @@ const (
 		checksum VARCHAR(64) NOT NULL,
 		applied_at BIGINT NOT NULL
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
-	advisoryLockName = "nebula_schema_migrate"
+	advisoryLockName = "yingzhao_schema_migrate"
 )
 
 // Apply 在命名锁保护下执行待应用的迁移，返回本次应用的数量。
@@ -723,7 +723,7 @@ func Apply(ctx context.Context, pool *sql.DB, migrations []Migration) (int, erro
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `TEST_MYSQL_DSN='user:pass@tcp(127.0.0.1:3306)/nebula_test' go test ./internal/server/migrate/ -run TestApply -v`
+Run: `TEST_MYSQL_DSN='user:pass@tcp(127.0.0.1:3306)/yingzhao_test' go test ./internal/server/migrate/ -run TestApply -v`
 Expected: PASS（3 个用例）。
 
 Run（无 DSN 时）：`go test ./internal/server/migrate/ -v`
@@ -881,7 +881,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // FileStore 是 Store 的文件实现，**只用于测试**：
@@ -996,8 +996,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/db"
-	"github.com/nebula/monitor/internal/server/migrate"
+	"github.com/mlmw92/yingzhao/internal/server/db"
+	"github.com/mlmw92/yingzhao/internal/server/migrate"
 )
 
 func TestMySQLStoreContract(t *testing.T) {
@@ -1158,7 +1158,7 @@ func TestDatabaseConfigDefaultsAndParse(t *testing.T) {
 	path := filepath.Join(dir, "server.yaml")
 	if err := os.WriteFile(path, []byte(`
 database:
-  dsn: "u:p@tcp(127.0.0.1:3306)/nebula?charset=utf8mb4"
+  dsn: "u:p@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4"
   maxOpenConns: 50
 `), 0o600); err != nil {
 		t.Fatal(err)
@@ -1273,9 +1273,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/db"
-	"github.com/nebula/monitor/internal/server/migrate"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/db"
+	"github.com/mlmw92/yingzhao/internal/server/migrate"
 )
 
 // runMigrate 执行 Schema 迁移后退出，不启动 HTTP 服务。
@@ -1359,7 +1359,7 @@ git commit -m "feat(server): 增加 migrate 子命令"
 在 `configuration-reference.md` 增加：
 
 ```markdown
-| `database.dsn` | MySQL 8+ 连接串，形如 `user:pass@tcp(127.0.0.1:3306)/nebula?charset=utf8mb4`。**阶段 0 仅解析、不连接**；阶段 1 起为必填 |
+| `database.dsn` | MySQL 8+ 连接串，形如 `user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4`。**阶段 0 仅解析、不连接**；阶段 1 起为必填 |
 | `database.maxOpenConns` | 连接池上限，默认 20 |
 | `database.maxIdleConns` | 空闲连接上限，默认 5 |
 | `database.connMaxLifetimeSeconds` | 连接最长存活秒数，默认 1800 |
@@ -1375,7 +1375,7 @@ Expected: PASS（集成用例 SKIP）。
 Run:
 
 ```bash
-TEST_MYSQL_DSN='user:pass@tcp(127.0.0.1:3306)/nebula_test?charset=utf8mb4' \
+TEST_MYSQL_DSN='user:pass@tcp(127.0.0.1:3306)/yingzhao_test?charset=utf8mb4' \
   go test ./internal/server/db/ ./internal/server/migrate/ ./internal/server/configdoc/ -v
 ```
 

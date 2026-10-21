@@ -15,7 +15,7 @@ const (
 	SecurityCatProcessAnomaly = "process_anomaly"
 	// SecurityCatSudoAudit sudo 提权与命令审计。
 	SecurityCatSudoAudit = "sudo_audit"
-	// SecurityCatBan fail2ban 封禁/解封动作事件（由 nebula 专属 action 审计文件增量采集）。
+	// SecurityCatBan fail2ban 封禁/解封动作事件（由 yingzhao 专属 action 审计文件增量采集）。
 	SecurityCatBan = "cat_ban"
 	// SecurityCatGuardRisk 护栏组合风险（"两个护栏配在一起等于任意代码执行"）。
 	//
@@ -50,13 +50,13 @@ type SecurityEvent struct {
 }
 
 // BanInfo 描述一次 fail2ban 封禁或解封动作的细节。
-// 通过 nebula 专属 fail2ban action 写入受控 JSONL 审计文件，由 Agent 增量采集后上报。
+// 通过 yingzhao 专属 fail2ban action 写入受控 JSONL 审计文件，由 Agent 增量采集后上报。
 type BanInfo struct {
 	// Action 动作：ban（封禁）或 unban（解封）。
 	Action string `json:"action"`
 	// IP 被封禁或解封的来源 IP。
 	IP string `json:"ip"`
-	// Jail fail2ban jail 名称（如 nebula-monitor-sshd）。
+	// Jail fail2ban jail 名称（如 yingzhao-monitor-sshd）。
 	Jail string `json:"jail"`
 	// Failures 触发封禁的失败次数（ban 时由 action 变量提供，可空）。
 	Failures string `json:"failures,omitempty"`
@@ -85,19 +85,19 @@ type SecurityBaseline struct {
 	CheckedAt   int64                  `json:"checkedAt"`             // 检查时间（毫秒）
 }
 
-// 受控 fail2ban 入侵防御（仅管理 nebula-monitor-sshd 专属 jail）相关模型。
+// 受控 fail2ban 入侵防御（仅管理 yingzhao-monitor-sshd 专属 jail）相关模型。
 //
 // 设计原则（安全优先）：
 //   - 服务端下发结构化、带唯一 ID 与参数的持久化指令，不使用裸字符串命令；
-//   - 仅创建并管理 nebula-monitor-sshd 专属 jail 与 action，绝不覆盖用户 jail.local 或既有 jail；
-//   - “停用防护”只撤销 nebula 专属配置并重载 fail2ban，不卸载 fail2ban 软件包；
+//   - 仅创建并管理 yingzhao-monitor-sshd 专属 jail 与 action，绝不覆盖用户 jail.local 或既有 jail；
+//   - “停用防护”只撤销 yingzhao 专属配置并重载 fail2ban，不卸载 fail2ban 软件包；
 //   - 白名单仅覆盖回环、真实操作人来源 IP、必要 server 地址与显式配置的应急 CIDR。
 
 // 防护指令动作。
 const (
-	// DefenseActionEnable 启用（安装并启用 nebula 专属 SSH jail）。
+	// DefenseActionEnable 启用（安装并启用 yingzhao 专属 SSH jail）。
 	DefenseActionEnable = "enable"
-	// DefenseActionDisable 停用（仅移除 nebula 专属配置，不卸载 fail2ban）。
+	// DefenseActionDisable 停用（仅移除 yingzhao 专属配置，不卸载 fail2ban）。
 	DefenseActionDisable = "disable"
 	// DefenseActionStatus 仅查询状态，不改变配置。
 	DefenseActionStatus = "status"
@@ -148,21 +148,21 @@ type DefenseCommandResult struct {
 	UpdatedAt int64 `json:"updatedAt"`
 }
 
-// DefenseStatus 描述节点上 nebula 托管 SSH 防护的当前状态。
+// DefenseStatus 描述节点上 yingzhao 托管 SSH 防护的当前状态。
 type DefenseStatus struct {
 	// Node 节点名。
 	Node string `json:"node"`
 	// Supported 环境是否满足（Linux + systemd + sshd + fail2ban 可安装）。
 	Supported bool `json:"supported"`
-	// Installed fail2ban 是否已安装（不论是否由 nebula 托管）。
+	// Installed fail2ban 是否已安装（不论是否由 yingzhao 托管）。
 	Installed bool `json:"installed"`
 	// Running fail2ban 服务是否运行。
 	Running bool `json:"running"`
-	// ManagedJail nebula 专属 jail 是否已启用。
+	// ManagedJail yingzhao 专属 jail 是否已启用。
 	ManagedJail bool `json:"managedJail"`
-	// Jails 当前启用的 jail 列表（含非 nebula 托管项，仅展示）。
+	// Jails 当前启用的 jail 列表（含非 yingzhao 托管项，仅展示）。
 	Jails []string `json:"jails,omitempty"`
-	// BannedIPs 当前 nebula jail 仍处于封禁状态的 IP 快照；不代表历史封禁事件。
+	// BannedIPs 当前 yingzhao jail 仍处于封禁状态的 IP 快照；不代表历史封禁事件。
 	BannedIPs []string `json:"bannedIps,omitempty"`
 	// FirewallAction 实际加载的 Fail2Ban 原生防火墙 action 名称。
 	FirewallAction string `json:"firewallAction,omitempty"`

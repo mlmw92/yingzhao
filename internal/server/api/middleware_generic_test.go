@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // TestGenericMWInstances_NewestSampleWinsMetadata 锁定「同一实例的多条样本里，

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/db"
+	"github.com/mlmw92/yingzhao/internal/server/db"
 )
 
 func testDB(t *testing.T) *sql.DB {

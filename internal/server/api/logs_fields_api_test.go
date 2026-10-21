@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/logparse"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/logparse"
 )
 
 // 结构化字段检索（C2 子批次 D）：接口层要点是**参数形态与错误必须明确**——

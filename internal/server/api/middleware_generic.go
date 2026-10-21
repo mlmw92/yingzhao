@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
 )
 
 // 本文件是 RabbitMQ / Elasticsearch / ClickHouse / Nacos / ZooKeeper 五类

@@ -32,7 +32,7 @@ const (
 var defaultKey = deriveDefaultKey()
 
 func deriveDefaultKey() []byte {
-	seed := []byte("nebula-monitor-agen")
+	seed := []byte("yingzhao-monitor-agen")
 	k := make([]byte, 16)
 	for i := range k {
 		k[i] = seed[i%len(seed)] ^ byte(0x3C+i)

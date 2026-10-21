@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // SetAssetService 注入资产台账服务（可选；未注入时不写台账，行为与引入资产前完全一致）。

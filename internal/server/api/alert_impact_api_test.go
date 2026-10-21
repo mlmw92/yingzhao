@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 func impactPath(node, instance string) string {

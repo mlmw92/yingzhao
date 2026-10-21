@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
 )
 
 // 触发巡检需要 inspect:run：它与 assets:write 分开，因为巡检只给结论、不改配置。

@@ -319,11 +319,11 @@ Web 端「安全中心」提供受控的 fail2ban 入侵防御能力，用于自
 
 - 仅支持 **Linux + systemd + SSHD** 环境。不满足时，「安全中心」对应节点会提示「不支持」并给出手动配置说明，不会执行任何改动。
 - 启用防护只创建并使用专属配置：
-  - jail：`/etc/fail2ban/jail.d/nebula-monitor-sshd.conf`（仅保护 SSH，阈值 `maxretry=5`、`findtime=10m`、`bantime=1h`；`port` 自动探测本机 sshd 实际监听端口，不再固定为 22；backend 自动选择：`systemd`（需安装 `python3-systemd`，见下方安装说明）当可用时优先，否则回退到真实存在的认证日志文件 `/var/log/auth.log` 或 `/var/log/secure`）；
-  - action：由 Fail2Ban 发行版原生防火墙 action（firewalld / nftables / iptables）与 Nebula 审计 action 组合；原生 action 负责实际封禁，审计 action 仅把 ban/unban 记录到受控文件。若节点没有可用的原生 action，启用会失败，不会退回“仅审计”模式。
+  - jail：`/etc/fail2ban/jail.d/yingzhao-monitor-sshd.conf`（仅保护 SSH，阈值 `maxretry=5`、`findtime=10m`、`bantime=1h`；`port` 自动探测本机 sshd 实际监听端口，不再固定为 22；backend 自动选择：`systemd`（需安装 `python3-systemd`，见下方安装说明）当可用时优先，否则回退到真实存在的认证日志文件 `/var/log/auth.log` 或 `/var/log/secure`）；
+  - action：由 Fail2Ban 发行版原生防火墙 action（firewalld / nftables / iptables）与 Yingzhao 审计 action 组合；原生 action 负责实际封禁，审计 action 仅把 ban/unban 记录到受控文件。若节点没有可用的原生 action，启用会失败，不会退回“仅审计”模式。
 - 启用后，系统会把**当前操作人的真实来源 IP** 与回环地址加入 fail2ban 白名单（`ignoreip`），避免误封你自己；不会自动放行整个内网段。
 - 封禁事件（`cat_ban`）只是历史动作记录；当前是否仍被封禁以入侵防御面板中的 `Banned IP list` 为准。面板显示“已防护”前会确认 jail 已加载原生防火墙 action；“当前无封禁”表示当前列表为空，不表示防护未启用。
-- **停用防护**仅停止并移除 nebula 专属 jail 与配置文件，随后重载 fail2ban；**不会卸载 fail2ban 软件包**，也不会删除你的 `jail.local` 或其他 jail 配置。
+- **停用防护**仅停止并移除 yingzhao 专属 jail 与配置文件，随后重载 fail2ban；**不会卸载 fail2ban 软件包**，也不会删除你的 `jail.local` 或其他 jail 配置。
 
 操作方式：
 
@@ -348,7 +348,7 @@ dnf install -y fail2ban systemd-python      # 旧版可用 yum install -y fail2b
 # 2. 编写专属 jail（仅保护 SSH，含白名单）
 # 注意：port 须填本机 sshd 实际监听端口（非 22 时请替换，例如 3741）；
 # 使用 systemd 后端时须已安装 python3-systemd，并按实际服务单元写 journalmatch。
-cat > /etc/fail2ban/jail.d/nebula-manual-sshd.conf <<'EOF'
+cat > /etc/fail2ban/jail.d/yingzhao-manual-sshd.conf <<'EOF'
 [DEFAULT]
 ignoreip = 127.0.0.1/8 ::1 <你的运维来源IP>
 
@@ -372,15 +372,15 @@ fail2ban-client reload
 
 # 4. 校验（必须确认实际封禁 action，而不只是 jail 存在）
 fail2ban-client -t
-fail2ban-client status nebula-monitor-sshd
-fail2ban-client get nebula-monitor-sshd actions
+fail2ban-client status yingzhao-monitor-sshd
+fail2ban-client get yingzhao-monitor-sshd actions
 # 触发测试封禁后，按实际后端检查：
 # firewall-cmd --list-rich-rules / --get-ipsets
 # nft list ruleset
 # iptables -S
 ```
 
-如需将手动部署的 jail 接入「安全中心」的封禁事件展示，可在 action 中以同样格式向 `/var/lib/nebula-monitor/defense/ban_audit.jsonl` 追加记录，由 Agent 增量采集回流；这只提供历史事件展示，不能替代 `iptables`、`nftables` 或 `firewalld` 的实际封禁 action。
+如需将手动部署的 jail 接入「安全中心」的封禁事件展示，可在 action 中以同样格式向 `/var/lib/yingzhao-monitor/defense/ban_audit.jsonl` 追加记录，由 Agent 增量采集回流；这只提供历史事件展示，不能替代 `iptables`、`nftables` 或 `firewalld` 的实际封禁 action。
 
 > **版本要求**：一键入侵防御需 Agent 与 Server 同时升级到包含该能力的版本；旧 Agent 在「安全中心」显示「需升级 Agent」，不影响其他功能。
 
@@ -818,7 +818,7 @@ curl -fsSL http://<server>:8080/install/agent-install.sh | bash -s -- \
 ```bash
 # CA
 openssl genrsa -out ca.key 2048
-openssl req -new -x509 -key ca.key -out ca.crt -days 3650 -subj "/CN=nebula-proxy-ca"
+openssl req -new -x509 -key ca.key -out ca.crt -days 3650 -subj "/CN=yingzhao-proxy-ca"
 
 # Hub 证书
 openssl genrsa -out hub.key 2048

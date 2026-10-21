@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // RocketMQCollector 采集 RocketMQ 实例指标，支持 HTTP API 直连与 exporter 双模式。

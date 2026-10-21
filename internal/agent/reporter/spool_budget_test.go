@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // budgetMetric 造一个体积可预期的指标点（标签够长，便于把 spool 撑到几 MB）。

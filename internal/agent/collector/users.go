@@ -5,7 +5,7 @@ import (
 
 	"github.com/shirou/gopsutil/v4/host"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // CollectUsers 采集当前在线 SSH 用户会话（含终端、来源与登录时间）。

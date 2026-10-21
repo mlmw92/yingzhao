@@ -7,8 +7,8 @@ import (
 
 // TestParseCRILogLineRealKubeletBytes 用**真实 kubelet 写下的字节**验证 CRI 框架解析。
 //
-// 夹具逐字取自 2026-10-06 dev-server 上测试 Pod（nebula-podlog/logtest）的容器日志文件
-// /var/log/pods/nebula-podlog_logtest_631f4919-d182-4695-aaad-105ea3cba73d/logtest/0.log：
+// 夹具逐字取自 2026-10-06 dev-server 上测试 Pod（yingzhao-podlog/logtest）的容器日志文件
+// /var/log/pods/yingzhao-podlog_logtest_631f4919-d182-4695-aaad-105ea3cba73d/logtest/0.log：
 //
 //	2026-10-06T21:52:54.944292439+08:00 stdout F 2026-10-06T13:52:54 ERROR podlog-e2e tick=290
 //

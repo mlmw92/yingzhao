@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/dialtest"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/dialtest"
 )
 
 // 对外状态页（C3）。这组用例守两件事：

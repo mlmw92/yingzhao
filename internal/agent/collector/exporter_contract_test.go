@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // expositionServer 每次请求都返回同一段文本；正文由参数固化，避免测试主协程与

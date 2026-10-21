@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // JSON 日志：顶层标量 + 一层嵌套（点号连接）都要提出来，数组与 null 跳过。

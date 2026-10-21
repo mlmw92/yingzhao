@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/analysis"
+	"github.com/mlmw92/yingzhao/internal/server/analysis"
 )
 
 // TestCorrelationNotes_NoAnalyzer 未注入分析器时不返回结论，也不 panic。

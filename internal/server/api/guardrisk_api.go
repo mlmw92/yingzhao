@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/nebula/monitor/internal/server/security"
+	"github.com/mlmw92/yingzhao/internal/server/security"
 )
 
 // 护栏组合风险的查询接口（能力全景表 §3.4 后第 3 条的既有 TODO）。

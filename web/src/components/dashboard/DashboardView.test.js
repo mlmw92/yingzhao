@@ -180,7 +180,7 @@ describe('DashboardView 自定义仪表盘（契约）', () => {
       { id: 'd1', name: '看板A', panels: [] },
       { id: 'd2', name: '看板B', panels: [] },
     ]
-    localStorage.setItem('nebula_dash_active', 'd2')
+    localStorage.setItem('yingzhao_dash_active', 'd2')
     wrapper = mountView()
     await flush()
 

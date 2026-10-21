@@ -48,8 +48,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/node"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/node"
 )
 
 // evalStore 是评估测试用的存储替身：按指标名返回预置序列，并可为 PromQL 注入结果/错误。
@@ -234,7 +234,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // evaluator 是一种周期性规则类型的评估器。
@@ -526,7 +526,7 @@ package alert
 import (
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 func TestValidateRulePromQLRequiresExpr(t *testing.T) {
@@ -742,7 +742,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 func promqlRule() model.AlertRule {
@@ -858,7 +858,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // maxPromQLSeries 是单规则单轮处理的结果上限。
@@ -1016,8 +1016,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
 )
 
 type promQLStore struct{ seriesStore }

@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/report"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/report"
 )
 
 // 报告范围折算（设计件 docs/superpowers/specs/2026-10-08-reporting-views-design.md）。

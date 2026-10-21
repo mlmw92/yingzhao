@@ -54,7 +54,7 @@ describe('useAuth 前端权限判定', () => {
     principal.username = 'alice'
     principal.permissions = ['nodes:read']
     principal.scope = { mode: 'restricted', groups: ['g1'] }
-    localStorage.setItem('nebula_principal', JSON.stringify({ username: 'alice' }))
+    localStorage.setItem('yingzhao_principal', JSON.stringify({ username: 'alice' }))
 
     clear()
 
@@ -63,6 +63,6 @@ describe('useAuth 前端权限判定', () => {
     expect(principal.roles).toEqual([])
     expect(principal.permissions).toEqual([])
     expect(principal.scope).toEqual({ mode: 'global', groups: [] })
-    expect(localStorage.getItem('nebula_principal')).toBeNull()
+    expect(localStorage.getItem('yingzhao_principal')).toBeNull()
   })
 })

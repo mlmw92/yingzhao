@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 契约用例：**同一套断言跑两个真实适配器**。

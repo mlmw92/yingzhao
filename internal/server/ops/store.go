@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 取消失败的两种原因刻意分开，供 API 层给出不同的状态码与提示：

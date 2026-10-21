@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/approval"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/approval"
 )
 
 type workbenchTodoItem struct {

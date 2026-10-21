@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/agent/config"
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // Pod 日志采集：路径通配符（Pod 是短命的，文件集合每轮都在变）、
@@ -78,7 +78,7 @@ func TestLogCollector_PodOriginPerFile(t *testing.T) {
 
 	// 两个 Pod 各一个容器日志文件
 	paths := []string{
-		filepath.Join(dir, "pods", "nebula-demo_web-1_aaaa", "nginx", "0.log"),
+		filepath.Join(dir, "pods", "yingzhao-demo_web-1_aaaa", "nginx", "0.log"),
 		filepath.Join(dir, "pods", "kube-system_coredns-abc_bbbb", "coredns", "0.log"),
 	}
 	for _, p := range paths {
@@ -118,7 +118,7 @@ func TestLogCollector_PodOriginPerFile(t *testing.T) {
 		byPod[s.origin.Pod] = s.origin
 	}
 	web, ok := byPod["web-1"]
-	if !ok || web.Namespace != "nebula-demo" || web.Container != "nginx" {
+	if !ok || web.Namespace != "yingzhao-demo" || web.Container != "nginx" {
 		t.Fatalf("web-1 的身份不符：%+v", byPod)
 	}
 	if coredns, ok := byPod["coredns-abc"]; !ok || coredns.Namespace != "kube-system" || coredns.Container != "coredns" {
@@ -193,7 +193,7 @@ func TestLogCollector_GlobZeroMatchKeepsUp(t *testing.T) {
 // 留着框架会让每一行带"时间 + 流 + 标记"噪声；用采集时刻会让同一轮的行挤在同一个毫秒上。
 func TestLogCollector_StripsCRIFraming(t *testing.T) {
 	dir := t.TempDir()
-	logPath := filepath.Join(dir, "pods", "nebula-podlog_logtest_uid", "logtest", "0.log")
+	logPath := filepath.Join(dir, "pods", "yingzhao-podlog_logtest_uid", "logtest", "0.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		t.Fatal(err)
 	}

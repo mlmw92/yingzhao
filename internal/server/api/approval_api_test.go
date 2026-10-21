@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/approval"
-	"github.com/nebula/monitor/internal/server/auth"
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/server/approval"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 // approvalTestAPI 在 opsTestAPI 的基础上接入审批（临时文件），并**默认开启**审批。

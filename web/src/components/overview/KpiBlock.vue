@@ -53,7 +53,7 @@ const props = defineProps({
  * 刻意不做插值、不伪造历史——所以刚打开页面时曲线是空的，跑几分钟后才成形。
  * 也不新增接口：/api/v1/nodes/latest 只给最新一个点，无法反推历史序列。
  * ========================================================= */
-const HISTORY_KEY = 'nebula-kpi-history'
+const HISTORY_KEY = 'yingzhao-kpi-history'
 const MAX_POINTS = 24
 const HISTORY_TTL = 24 * 60 * 60 * 1000
 
@@ -115,8 +115,8 @@ const accent = computed(() => {
   return v || '#4a9df0'
 })
 
-onMounted(() => window.addEventListener('nebula:theme-changed', onThemeChanged))
-onBeforeUnmount(() => window.removeEventListener('nebula:theme-changed', onThemeChanged))
+onMounted(() => window.addEventListener('yingzhao:theme-changed', onThemeChanged))
+onBeforeUnmount(() => window.removeEventListener('yingzhao:theme-changed', onThemeChanged))
 
 function sparkOption(data) {
   const color = accent.value

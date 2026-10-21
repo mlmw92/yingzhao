@@ -8,7 +8,7 @@
 
 - **根目录 `VERSION` 文件是唯一权威版本号**（版本号以该文件实际内容为准，**不带 `v` 前缀**）。
 - 编译链路：`build/version.sh` 读取 `VERSION` → `build/cross-compile.sh` 通过
-  `-ldflags "-X github.com/nebula/monitor/internal/version.Version=..."` 注入到 `internal/version` 包。
+  `-ldflags "-X github.com/mlmw92/yingzhao/internal/version.Version=..."` 注入到 `internal/version` 包。
 - 运行时 `cmd/server` / `cmd/agent` 启动日志的 `version` 字段、HTTP `/api/v1/version` 接口返回的都是注入值。
 - `internal/version/version.go` 中 `Version = "dev"` 只是默认值（编译时被 ldflags 覆盖），**不要把它当作发布版本号来改**。
 - **GitHub tag 命名**：`v{VERSION}`（如 `v1.0.0`），其中 `v` 前缀仅用于 tag，VERSION 文件本身不带 v。

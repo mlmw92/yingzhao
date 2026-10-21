@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/auth"
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 // 文件分发的完整入口链路：上传拿到引用 → 用引用建任务 → 内容由服务端保管、任务里只有引用。

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // 日志 → 资产联动（全景表 8-6 的联动侧）与「由日志建规则」（9-05）。
@@ -109,12 +109,12 @@ func TestRoutes_LogsQueryAssetMappingRespectsScope(t *testing.T) {
 func TestRoutes_LogsQueryReturnsPodAssetMapping(t *testing.T) {
 	a, store := newLogsTestAPI(t)
 	svc := attachAssetService(t, a)
-	declarePodAsset(t, svc, "https://10.0.0.9:6443", "nebula-demo", "web-1", "web-01")
+	declarePodAsset(t, svc, "https://10.0.0.9:6443", "yingzhao-demo", "web-1", "web-01")
 
 	now := time.Now().UnixMilli()
 	if _, _, _, err := store.Append(model.LogBatch{
 		Source: "podlog", Node: "web-01",
-		Origin: &model.LogOrigin{Namespace: "nebula-demo", Pod: "web-1", Container: "nginx"},
+		Origin: &model.LogOrigin{Namespace: "yingzhao-demo", Pod: "web-1", Container: "nginx"},
 		Lines:  []model.LogLine{{Ts: now - 60_000, Text: "error: pod line", Pattern: "err"}},
 	}); err != nil {
 		t.Fatalf("造 Pod 日志失败：%v", err)
@@ -133,7 +133,7 @@ func TestRoutes_LogsQueryReturnsPodAssetMapping(t *testing.T) {
 		t.Fatalf("Pod 日志应被检索到：%v", body)
 	}
 	origin, _ := podLine["origin"].(map[string]any)
-	if origin["namespace"] != "nebula-demo" || origin["pod"] != "web-1" || origin["container"] != "nginx" {
+	if origin["namespace"] != "yingzhao-demo" || origin["pod"] != "web-1" || origin["container"] != "nginx" {
 		t.Fatalf("行上应带容器身份：%v", podLine)
 	}
 
@@ -141,12 +141,12 @@ func TestRoutes_LogsQueryReturnsPodAssetMapping(t *testing.T) {
 	if len(pods) != 1 {
 		t.Fatalf("只应有本页出现过的容器身份映射：%v", pods)
 	}
-	refs, ok := pods["nebula-demo|web-1"].([]any)
+	refs, ok := pods["yingzhao-demo|web-1"].([]any)
 	if !ok || len(refs) != 1 {
 		t.Fatalf("容器身份应映射到一条资产：%v", pods)
 	}
 	ref, _ := refs[0].(map[string]any)
-	if ref["typeKey"] != asset.TypePod || ref["naturalKey"] != asset.PodNaturalKey("https://10.0.0.9:6443", "nebula-demo", "web-1") {
+	if ref["typeKey"] != asset.TypePod || ref["naturalKey"] != asset.PodNaturalKey("https://10.0.0.9:6443", "yingzhao-demo", "web-1") {
 		t.Fatalf("资产引用不符：%v", ref)
 	}
 	// 普通文件日志（行上没有身份）不该出现在容器映射里
@@ -163,7 +163,7 @@ func TestRoutes_LogsQueryPodMappingIsOptional(t *testing.T) {
 	now := time.Now().UnixMilli()
 	if _, _, _, err := store.Append(model.LogBatch{
 		Source: "podlog", Node: "web-01",
-		Origin: &model.LogOrigin{Namespace: "nebula-demo", Pod: "web-1", Container: "nginx"},
+		Origin: &model.LogOrigin{Namespace: "yingzhao-demo", Pod: "web-1", Container: "nginx"},
 		Lines:  []model.LogLine{{Ts: now - 60_000, Text: "error: pod line"}},
 	}); err != nil {
 		t.Fatal(err)
@@ -191,8 +191,8 @@ func TestRoutes_LogsQueryPodFilter(t *testing.T) {
 			t.Fatalf("造数据失败：%v", err)
 		}
 	}
-	appendPod("nebula-demo", "web-1", "error: web-1 line", now-60_000)
-	appendPod("nebula-demo", "web-2", "error: web-2 line", now-70_000)
+	appendPod("yingzhao-demo", "web-1", "error: web-1 line", now-60_000)
+	appendPod("yingzhao-demo", "web-2", "error: web-2 line", now-70_000)
 
 	// 不带 pods：本页既有普通文件日志、也有容器日志
 	all := decodeLogResult(t, logsQuery(a, logsReader(), ""))
@@ -201,7 +201,7 @@ func TestRoutes_LogsQueryPodFilter(t *testing.T) {
 	}
 
 	// 只带一个容器
-	one := decodeLogResult(t, logsQuery(a, logsReader(), "?pods=nebula-demo%7Cweb-1"))
+	one := decodeLogResult(t, logsQuery(a, logsReader(), "?pods=yingzhao-demo%7Cweb-1"))
 	if len(one.Lines) != 1 || one.Lines[0].Text != "error: web-1 line" {
 		t.Fatalf("应按容器过滤：%+v", one.Lines)
 	}
@@ -210,13 +210,13 @@ func TestRoutes_LogsQueryPodFilter(t *testing.T) {
 	}
 
 	// 多个容器是「或」
-	two := decodeLogResult(t, logsQuery(a, logsReader(), "?pods=nebula-demo%7Cweb-1&pods=nebula-demo%7Cweb-2"))
+	two := decodeLogResult(t, logsQuery(a, logsReader(), "?pods=yingzhao-demo%7Cweb-1&pods=yingzhao-demo%7Cweb-2"))
 	if len(two.Lines) != 2 {
 		t.Fatalf("多个容器应「或」命中：%+v", two.Lines)
 	}
 
 	// 非法形态必须明确报错，而不是"退化成不限"（后者会让人以为过滤生效了）
-	for _, bad := range []string{"?pods=web-1", "?pods=nebula-demo%7C", "?pods=%7Cweb-1", "?pods=nebula_demo%7Cweb-1"} {
+	for _, bad := range []string{"?pods=web-1", "?pods=yingzhao-demo%7C", "?pods=%7Cweb-1", "?pods=yingzhao_demo%7Cweb-1"} {
 		rec := logsQuery(a, logsReader(), bad)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("%s 应 400，实际 %d（%s）", bad, rec.Code, rec.Body.String())

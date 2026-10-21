@@ -59,7 +59,7 @@ beforeEach(() => {
           {
             ts: Date.now(), node: 'web-01', source: 'podlog', pattern: 'err',
             text: 'error: pod boom',
-            origin: { namespace: 'nebula-demo', pod: 'web-1', container: 'nginx' },
+            origin: { namespace: 'yingzhao-demo', pod: 'web-1', container: 'nginx' },
           },
           {
             ts: Date.now() - 1000, node: 'web-01', source: 'applog', pattern: 'err',
@@ -73,8 +73,8 @@ beforeEach(() => {
         },
         // 容器身份那套映射（容器日志用），键 `<namespace>|<pod>`
         podAssets: {
-          'nebula-demo|web-1': [
-            { id: 11, typeKey: 'pod', typeTitle: 'Pod', naturalKey: 'k8s/nebula-demo/pod/web-1', name: 'web-1', node: 'web-01' },
+          'yingzhao-demo|web-1': [
+            { id: 11, typeKey: 'pod', typeTitle: 'Pod', naturalKey: 'k8s/yingzhao-demo/pod/web-1', name: 'web-1', node: 'web-01' },
           ],
         },
       }
@@ -97,7 +97,7 @@ describe('LogsView 容器日志（Pod 日志）', () => {
     await flushPromises()
 
     const html = w.html()
-    expect(html).toContain('nebula-demo/web-1')
+    expect(html).toContain('yingzhao-demo/web-1')
     expect(html).toContain('nginx')
     // 台账里没有对应 Pod 时也要显示身份（身份来自日志本身，不依赖台账）
     expect(html).toContain('pod-line')
@@ -119,10 +119,10 @@ describe('LogsView 容器日志（Pod 日志）', () => {
     await flushPromises()
 
     const last = logsQueries().at(-1)
-    expect(last).toContain('pods=nebula-demo%7Cweb-1')
+    expect(last).toContain('pods=yingzhao-demo%7Cweb-1')
 
     // 过滤条件必须看得见、删得掉（否则"日志怎么少了"会变成下一个问题）
-    const chip = w.findAll('.fc-chip').find((t) => t.text().includes('nebula-demo/web-1'))
+    const chip = w.findAll('.fc-chip').find((t) => t.text().includes('yingzhao-demo/web-1'))
     expect(chip).toBeTruthy()
     // FilterChips 的删除控件是 .fc-x；撤销后**立即重查**（chips 与结果必须一致）
     await chip.find('.fc-x').trigger('click')
@@ -146,24 +146,24 @@ describe('LogsView 容器日志（Pod 日志）', () => {
   // 深链 `?pods=<命名空间>|<Pod>`：容器页（与 Pod 资产）跳进来时带的就是这个。
   // 认领失败的症状不是报错，而是"条件没了却照样出结果"——用户会以为这就是该 Pod 的全部日志。
   it('深链里的 pods 条件被认领：显示为可删除的容器条件并拼进查询', async () => {
-    routeState.query = { pods: 'nebula-demo|web-1' }
+    routeState.query = { pods: 'yingzhao-demo|web-1' }
     const w = mountView()
     await flushPromises()
 
-    const chip = w.findAll('.fc-chip').find((t) => t.text().includes('nebula-demo/web-1'))
+    const chip = w.findAll('.fc-chip').find((t) => t.text().includes('yingzhao-demo/web-1'))
     expect(chip).toBeTruthy()
-    expect(logsQueries().at(-1)).toContain('pods=nebula-demo%7Cweb-1')
+    expect(logsQueries().at(-1)).toContain('pods=yingzhao-demo%7Cweb-1')
   })
 
   // 形态校验与服务端 parseLogPodFilters 同一条规则：不合法的项丢掉，
   // 而不是让它去撞服务端的 400——那会把**整个查询**打成失败，用户看到的是一片报错。
   it('深链里形态不合法的容器条件被丢掉，不让它把整个查询打成失败', async () => {
-    routeState.query = { pods: ['nebula-demo|web-1', 'Bad Name|x', 'nopipe', '|empty', 'ns|'] }
+    routeState.query = { pods: ['yingzhao-demo|web-1', 'Bad Name|x', 'nopipe', '|empty', 'ns|'] }
     const w = mountView()
     await flushPromises()
 
     const last = logsQueries().at(-1)
-    expect(last).toContain('pods=nebula-demo%7Cweb-1')
+    expect(last).toContain('pods=yingzhao-demo%7Cweb-1')
     for (const bad of ['Bad', 'nopipe', 'empty']) {
       expect(last).not.toContain(bad)
     }

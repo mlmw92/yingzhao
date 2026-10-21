@@ -13,7 +13,7 @@ import (
 	gnet "github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // collectListeners 采集当前主机的监听端口列表（TCP/UDP），类似 ss -tlnp / netstat -tlnp。

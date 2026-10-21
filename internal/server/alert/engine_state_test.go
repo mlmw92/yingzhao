@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // TestFiringKey_Format 去重键格式为 rule|node|instance，任一维度不同都必须区分开，

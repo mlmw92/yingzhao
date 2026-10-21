@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
 )
 
 // assetTestAPI 在 scopeTestAPI 的基础上接入真实资产台账（临时库）。

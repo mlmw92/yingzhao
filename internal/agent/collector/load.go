@@ -3,7 +3,7 @@ package collector
 import (
 	"github.com/shirou/gopsutil/v4/load"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // collectLoad 采集系统负载 load1/5/15。

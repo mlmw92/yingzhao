@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // fakeK8sAPIServer 是一个只回清单相关路径的假 apiserver。

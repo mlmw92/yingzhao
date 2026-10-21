@@ -1,4 +1,4 @@
-# Nebula Monitor 全面测试计划与执行报告
+# Yingzhao Monitor 全面测试计划与执行报告
 
 > **已归档（2026-10-08）｜当时的结论不代表现状**：本文结论「不满足上线安全门槛」针对的是 **2026-08-09 的版本**，
 > 此后已有多轮安全修复与全量验证（见 `docs/testing/` 下的近期报告与各设计件的实机结果）。
@@ -13,7 +13,7 @@
 
 | 项目 | 实际值 |
 |---|---|
-| 主机 | Windows，PowerShell，工作区 `E:\codebuddy_project\nebula-monitor` |
+| 主机 | Windows，PowerShell，工作区 `E:\codebuddy_project\yingzhao-monitor` |
 | Go / Node | 以项目锁定依赖和本机工具链执行 |
 | 可用服务 | 未安装 Docker；未提供可连接的 TSDB、SMTP、Webhook 或受监控中间件 |
 | 自动化 | `go test ./...`、`go vet ./...`、`npm run build`、代码安全审查 |

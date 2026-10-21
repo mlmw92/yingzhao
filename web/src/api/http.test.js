@@ -21,7 +21,7 @@ describe('http 请求封装', () => {
     expect(getToken()).toBe('abc123')
     setToken('')
     expect(getToken()).toBe('')
-    expect(localStorage.getItem('nebula_token')).toBeNull()
+    expect(localStorage.getItem('yingzhao_token')).toBeNull()
   })
 
   it('有 token 时附加 Authorization 头，无 token 时不附加', async () => {

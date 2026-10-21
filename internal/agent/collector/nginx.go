@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // NginxCollector 采集 Nginx 实例指标，支持 stub_status 解析与 VTS exporter 双模式。

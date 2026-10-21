@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/audit"
-	"github.com/nebula/monitor/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
 )
 
 // 配置项模型（设计件 docs/superpowers/specs/2026-10-07-asset-ci-model-design.md）。

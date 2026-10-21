@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/ai"
-	"github.com/nebula/monitor/internal/server/approval"
-	"github.com/nebula/monitor/internal/server/audit"
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/ai"
+	"github.com/mlmw92/yingzhao/internal/server/approval"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 // SetInvestigationStore 注入 AI 调查结果存储（未注入时查询返回空）。

@@ -6,7 +6,7 @@ import (
 
 	"github.com/shirou/gopsutil/v4/net"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // NetworkCollector 采集网络接口收发速率（字节/秒）、丢包速率与 TCP 重传速率。

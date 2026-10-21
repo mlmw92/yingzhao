@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 文件分发的**内容存储**：任务里只有引用（fileId），内容单独落盘。

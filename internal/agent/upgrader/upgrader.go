@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"github.com/nebula/monitor/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
 )
 
 // ReadyFile 是升级信号文件路径：非 systemd 环境下，升级脚本下载校验完成后

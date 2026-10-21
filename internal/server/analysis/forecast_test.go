@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/metrics"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/metrics"
 )
 
 // ramp 生成「每小时递增 step」的采样序列（points 以小时为间隔）。

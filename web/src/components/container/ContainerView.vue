@@ -299,7 +299,7 @@ const DETAIL_SPEC = {
 
 // 后端没有命名空间列表接口（只有 /api/v1/container/k8s/clusters），所以不做下拉：
 // 建议项来自「当前结果里出现过的命名空间」+「本机历史输入」，零后端改动。
-const NS_HISTORY_KEY = 'nebula-container-ns-history'
+const NS_HISTORY_KEY = 'yingzhao-container-ns-history'
 const NS_HISTORY_MAX = 20
 
 const route = useRoute()

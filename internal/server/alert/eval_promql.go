@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // maxPromQLSeries 是单规则单轮处理的结果上限。

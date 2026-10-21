@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/nebula/monitor/internal/server/crypto"
+	"github.com/mlmw92/yingzhao/internal/server/crypto"
 )
 
 // Mode 部署模式（当前仅支持单机模式 standalone）。

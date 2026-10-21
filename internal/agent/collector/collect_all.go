@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // Result 是一轮采集的完整产出。

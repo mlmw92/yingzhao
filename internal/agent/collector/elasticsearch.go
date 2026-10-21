@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // ElasticsearchCollector 采集 Elasticsearch 实例指标，直连原生 JSON 接口：

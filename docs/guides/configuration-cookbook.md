@@ -372,7 +372,7 @@ Agent 以 root 运行，平台上的一个写权限 ≈ 一批机器的 root。�
 ### 4.2 放行写操作（在目标机器上）
 
 ```yaml
-# /etc/nebula-monitor/agent.yaml（或你的实际路径）
+# /etc/yingzhao-monitor/agent.yaml（或你的实际路径）
 guards:
   ops:
     readOnly: true          # 只读动作（诊断包、查服务状态）；默认 true

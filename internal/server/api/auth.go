@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/auth"
-	"github.com/nebula/monitor/internal/server/config"
-	servercrypto "github.com/nebula/monitor/internal/server/crypto"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	servercrypto "github.com/mlmw92/yingzhao/internal/server/crypto"
 )
 
 type authUserContextKey struct{}
@@ -200,7 +200,7 @@ func AuthMiddleware(next http.Handler, authCfg config.AuthConfig, authStore *aut
 		tok := r.Header.Get("Authorization")
 		tok = strings.TrimPrefix(tok, "Bearer ")
 		if tok == "" {
-			if c, err := r.Cookie("nebula_token"); err == nil {
+			if c, err := r.Cookie("yingzhao_token"); err == nil {
 				tok = c.Value
 			}
 		}
@@ -475,7 +475,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		a.authStore.TouchLogin(body.Username, ip)
 		tok := genToken(p.Username, p.TokenVersion, a.auth.Secret)
 		http.SetCookie(w, &http.Cookie{
-			Name: "nebula_token", Value: tok, Path: "/", HttpOnly: true,
+			Name: "yingzhao_token", Value: tok, Path: "/", HttpOnly: true,
 			MaxAge: int(tokenTTL.Seconds()),
 		})
 		a.recordLoginAudit(r, body.Username, http.StatusOK, true)
@@ -498,7 +498,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	tok := genToken(body.Username, 0, a.auth.Secret)
 	// 同时设置 cookie（方便浏览器直接访问）
 	http.SetCookie(w, &http.Cookie{
-		Name:     "nebula_token",
+		Name:     "yingzhao_token",
 		Value:    tok,
 		Path:     "/",
 		HttpOnly: true,
@@ -519,7 +519,7 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 			_ = a.authStore.BumpTokenVersion(p.Username) // 仅 bump 版本，不重置密码
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: "nebula_token", Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: "yingzhao_token", Path: "/", MaxAge: -1})
 	writeJSON(w, 200, map[string]string{"ok": "true"})
 }
 

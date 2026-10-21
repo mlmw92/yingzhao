@@ -10,7 +10,7 @@ import (
 )
 
 func TestNormalizeDSNAddsCharset(t *testing.T) {
-	got, err := NormalizeDSN("u:p@tcp(127.0.0.1:3306)/nebula")
+	got, err := NormalizeDSN("u:p@tcp(127.0.0.1:3306)/yingzhao")
 	if err != nil {
 		t.Fatalf("NormalizeDSN: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestNormalizeDSNAddsCharset(t *testing.T) {
 }
 
 func TestNormalizeDSNKeepsExplicitCharset(t *testing.T) {
-	got, err := NormalizeDSN("u:p@tcp(127.0.0.1:3306)/nebula?charset=utf8mb4&timeout=3s")
+	got, err := NormalizeDSN("u:p@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4&timeout=3s")
 	if err != nil {
 		t.Fatalf("NormalizeDSN: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestNormalizeDSNKeepsExplicitCharset(t *testing.T) {
 }
 
 func TestNormalizeDSNRejectsMalformed(t *testing.T) {
-	for _, in := range []string{"", "   ", "127.0.0.1:3306", "nebula"} {
+	for _, in := range []string{"", "   ", "127.0.0.1:3306", "yingzhao"} {
 		if _, err := NormalizeDSN(in); err == nil {
 			t.Fatalf("NormalizeDSN(%q) 应报错", in)
 		}
@@ -45,8 +45,8 @@ func TestNormalizeDSNRejectsMalformed(t *testing.T) {
 
 func TestRedactDSNHidesPassword(t *testing.T) {
 	for _, in := range []string{
-		"u:secret@tcp(127.0.0.1:3306)/nebula?charset=utf8mb4",
-		"u:p@ss@tcp(127.0.0.1:3306)/nebula",
+		"u:secret@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4",
+		"u:p@ss@tcp(127.0.0.1:3306)/yingzhao",
 	} {
 		got := RedactDSN(in)
 		if strings.Contains(got, "secret") || strings.Contains(got, "p@ss") {

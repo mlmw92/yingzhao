@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // fakeEndpoint 起一个假的 OpenAI 兼容端点，返回可用配置。

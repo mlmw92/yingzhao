@@ -188,7 +188,7 @@
 | `archive/c1-collector-templates.md` | 采集项模板**已整链路移除**（`1e25239`）；其中的接口、权限点、配置项与安全模型都不再有效 |
 | `archive/c1-phase3-kinds.md` | 所属方向已撤；且 `exec` / `file` 取数思路**与现行操作面安全边界冲突**（不提供任意命令 / 脚本执行） |
 | `archive/commits-34e0075-to-58c88ee.md` | 一次性提交梳理；依赖的 `git reflog` 90 天恢复窗口早已过期 |
-| `archive/nebulaeye_crash_log_20260828.md` | 一次性崩溃现场记录 |
+| `archive/yingzhaoeye_crash_log_20260828.md` | 一次性崩溃现场记录 |
 | `archive/2026-08-09-full-test-report.md` | 当时结论（"不满足上线安全门槛"）针对 2026-08 的版本，**不代表现状** |
 | `archive/middleware-monitoring-test-report-20260929.md` | 针对 **1.29.0** 的测试报告 |
 

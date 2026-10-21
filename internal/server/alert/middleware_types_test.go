@@ -3,7 +3,7 @@ package alert
 import (
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/mwreg"
+	"github.com/mlmw92/yingzhao/internal/server/mwreg"
 )
 
 // TestBuiltinTypesKeepNoLabelFilter 内置类型不应被附加标签过滤（回归保护：

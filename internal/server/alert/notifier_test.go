@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 func TestWebhookNotifierRedactsSecretsFromErrorsAndLogs(t *testing.T) {

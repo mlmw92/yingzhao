@@ -6,7 +6,7 @@
 
 ## 产品概述
 
-在不改变现有功能与使用方式的前提下，对 nebula-monitor 的敏感凭据做静态加密存储。登录密码在 Server 配置中以国密 SM3 加盐哈希存储、登录时哈希比对；中间件（Redis/MySQL/PostgreSQL/MongoDB 等）的连接密码在 Agent 配置中以 SM4-CBC 密文存储，Agent 加载时解密为明文供采集器使用。两类配置均兼容现有明文旧格式，实现无感升级。
+在不改变现有功能与使用方式的前提下，对 yingzhao-monitor 的敏感凭据做静态加密存储。登录密码在 Server 配置中以国密 SM3 加盐哈希存储、登录时哈希比对；中间件（Redis/MySQL/PostgreSQL/MongoDB 等）的连接密码在 Agent 配置中以 SM4-CBC 密文存储，Agent 加载时解密为明文供采集器使用。两类配置均兼容现有明文旧格式，实现无感升级。
 
 ## 核心特性
 
@@ -51,7 +51,7 @@
 ### 目录结构与受影响文件
 
 ```
-nebula-monitor/
+yingzhao-monitor/
 ├── go.mod                                   # [MODIFY] 新增 github.com/tjfoc/gmsm v1.4.1 直接依赖（golang.org/x/crypto 因移除 bcrypt 而由 tidy 清理）
 ├── internal/server/
 │   ├── crypto/crypto.go                     # [NEW] SM3 加盐哈希：HashPassword/VerifyPassword/IsHashed

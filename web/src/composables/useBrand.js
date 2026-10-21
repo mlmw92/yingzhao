@@ -4,7 +4,7 @@
 import { reactive } from 'vue'
 import http from '../api/http'
 
-const STORAGE_KEY = 'nebula_brand'
+const STORAGE_KEY = 'yingzhao_brand'
 
 function defaults() {
   return { name: '英招', logo: '', footer: '', subtitle: '运维平台' }

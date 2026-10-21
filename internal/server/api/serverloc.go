@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/nginxaccess"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/nginxaccess"
 )
 
 // ipv4Regex 用于从各种响应文本中提取首个 IPv4 地址。
@@ -173,7 +173,7 @@ func fetchText(u string, client *http.Client) string {
 	if err != nil {
 		return ""
 	}
-	req.Header.Set("User-Agent", "nebula-monitor/1.0")
+	req.Header.Set("User-Agent", "yingzhao-monitor/1.0")
 	resp, err := client.Do(req)
 	if err != nil {
 		return ""

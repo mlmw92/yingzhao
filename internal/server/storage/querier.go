@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // promResponse 是 VM PromQL 接口返回结构。

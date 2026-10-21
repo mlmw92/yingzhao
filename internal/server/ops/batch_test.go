@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 批量下发最常见的形态是**部分成功**（几台离线、几台没放行），

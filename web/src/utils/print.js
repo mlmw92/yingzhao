@@ -10,7 +10,7 @@
  *   import { printPage } from '../utils/print'
  *   printPage({ title: '主机列表', meta: ['在线 12 / 共 15', '分组：生产环境'] })
  */
-const HOST_ID = '__nebula_print_head'
+const HOST_ID = '__yingzhao_print_head'
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({

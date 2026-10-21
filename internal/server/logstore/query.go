@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 检索（C2 子批次 C）：**不建索引也能有界扫描**。

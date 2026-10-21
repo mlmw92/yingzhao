@@ -7,7 +7,7 @@ import (
 
 	"github.com/shirou/gopsutil/v4/disk"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // DiskCollector 采集磁盘分区使用率与设备 I/O 速率。

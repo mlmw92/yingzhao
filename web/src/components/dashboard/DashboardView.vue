@@ -172,7 +172,7 @@ import PageHeader from '../common/PageHeader.vue'
 import SectionCard from '../common/SectionCard.vue'
 import EmptyState from '../common/EmptyState.vue'
 
-const ACTIVE_KEY = 'nebula_dash_active'
+const ACTIVE_KEY = 'yingzhao_dash_active'
 
 const { state, load, create, update, remove } = useDashboards()
 const dashboards = computed(() => state.dashboards)

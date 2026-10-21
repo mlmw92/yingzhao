@@ -1648,7 +1648,7 @@ onMounted(() => {
   applyLogRulePrefill()
   timer = setInterval(load, 30000)
   // 换肤后重绘趋势图（ECharts 颜色来自 CSS 变量）
-  window.addEventListener('nebula:theme-changed', onThemeChanged)
+  window.addEventListener('yingzhao:theme-changed', onThemeChanged)
 })
 
 function onThemeChanged() {
@@ -1661,7 +1661,7 @@ function onThemeChanged() {
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   if (maintenanceTimer) clearTimeout(maintenanceTimer)
-  window.removeEventListener('nebula:theme-changed', onThemeChanged)
+  window.removeEventListener('yingzhao:theme-changed', onThemeChanged)
 })
 </script>
 

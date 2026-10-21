@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // fakeZooKeeper 启动一个假 ZooKeeper：接受连接后回写 ZooKeeper 3.x `mntr` 的**真实输出格式**

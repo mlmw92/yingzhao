@@ -26,11 +26,11 @@ func TestAssetsByPod(t *testing.T) {
 	// 同一个 (命名空间, Pod 名) 出现在**两个集群**上：Pod 的自然键里含集群，
 	// 因此这是两条不同的资产（同集群同名 Pod 只可能在同一个节点上，不会出现两条）。
 	// 这正是"不指定节点时可能返回多条候选"的真实来源。
-	declarePod(t, svc, "https://10.0.0.9:6443", "nebula-demo", "web-1", "worker-01")
-	declarePod(t, svc, "https://10.0.0.20:6443", "nebula-demo", "web-1", "worker-02")
+	declarePod(t, svc, "https://10.0.0.9:6443", "yingzhao-demo", "web-1", "worker-01")
+	declarePod(t, svc, "https://10.0.0.20:6443", "yingzhao-demo", "web-1", "worker-02")
 	declarePod(t, svc, "https://10.0.0.9:6443", "kube-system", "coredns", "worker-01")
 
-	got, err := svc.AssetsByPod("worker-01", "nebula-demo", "web-1")
+	got, err := svc.AssetsByPod("worker-01", "yingzhao-demo", "web-1")
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestAssetsByPod(t *testing.T) {
 	}
 
 	// 不知道在哪台机器上：返回全部同名候选（调用方必须原样呈现，不能自己挑一条）
-	all, err := svc.AssetsByPod("", "nebula-demo", "web-1")
+	all, err := svc.AssetsByPod("", "yingzhao-demo", "web-1")
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestAssetsByPod(t *testing.T) {
 	}
 
 	// 节点不匹配 → 不返回：把别的机器上的同名 Pod 当成这台机器的，就是"看的是另一个 Pod"
-	if mismatched, err := svc.AssetsByPod("worker-03", "nebula-demo", "web-1"); err != nil || len(mismatched) != 0 {
+	if mismatched, err := svc.AssetsByPod("worker-03", "yingzhao-demo", "web-1"); err != nil || len(mismatched) != 0 {
 		t.Fatalf("节点不匹配不应命中：%+v err=%v", mismatched, err)
 	}
 	// 命名空间不匹配 → 不返回
@@ -56,14 +56,14 @@ func TestAssetsByPod(t *testing.T) {
 		t.Fatalf("命名空间不匹配不应命中：%+v err=%v", other, err)
 	}
 	// 名字不匹配 → 不返回
-	if none, err := svc.AssetsByPod("worker-01", "nebula-demo", "web-9"); err != nil || len(none) != 0 {
+	if none, err := svc.AssetsByPod("worker-01", "yingzhao-demo", "web-9"); err != nil || len(none) != 0 {
 		t.Fatalf("未知 Pod 不应命中：%+v err=%v", none, err)
 	}
 	// 命名空间或名字为空 → 空结果（不做"忽略这一维"的兜底：那会把范围放大到别的命名空间）
 	if empty, err := svc.AssetsByPod("worker-01", "", "web-1"); err != nil || len(empty) != 0 {
 		t.Fatalf("空命名空间应返回空：%+v err=%v", empty, err)
 	}
-	if empty, err := svc.AssetsByPod("worker-01", "nebula-demo", ""); err != nil || len(empty) != 0 {
+	if empty, err := svc.AssetsByPod("worker-01", "yingzhao-demo", ""); err != nil || len(empty) != 0 {
 		t.Fatalf("空名字应返回空：%+v err=%v", empty, err)
 	}
 }
@@ -74,11 +74,11 @@ func TestAssetsByPodRequiresPodType(t *testing.T) {
 	svc, _ := newTestService(t)
 	if _, _, err := svc.Apply(Observation{
 		TypeKey: TypeHost, NaturalKey: "web-1", Name: "web-1", Node: "worker-01",
-		Source: SourceDiscovery, Attrs: map[string]string{"namespace": "nebula-demo"},
+		Source: SourceDiscovery, Attrs: map[string]string{"namespace": "yingzhao-demo"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := svc.AssetsByPod("worker-01", "nebula-demo", "web-1")
+	got, err := svc.AssetsByPod("worker-01", "yingzhao-demo", "web-1")
 	if err != nil {
 		t.Fatalf("查询失败: %v", err)
 	}

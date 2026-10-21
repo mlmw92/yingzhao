@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
 )
 
 // TestAuditMiddlewareDoesNotBreakMultipartUpload 回归测试：

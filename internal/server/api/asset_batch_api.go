@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
 )
 
 // 本文件是资产台账的**批量维护**与**清单导出**。

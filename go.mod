@@ -1,4 +1,4 @@
-module github.com/nebula/monitor
+module github.com/mlmw92/yingzhao
 
 go 1.26.0
 

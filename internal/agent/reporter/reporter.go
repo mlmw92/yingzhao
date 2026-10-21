@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // ReportResponse 是 Server 对上报的响应。command 非空时表示有待执行指令（如 upgrade）。

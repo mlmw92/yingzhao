@@ -4,9 +4,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/nginxaccess"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/nginxaccess"
 )
 
 // nginxAccessInstance 是大屏 Nginx 分析板块的实例级访问汇总。

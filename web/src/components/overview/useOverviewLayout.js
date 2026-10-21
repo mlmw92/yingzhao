@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-const STORAGE_KEY = 'nebula-overview-layout'
+const STORAGE_KEY = 'yingzhao-overview-layout'
 
 // 首页区块默认配置（顺序即默认排列，span 为 12 栅格占比）
 const defaultBlocks = [

@@ -1,4 +1,4 @@
-# Nebula Monitor 改造方案与批次一执行计划
+# Yingzhao Monitor 改造方案与批次一执行计划
 
 > **已归档为历史文档（2026-10-08）｜本文不代表现状**。本文是 **2026-09-26** 的改造路线与批次计划，
 > 版本与批次状态停留在 `1.26.1`。其中：
@@ -14,13 +14,13 @@
 > 另：本文正文里引用的两份 C1 设计件已移至 `docs/archive/`（正文中的路径已同步更新），
 > 它们本身也已失效。
 >
-> 适用范围：Nebula Monitor 全系统（Go Server + Go Agent + Vue 3 Web）。
+> 适用范围：Yingzhao Monitor 全系统（Go Server + Go Agent + Vue 3 Web）。
 > 本文档为改造路线与实施规格，供后续开发、测试与评审依据使用。
 > 面向终端用户的操作说明见 `README.md`；角色权限模型细节见 `docs/guides/role-permission-management.md`。
 > 状态（2026-09-26）：**批次一、批次二已完成**（批次一 = E1 / D2 / F2 / B1 设计件；批次二 = B1 实施子批次 A~E / D1 / F1 / D4 / E3 / A3 / F3）；**批次三进行中**——已交付 **C1（阶段一 + 阶段二 + 阶段三：模板 DSL / Server 存管下发 / 类型注册表 / `jdbc`·`exec`·`file` 三类取数 + 本机护栏三层门控，实机 7 项断言通过）**、**E2（6 个开箱预设 + `rules.aggregate` / `rules.promoteLabel` 两处表达力修复）** 与 **C2（集中日志：采集 → 上行 → 落盘 → 检索页 → 告警联动 → 保留清理，全 6 个子批次 + 实机 25 项断言通过）**；未开始的有 C3 / A1 / A2 / E4。
 > **命名提醒**：本节的「批次一 / 二 / 三」是**路线图批次**；`docs/guides/permission-matrix.md` 中的「批次 A~E」是 **B1 实施**内部的子批次，两者不是同一层级。
 > 基线版本：`VERSION = 1.23.7`｜当前版本：**`VERSION = 1.26.1`**（`1.26.0` = 批次三合并递增：C1 三阶段 / E2 / C2；`1.26.1` = C3 对外状态页）。
-> **已打包**（2026-09-26）：`nebula-monitor-v1.26.1-full.tar.gz` / `-upgrade.tar.gz`，
+> **已打包**（2026-09-26）：`yingzhao-monitor-v1.26.1-full.tar.gz` / `-upgrade.tar.gz`，
 > 包含模板体系、6 个开箱预设、集中日志全链路、对外状态页，以及「采集项模板」「集中日志」两个管理页面（详见 §8「版本与发布」）。
 > 成文日期：2026-09-26。
 
@@ -30,7 +30,7 @@
 
 ### 1.1 现状基线
 
-Nebula Monitor 是「Agent 采集 → Server 接收 → 时序库持久化 → Web 展示 / 告警」的 C/S 监控系统：
+Yingzhao Monitor 是「Agent 采集 → Server 接收 → 时序库持久化 → Web 展示 / 告警」的 C/S 监控系统：
 
 - **Server 无状态**：指标经 remote_write 写入外部 TSDB（VictoriaMetrics / Mimir / Cortex / Thanos / Prometheus / custom），PromQL 查询；前端由磁盘目录托管（`internal/server/api/spa.go` + `config.WebDir`），**非 Go embed**。
 - **Agent 三模式**：`collect`（采集）/ `edge` / `hub`（网闸 mTLS 隧道代理）。
@@ -478,7 +478,7 @@ Nebula Monitor 是「Agent 采集 → Server 接收 → 时序库持久化 → W
 | 2026-09-26 | **C1 阶段一完成**：采集项模板（`prometheus-exporter` / `http-json` / `http-text`）落地，新增中间件类型**只写 YAML 不改 Go 代码**。DSL 落在新包 `internal/agent/template`（`collector` 已依赖 `config`，DSL 放 collector 会成 import 环）；执行侧 `collector/template.go`；每个模板挂一个独立采集任务（继承 E1 隔离）；失败只产 `template_target_up=0` 且不产其它指标（避免旧值被误读为当前值）；标签注入 `node`/`instance`/`template` 且保留名不可覆盖；启动期 fail-fast 校验（id 格式/重复/互为前缀、保留指标族前缀冲突、kind、addr 协议白名单、正则、标签越权），一次报全所有错误；上限硬编码（模板≤20、target≤32、单轮产出≤2000 截断告警、标签≤16、响应体≤8MiB）。**Server 零改动**：产出走 `ReportPayload.Metrics` 通用通路。凭据（basic/bearer/header）支持 `enc:` 密文并接入既有 AES-GCM 解密，不打 json tag、永不进上报体与日志。测试 28 个新用例；实机验证 28 项断言（三模板采集 / 失败隔离 / 无模板与 pre-C1 二进制上报体等价）+ 端到端 11 项断言（Agent → Server → remote_write，用假时序库避免外网依赖）。**阶段一仅解决"能采到"**：中间件 Tab、首页概览、巡检报告与「服务离线」告警需阶段二的"模板 → 中间件类型"注册。版本号按整批递增约定留待发布时提升 |
 | 2026-09-26 | **修复指标名不一致缺陷族**（独立提交，不掺新机制）。起因是设计件探索时发现「指标目录登记名与实现不符」，评审前做了**全量审计**（产出方 = agent collector + receiver 的指标名字面量；消费方 = api / report / metrics / analysis + 前端），真实范围比抽样所见大得多：**目录 30 条里 17 条无产出方，消费侧共 27 处引用了不存在的名字**。修复覆盖：目录 17 处改名 + 补 FastDFS 整类（此前连 `CatFastDFS` 常量都缺）与 `k8s_cluster_up`/`docker_container_up`；中间件总览摘要 `nginx_5xx_rate`→`nginx_access_requests_rate`、`fastdfs_storage_total`→`fastdfs_storage_count`，并修正 FastDFS 空间卡片把字节标成 MB 的单位错误；巡检报告 5 处改名；`serviceMetric()` 补 mongodb/fastdfs（此前落 default 用 redis 的存活指标判断这两类是否在线）+ `validService` 白名单同步为可遍历的 `KnownServices`；FastDFS 空间类指标实际单位是字节（已按字节标注）。其中 `redis_maxclients` 属**产出方缺失**（INFO 里有 `maxclients` 但未采集），已在 `redis.go` 补齐，使报告字段真正可用。新增两条守卫测试进现有 `go test` 门禁：`catalog_guard_test.go`（目录每个指标名必须有产出方 + 每个中间件的存活指标必须已登记）、`service_metric_test.go`（服务映射 ↔ 目录一致），并做**注入验证**确认守卫能失败。前端首页概览补 MongoDB / FastDFS 两张卡片（8 类 → 10 类，与 Tab 对齐） |
 | 2026-09-26 | **C1 阶段一设计件产出**（`docs/archive/c1-collector-templates.md`，当时待评审；**已评审通过并按 §10 实施完毕**，见后续条目）：先用探索代理把「新增一种中间件」的**完整联动面**盘清——实际为 **约 30 文件 / 55 处变更、10 套同构重复形态**（此前估计的「6 处」偏窄，漏了第 7 类：告警默认规则与 `serviceMetric`、报告 `mwDefs` 与 5 处 switch、指标字典、大屏 5 组件、安装脚本与 parity 脚本）。设计件据此定为：阶段一在 **Agent 侧**加 3 类 kind（`prometheus-exporter` / `http-json` / `http-text`），复用 E1 的 `runTasks` 隔离与 `fetchMetrics`、`parsePrometheusTextWithPrefix`，每模板一个任务（20 个封顶）、失败仅产 `template_target_up=0`、保留前缀与基数上限启动期 fail-fast、凭据沿用 `enc:` 解密且不落日志；**Server 零改动**。同时修正两处判断：① E2 真正"只写模板"需等**阶段二**（模板→中间件类型注册），阶段一指标只进「指标浏览」；② 7 类中 MariaDB 复用既有 MySQL exporter 通路即可。另记录探索中发现的三处**现存缺陷**——指标目录名与实现不符（**7 处，已逐一核对**）、`serviceMetric` 的 8 个 case 漏 mongodb/fastdfs（落 default 回退 `redis_instance_up`）、首页概览缺 2 类——建议各自单独修（详见设计件附录 B） |
-| 2026-09-26 | **打包 1.25.0**：本机经 Git Bash 运行 `build/release.sh`（**未上传源码**），交叉编译 linux/amd64·arm64·arm 并组装 `nebula-monitor-v1.25.0-full.tar.gz`（138M）与 `-upgrade.tar.gz`（66M）。脚本自带 manifest 自校验 + 解包后独立 `sha256sum -c` 全通过（upgrade 94/94、full 101/101）；包内二进制与前端产物内嵌版本均为 `1.25.0`。打包前发现并修正一个**部署级缺陷**：`.gitattributes` 为空且该克隆 `core.autocrlf=true`，使 `build/release.sh` 被检出为 CRLF（同目录其它脚本为 LF），在 Git Bash / Linux 下执行会报 `$'\r': command not found`；`deploy/*.sh` 同理——**安装脚本本身可能完全跑不起来**。已在 `.gitattributes` 为 `*.sh` 与 `VERSION` 固定 `eol=lf` |
+| 2026-09-26 | **打包 1.25.0**：本机经 Git Bash 运行 `build/release.sh`（**未上传源码**），交叉编译 linux/amd64·arm64·arm 并组装 `yingzhao-monitor-v1.25.0-full.tar.gz`（138M）与 `-upgrade.tar.gz`（66M）。脚本自带 manifest 自校验 + 解包后独立 `sha256sum -c` 全通过（upgrade 94/94、full 101/101）；包内二进制与前端产物内嵌版本均为 `1.25.0`。打包前发现并修正一个**部署级缺陷**：`.gitattributes` 为空且该克隆 `core.autocrlf=true`，使 `build/release.sh` 被检出为 CRLF（同目录其它脚本为 LF），在 Git Bash / Linux 下执行会报 `$'\r': command not found`；`deploy/*.sh` 同理——**安装脚本本身可能完全跑不起来**。已在 `.gitattributes` 为 `*.sh` 与 `VERSION` 固定 `eol=lf` |
 | 2026-09-26 | **批次二收口 + 版本递增 `1.24.0` → `1.25.0`**：批次二完成 B1 实施（子批次 A~E）、F1 测试体系、D1 告警风暴收敛、F3 自监控与健康检查、D4 告警协作处置、E3 容量预测扩展（主机侧）、A3 数据保留策略；**E2 按决策推迟到 C1 之后**（现架构下每加一个中间件需改 6 处联动，C1 模板化后退化为写模板）。`VERSION` 与前端 `WEB_VERSION` 同步为 `1.25.0`。编译与打包尚未执行 |
 | 2026-09-26 | 初稿：候选改造点、优先级矩阵、批次一计划 |
 | 2026-09-26 | 落定 4 项决策（E1 一次到位、不加并发上限、D2 含前端、B1 落 docs/ + F2 全量补齐）；新增第 8 节进度追踪表与附录 C I/O 清点 |
@@ -503,7 +503,7 @@ Nebula Monitor 是「Agent 采集 → Server 接收 → 时序库持久化 → W
 | 2026-09-26 | **B1 批次 E（安全、系统与其余）完成，B1 实施全部收尾**：37 条路由挂权限点 + **新增 `GET /api/v1/audit/export`**（按设计件 8.3 拆分「查看/导出」）；安全事件、基线、防护状态与任务列表按节点范围过滤；`permitNode` 扩展支持 `{node}` 路径参数；前端审计导出改调新路由，8 个菜单与 6 条路由补 `perm`。新增 4 个测试（含 12 个权限点区分用例）；既有审计鉴权测试迁移到 `permit` 层并加强。README API 表同步新增路由（127 条）。**五个子批次 A~E 全部完成** |
 | 2026-09-26 | **进度追踪补全**：批次二 / 批次三由占位表展开为逐子项追踪表（批次二 27 行、批次三 9 行、待办 4 行）；新增「版本与发布」现状表，明确 `VERSION` 仍为 `1.23.7`、本批未递增版本号；修正批次一中两处把计划版本当作实际版本的表述 |
 | 2026-09-26 | **版本递增**：按决策将 E1/D2/F2/B1（含子批次 A~E）整批合并递增为 **`1.24.0`**（次版本号递增：已启用认证部署的运行时行为变更 + 新增 1 条路由与 2 个权限点）；前端版本号经 `npm run version:sync` 同步为 `1.24.0`。原计划的分次递增（1.23.8 / 1.23.9）未执行，第 6 节执行顺序图与第 8 节「版本与发布」表已同步实际结果。打包仍待明确指示 |
-| 2026-09-26 | **打包**：`build/release.sh` 组装出 `nebula-monitor-v1.24.0-full.tar.gz`（138 MB）与 `-upgrade.tar.gz`（66 MB）；包内 `manifest.json` 版本、二进制注入版本、前端 `WEB_VERSION` 均为 `1.24.0`，包内 `SHA256SUMS` 逐条校验通过；未执行任何部署/升级 |
+| 2026-09-26 | **打包**：`build/release.sh` 组装出 `yingzhao-monitor-v1.24.0-full.tar.gz`（138 MB）与 `-upgrade.tar.gz`（66 MB）；包内 `manifest.json` 版本、二进制注入版本、前端 `WEB_VERSION` 均为 `1.24.0`，包内 `SHA256SUMS` 逐条校验通过；未执行任何部署/升级 |
 | 2026-09-26 | **F1 完成**：Go 侧补齐 5 个目标点单测（storage 编码与注入防护、告警状态机、鉴权 token、两处国密错误分支）；前端引入 Vitest（`api/http.js` + `useAuth`，14 用例）；新增 `ci.yml` 并把测试设为 `release.yml` 发布门禁；顺带修正 `release.yml` 的 Go 版本（1.22 → 1.25，与 go.mod 一致）。全量 Go 测试与前端构建均绿 |
 | 2026-09-26 | **A3 完成**：数据保留策略。新增 `internal/server/retention`（配置热生效 + 周期清理 + 立即清理 + 现状汇总）。纳管两类真正会无界增长的数据：**告警处置记录**（只清理「已处置且超过保留期」的记录——待处理的必须保留，否则「重新打开」的告警会被静默清掉）与**巡检报告**（HTML 文件与历史记录必须同步删除，只删其一会分别造成「点开 404」与「文件永远占磁盘」）。审计与安全事件本就有 2000 条内置上限，改为导出常量并在界面展示现状，不再无界增长。时序库保留期**只读呈现**（探测 VictoriaMetrics `/flags`），因为运行期由时序库启动参数决定，Server 不假装纳管。新增 3 条接口（`system:config`）与「系统设置 → 数据保留」页。新增 10 个测试（7 retention + 3 api） |
 | 2026-09-26 | **E3 完成（主机侧）**：容量预测由磁盘扩展到内存 / CPU / 网络。核心是「按指标语义分模型」——百分比类（`disk_used_percent`/`mem_used_percent`/`cpu_usage`）预测达到上限的天数，速率类（`network_recv_rate`/`network_sent_rate`）无绝对上限，只给预测值与增长状态 `rising`（要求拟合度 ≥0.6 且 7 天增幅 ≥20%，避免日常波动刷屏），不产生 DaysRemaining。结论文案与单位来自指标目录（新增 `metrics.Meta`），并把完整结论放进 `Forecast.Summary`，前端不再拼中文与单位。CPU 用「打满」而非「耗尽」措辞，建议也按指标区分（内存→泄漏/扩容、CPU→热点进程、网络→带宽）。`collectBaseline`+`collectDisk` 合并为 `collectMetric`：同一指标一份数据同时服务基线与预测，查询次数 3 → 5（而非 8）。新增 11 个测试（含「速率类无上限」「指标目录元数据不变量」「单位格式化」）。**中间件容量预测保留为独立项**（需定义各类中间件的容量上限语义） |

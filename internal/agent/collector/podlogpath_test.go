@@ -87,8 +87,8 @@ func TestParsePodLogPath(t *testing.T) {
 	}{
 		{
 			name:      "标准布局",
-			path:      "/var/log/pods/nebula-demo_web-7d9f-abc_1f2e3d/nginx/0.log",
-			namespace: "nebula-demo", pod: "web-7d9f-abc", container: "nginx", ok: true,
+			path:      "/var/log/pods/yingzhao-demo_web-7d9f-abc_1f2e3d/nginx/0.log",
+			namespace: "yingzhao-demo", pod: "web-7d9f-abc", container: "nginx", ok: true,
 		},
 		{
 			name:      "重启后的序号文件",

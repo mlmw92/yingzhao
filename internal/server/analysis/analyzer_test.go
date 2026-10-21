@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 func points(values []float64) []model.Point {

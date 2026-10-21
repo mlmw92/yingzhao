@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // RabbitMQCollector 采集 RabbitMQ 实例指标，走 rabbitmq_prometheus 插件的

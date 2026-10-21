@@ -52,7 +52,7 @@
 
 - [ ] **Step 1: Write the failing tests**
 
-在 `internal/server/api/ai_tools_test.go` 末尾追加（并在 import 里补 `"github.com/nebula/monitor/internal/server/ops"`）：
+在 `internal/server/api/ai_tools_test.go` 末尾追加（并在 import 里补 `"github.com/mlmw92/yingzhao/internal/server/ops"`）：
 
 ```go
 func TestProposeActionRecordsValidatedSuggestion(t *testing.T) {
@@ -228,7 +228,7 @@ type Suggestion struct {
 
 `internal/server/api/ai_tools.go`：
 
-1. import 增加 `"errors"`、`"github.com/nebula/monitor/internal/server/ops"`（`sort`/`strings`/`fmt`/`json` 已有）。
+1. import 增加 `"errors"`、`"github.com/mlmw92/yingzhao/internal/server/ops"`（`sort`/`strings`/`fmt`/`json` 已有）。
 
 2. `apiToolbox` 增加字段：
 
@@ -574,7 +574,7 @@ Run: `go test ./internal/server/ai/ -run TestInvestigationStoreByID -v` → PASS
 
 - [ ] **Step 4: Write the failing API tests**
 
-在 `internal/server/api/ai_investigation_api_test.go` 追加（import 补 `"github.com/nebula/monitor/internal/server/approval"`、`"github.com/nebula/monitor/internal/server/auth"`、`"github.com/nebula/monitor/internal/server/node"`）：
+在 `internal/server/api/ai_investigation_api_test.go` 追加（import 补 `"github.com/mlmw92/yingzhao/internal/server/approval"`、`"github.com/mlmw92/yingzhao/internal/server/auth"`、`"github.com/mlmw92/yingzhao/internal/server/node"`）：
 
 ```go
 // D2 的决定性判据：全局审批开关关闭时，AI 建议仍然只能进审批。
@@ -784,7 +784,7 @@ func (a *API) handleAISubmitSuggestion(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-import 补 `"github.com/nebula/monitor/internal/server/approval"`、`"github.com/nebula/monitor/internal/server/ops"`。
+import 补 `"github.com/mlmw92/yingzhao/internal/server/approval"`、`"github.com/mlmw92/yingzhao/internal/server/ops"`。
 
 - [ ] **Step 7: Register the route**
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/analysis"
+	"github.com/mlmw92/yingzhao/internal/server/analysis"
 )
 
 func (a *API) handleAnalysisSummary(w http.ResponseWriter, r *http.Request) {

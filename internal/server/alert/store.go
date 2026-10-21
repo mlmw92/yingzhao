@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/storage"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/storage"
 )
 
 // alertMetric 是告警事件的存储指标名。样本时间戳=事件时间(ms)，值=触发值。

@@ -187,21 +187,21 @@ function groupOf(path) {
 const THEME_NAMES = { b: '极光蓝', a: '星云青绿', c: '星河紫' }
 function setTheme(t) {
   document.body.dataset.theme = t
-  try { localStorage.setItem('nebula_theme', t) } catch (e) { /* ignore */ }
+  try { localStorage.setItem('yingzhao_theme', t) } catch (e) { /* ignore */ }
   // 图表组件监听此事件重新取色（与 AppTopBar 同一约定）
-  window.dispatchEvent(new CustomEvent('nebula:theme-changed', { detail: t }))
+  window.dispatchEvent(new CustomEvent('yingzhao:theme-changed', { detail: t }))
 }
 const COMMANDS = [
   { id: 'cmd:theme:b', label: '切换主题：极光蓝', hint: '命令', icon: Brush, keywords: 'theme 主题 换肤 颜色 皮肤 极光蓝', run: () => setTheme('b') },
   { id: 'cmd:theme:a', label: '切换主题：星云青绿', hint: '命令', icon: Brush, keywords: 'theme 主题 换肤 颜色 皮肤 青绿 绿色', run: () => setTheme('a') },
   { id: 'cmd:theme:c', label: '切换主题：星河紫', hint: '命令', icon: Brush, keywords: 'theme 主题 换肤 颜色 皮肤 紫', run: () => setTheme('c') },
-  { id: 'cmd:refresh', label: '刷新当前页数据', hint: '命令', icon: Refresh, keywords: 'refresh reload 刷新 重新加载 同步', run: () => window.dispatchEvent(new CustomEvent('nebula:refresh')) },
+  { id: 'cmd:refresh', label: '刷新当前页数据', hint: '命令', icon: Refresh, keywords: 'refresh reload 刷新 重新加载 同步', run: () => window.dispatchEvent(new CustomEvent('yingzhao:refresh')) },
   { id: 'cmd:screen', label: '打开数据大屏', hint: '命令', icon: DataAnalysis, keywords: 'screen 大屏 监控墙 电视墙 dashboard', to: '/screen' },
   { id: 'cmd:home', label: '返回首页概览', hint: '命令', icon: Odometer, keywords: 'home 首页 概览 overview', to: '/' },
 ]
 
 const HOST_LIMIT = 8
-const RECENT_KEY = 'nebula-cmdk-recent'
+const RECENT_KEY = 'yingzhao-cmdk-recent'
 const RECENT_MAX = 5
 
 function loadRecent() {

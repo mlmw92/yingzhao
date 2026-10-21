@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/ai"
-	"github.com/nebula/monitor/internal/server/analysis"
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/ai"
+	"github.com/mlmw92/yingzhao/internal/server/analysis"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
 )
 
 // AI 诊断：把平台**已有**的数据组装成上下文交给模型，返回排查建议。

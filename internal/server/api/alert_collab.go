@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
 )
 
 // alertActionRequest 是各处置接口的公共请求体。

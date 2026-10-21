@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // CorrelationProvider 提供「节点 → 人工可读的关联结论」，用于在收敛摘要里附注根因线索。

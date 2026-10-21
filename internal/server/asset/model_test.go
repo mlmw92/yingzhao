@@ -15,7 +15,7 @@ func TestParseContainerKeyRoundTrip(t *testing.T) {
 	}{
 		{"带协议的集群地址", TypePod, "https://10.0.0.9:6443", "default", "pod", "web-7d9f-abc"},
 		{"无协议无端口的集群", TypePod, "10.0.0.9", "kube-system", "pod", "coredns-xyz"},
-		{"带路径的集群地址", TypePod, "https://api.k8s.example.com/k8s", "nebula-demo", "pod", "web-abc"},
+		{"带路径的集群地址", TypePod, "https://api.k8s.example.com/k8s", "yingzhao-demo", "pod", "web-abc"},
 		{"工作负载", TypeWorkload, "https://10.0.0.9:6443", "default", "deployment", "web"},
 		{"名字带点的 StatefulSet", TypeWorkload, "https://10.0.0.9:6443", "db", "statefulset", "mysql-0.db"},
 	}

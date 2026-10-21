@@ -8,7 +8,7 @@ import (
 
 	"github.com/shirou/gopsutil/v4/process"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // processMaxCount 单次上报的最大进程数量，避免数据量过大。

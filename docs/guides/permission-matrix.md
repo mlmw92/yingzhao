@@ -30,7 +30,7 @@
 | 项 | 现状 |
 |---|---|
 | 认证 | `api.AuthMiddleware`（`internal/server/api/auth.go:161`）包裹整个 mux；`auth.enabled=false` 时全放行 |
-| 凭据来源 | `Authorization: Bearer <token>`，为空时回退到 **HttpOnly Cookie `nebula_token`**（登录时由 `handleLogin` 种下，`auth.go:282`） |
+| 凭据来源 | `Authorization: Bearer <token>`，为空时回退到 **HttpOnly Cookie `yingzhao_token`**（登录时由 `handleLogin` 种下，`auth.go:282`） |
 | 公开白名单 | `isPublicPath`（`auth.go:141`）：`/`、`/assets/*`、`/api/v1/login`、`/api/v1/report`、`/api/v1/agent/check`、`/install/*`、`/bin/*`；另有 `GET /api/v1/ui/settings` 匿名只读（`auth.go:172`） |
 | 授权 | `api.authz(next, perm)`（`auth.go:226`）当前仅用于 **14 条** 权限管理路由（`users:manage` 8 条、`roles:manage` 3 条、`roles:read` 3 条） |
 | 权限点目录 | `auth.PermissionCatalog()`（`internal/server/auth/model.go:195`），**27 个**权限点 / 13 个域 |

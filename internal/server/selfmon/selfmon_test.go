@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
 )
 
 // fakeStorage 是 storage.Storage 的测试替身：记录写入并可按需返回错误。

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/nebula/monitor/internal/server/report"
+	"github.com/mlmw92/yingzhao/internal/server/report"
 )
 
 // 报告周期化调度（全景表 11-4）。

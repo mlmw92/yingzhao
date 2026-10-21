@@ -191,7 +191,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/uicfg"
+	"github.com/mlmw92/yingzhao/internal/server/uicfg"
 )
 
 func uiTestAPI(t *testing.T) *API {
@@ -833,7 +833,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 func TestWorkbenchSummary_SegmentsByPermission(t *testing.T) {
@@ -878,7 +878,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 type workbenchTodoItem struct {
@@ -1211,7 +1211,7 @@ Expected: FAIL。
 ```js
 import { ref } from 'vue'
 
-const KEY = 'nebula-pinned-pages'
+const KEY = 'yingzhao-pinned-pages'
 const MAX = 5
 
 function load() {

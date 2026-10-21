@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // maxRespBytes 是响应体读取上限。

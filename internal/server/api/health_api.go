@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/selfmon"
-	"github.com/nebula/monitor/internal/version"
+	"github.com/mlmw92/yingzhao/internal/server/selfmon"
+	"github.com/mlmw92/yingzhao/internal/version"
 )
 
 // SetSelfMon 注入自监控收集器（可选）。需在 RegisterRoutes 之前调用。

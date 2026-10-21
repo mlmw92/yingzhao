@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // K8s 排障写操作（批次 C，见 docs/superpowers/specs/2026-10-10-container-workload-management-design.md §2.2、§4）。

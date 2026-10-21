@@ -1,6 +1,6 @@
 // http.js — 统一 REST 请求封装，带 token 与 401 自动跳登录
 
-const TOKEN_KEY = 'nebula_token'
+const TOKEN_KEY = 'yingzhao_token'
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY) || ''

@@ -3,7 +3,7 @@ package alert
 import (
 	"strconv"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // Compare 根据运算符比较 left 与 right。

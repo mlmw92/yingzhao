@@ -11,7 +11,7 @@
 ### 1.1 现状
 
 - **认证**：`internal/server/api/auth.go` 提供单账号登录。配置位于 `server.yaml` 的 `auth.username` / `auth.password`（密码使用 `internal/server/crypto` 的带盐哈希，明文不落盘）。
-- **会话**：登录成功返回 24 小时无状态 HMAC Token；通过 `Cookie`（`nebula_monitor_session`）或 `Authorization: Bearer` 传递；`AuthMiddleware` 校验签名与过期。
+- **会话**：登录成功返回 24 小时无状态 HMAC Token；通过 `Cookie`（`yingzhao_monitor_session`）或 `Authorization: Bearer` 传递；`AuthMiddleware` 校验签名与过期。
 - **当前 Token 载荷**：`base64(username:exp).sig`，**不包含角色、范围、会话版本**，因此无法做即时失效与细粒度授权。
 - **审计**：`internal/server/audit` 记录登录与管理写请求，支持按用户/路径/分类筛选与 CSV 导出；敏感请求体不直接记录。
 - **节点分组**：`Node.Group` 字段已存在，节点可按分组聚合，为「资源范围」控制提供基础。

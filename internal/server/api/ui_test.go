@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/uicfg"
+	"github.com/mlmw92/yingzhao/internal/server/uicfg"
 )
 
 func uiTestAPI(t *testing.T) *API {

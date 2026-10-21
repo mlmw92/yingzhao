@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // TestFastDFSExporterCarriesInstanceLabels 锁定 exporter 模式下实例配置里的

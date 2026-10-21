@@ -1,4 +1,4 @@
-# UI-SPEC · NebulaEye 运维平台逐页设计方案
+# UI-SPEC · YingzhaoEye 运维平台逐页设计方案
 
 > **性质**：界面规格文档（UI-SPEC）。面向"改什么、为什么、改成什么样"，不含实现代码。  
 > **基线**：Vue 3 + Vite + Element Plus + ECharts，hash 路由，全站深色，三套主题（`b` 极光蓝 / `a` 星云青绿 / `c` 星河紫）。  
@@ -50,7 +50,7 @@
 | D6  | **可访问性**       | 大量 `<div @click>` 作为主交互路径（主机方块、中间件卡、告警行、KPI 下钻卡、日志行展开、资产标签）；状态仅靠颜色；全仓库 `prefers-reduced-motion` **0 处**（style.css 有 2 个无限动画）                                                                                                                                                                                                                                                                                                                                                                                                                           | 主交互元素语义化（`<button>` 或 `role`+`tabindex`+键盘）；状态双编码；无限动画加降级                                          |
 | D7  | **响应式断点散落**    | 全局注释声明 4 档（1500/1400/1100/720），实际只实现 **2 档**（1400、1100）；各页面私有断点 850/900/1200/560/640/760/2400 等十余个；`AssetListView`/`AssetModelView`/`InspectView`/`AssetTopologyView`/`LogsView`/`AuditView`/`DialTestView`/`MetricsExploreView`/`DashboardView` **0 处 `@media`**                                                                                                                                                                                                                                                                                      | 全局立 3 档（1280 / 1024 / 768），页面私有断点收编                                                                |
 | D8  | **信息密度失控**     | 表格 9–11 列 + 写死列宽：HostsView 约 1254px、AssetListView 约 1262px、OpsView 约 1148px、AuditView 约 1520px、NodeView 进程表 8 列 → 1440px 以下必横向滚动；AuditView 自己在注释里承认（L108-110）                                                                                                                                                                                                                                                                                                                                                                                          | **列宽重排 + 数值列右对齐等宽 + 窄屏响应式降级**；**"默认收起低频列"不適用於 HostsView**——其磁盘读写/负载/流量是日常巡检判读依据，须常驻（详见 **5.1**）    |
-| D9  | **图表与令牌脱节**    | 15 个中间件 Tab 的抽屉趋势图**只设了 legend 文字色**，`axisLabel.color`/`tooltip` 全落 ECharts 默认；`BaselineTrendChart` 换肤不换色；`IntelligenceView` 15 rgba + 12 hex；`RedisTab` 74 处硬编码 rgba                                                                                                                                                                                                                                                                                                                                                                                  | 图表配色统一由 `cssVar()` 读 `--chart-*`/语义色，并监听 `nebula:theme-changed`                                    |
+| D9  | **图表与令牌脱节**    | 15 个中间件 Tab 的抽屉趋势图**只设了 legend 文字色**，`axisLabel.color`/`tooltip` 全落 ECharts 默认；`BaselineTrendChart` 换肤不换色；`IntelligenceView` 15 rgba + 12 hex；`RedisTab` 74 处硬编码 rgba                                                                                                                                                                                                                                                                                                                                                                                  | 图表配色统一由 `cssVar()` 读 `--chart-*`/语义色，并监听 `yingzhao:theme-changed`                                    |
 | D10 | **字号失序（可读性）**  | 实测全站 `font-size` 字面量 **557 处**：`13px` 337 / `12px` 51 / `14px` 46 / `12.5px` 15 / `11px` 17 / `11.5px` 6 / **10.5px 2 / 10px 2**。`--fs-*` 令牌虽已定义（`--fs-xs:12 / sm:13 / base:14`），但页面层大量绕过令牌写裸值，且出现 `.5px` 这类**非栅格值**；`html,body` 根字号 16px（L207）与正文 13px 并存，EP 组件 base 被抬到 16px（L673）→ **组件比正文大 3 级，层级倒置**                                                                                                                                                                                                                                              | 立 5 档正文基线（14/13/12 三级 + 标题两档），禁用 <12px；`.5px` 全部归整；EP base 降到 14px 与正文同档（详见 **1.4**）               |
 | D11 | **筛选区尺寸不统一**   | 同一类筛选控件有**三处不统一**：（a）`size` 标志混乱——`AssetListView`/`HostsView` 主工具栏用默认 size（EP 控件 40px 高），`LogsView`/`InspectView`/`AuditView`/`AlertsView` 用 `size="small"`（32px 高），**同页应用高差 8px**；（b）`width` 各页定义——`LogsView` 有 96/180/200/210/240/320/400px 共 7 档，`InspectView` 有 130/140/150/170/240px 共 5 档，`HostsView` 100/120/200px、`AssetListView` 130/150/260px、`AlertsView` 110/150/220px，**同类控件（如下拉）宽 100→400 跨度 4×**；（c）筛选容器形态不统一——`AssetListView`/`.filter-bar`（带边框+底色）、`LogsView`/`.toolbar`（裸 flex，无边框）、`AlertsView`/`.rule-filter-bar`（内联 style 裸 flex） | **统一一种筛选容器**（见 **1.5**），控件 size 全站统一为 `small`（32px），按角色定 5 档宽度令牌（XS/S/M/L/XL = 96/130/180/240/320） |
 | D12 | **描述段与上方元素贴脸** | 描述/说明/小注（`.note` `.muted` `.schedule-hint` `.verify-note` `.field-hint` `.alert-gap`）与上方元素距离**散落**：6/8/10/14/26px 各种值都有。典型：`AuditView` `.verify-note{margin-top:6px}`（L557）、`AssetListView` `.note{margin-top:14px}`（L2211）、`InspectView` `.schedule-hint{margin-top:10px}`（L509）、`HostsView` `.refresh-text` 内联 `font-size:13px` + 紧邻 32px 高的刷新控件、LogsView 的 `.toolbar` 与下方 `.field-row` 只有 `margin-bottom:10px`。同一应用内不同页"小字说明贴控件"或"小字说明独立成段"两种风格并存                                                                                                   | 立**描述段三档距离**令牌（紧贴 6 / 标准 10 / 分块 14），并统一 `.muted` 字号 13px / 行高 1.5 / 颜色 `--t3`；详见 **1.6**          |
@@ -1230,7 +1230,7 @@
 **现状问题（✅ 已核实）**
 
 - [硬编码样式] **27 处硬编码**（`IntelligenceView` 15 rgba + 12 hex、`AnalysisCoverageCard` 7+3、`BaselineTrendChart` 5+6）：`#111c2e`/`#cbd5e1`/`#22d3ee`/`#fb923c`/`#a5b4fc`… 在主题 b 下"看起来对"，**切到 a/c 立刻崩**
-- [硬编码样式] `BaselineTrendChart` **不监听 `nebula:theme-changed`**，是全站唯一"换肤不换色"的图
+- [硬编码样式] `BaselineTrendChart` **不监听 `yingzhao:theme-changed`**，是全站唯一"换肤不换色"的图
 - [状态缺失] 空态用 `el-empty` 未用 `EmptyState`；失败只 toast；**窗口切换失败时标题已变但数据还是旧窗口**（L14/L49）
 - [信息架构] 「样本不足」只用一行 12px 小字，与"数据已就绪"视觉权重几乎等同 → **容易被当作稳定**
 - [信息密度] 64 行承载 12 个功能点，模板/脚本**极度压缩**（单行数百至上千字符），无法维护
@@ -1249,7 +1249,7 @@
 
 **交互改进**
 
-- `BaselineTrendChart` 改 `cssVar()` 取色 + 监听 `nebula:theme-changed`（对齐 AlertsView L1319-1322/1456 既有做法）
+- `BaselineTrendChart` 改 `cssVar()` 取色 + 监听 `yingzhao:theme-changed`（对齐 AlertsView L1319-1322/1456 既有做法）
 - `points` 为空或 `upper/lower` 为 0 时渲染"暂无基线数据（需 N 小时样本）"占位，**而不是空图 + 0 值 markLine**
 - `initChart` 前校验容器宽高 > 0（抽屉动画期间 0 宽初始化是真实风险）；改 `ResizeObserver`
 - 空态换 `EmptyState`（区分"筛选无结果"与"样本不足"）；失败加页面级错误 + 重试；窗口切换失败保留旧标签
@@ -1475,7 +1475,7 @@
 - **修 B7**：`PanelChart` 改 `monitorOption({ chartType: props.panel.chartType, unit, series })`（原恒 `type:'line'`）；实测 gauge 面板渲染仪表、line 面板渲染折线，共 2 canvas
 - 页头换 `PageHeader`，看板切换独立 `.subnav`（实测 `[运维总览 | 数据库看板]`）
 - 面板稳定 id（`ensureIds()` → `_id`），`:key="p._id"` 替代 `:key="i"`；**拖拽排序**（编辑态 `draggable` + `onDrop` splice）+ **尺寸档位**（`.span-full` 全宽 / 半宽 radio；实测编辑态 2 个尺寸按钮 + 2 个可拖拽面板 + 1 个全宽面板）
-- 首屏骨架 `SectionCard :loading`；错误条 `el-alert` + 重试；看板改名弹窗；删除面板 `el-popconfirm` 二次确认；当前看板记忆（`localStorage` `nebula_dash_active`）
+- 首屏骨架 `SectionCard :loading`；错误条 `el-alert` + 重试；看板改名弹窗；删除面板 `el-popconfirm` 二次确认；当前看板记忆（`localStorage` `yingzhao_dash_active`）
 - `PanelChart` 的 `watch(props.panel,{deep:true})` → **精确 watch**（`watchKey` = metric/range/node/instance/chartType/labels），编辑单面板不再触发全量 load
 - 导出 step 复用 `rangeBounds`（修 7d 采样错误）；三态 + 重试；序列配色走 `--chart-*` 轮转（`PALETTE` + `colorAt(i)`）
 - **后端**：`dashboard.Panel` 加 `Size PanelSize`（`half`/`full`，空=half）
@@ -1844,11 +1844,11 @@ type permDomain struct {
 - **语义化**：容器 `role="dialog"` + `aria-modal` + `aria-label="命令面板"`；输入 `role="combobox"` + `aria-expanded` + `aria-controls="cmdk-listbox"` + `aria-activedescendant`；列表 `role="listbox"`；行 `role="option"` + `:aria-selected` + `id="cmdk-opt-{idx}"`。
 - **焦点管理**：`lastFocused` 记录触发元素，`close()` 后 `nextTick` 还原；`.cmdk` 加 `@keydown.tab.prevent` 做**焦点陷阱**（Tab 不再跑到背景页）。
 - **匹配**：`score(text,q)` 子串命中优先（`1000-i`）否则子序列匹配 + `rank()` 排序，替代原纯小写 `includes`。
-- **最近访问**：`RECENT_KEY='nebula-cmdk-recent'` / `RECENT_MAX=5`，空查询时置顶「最近访问」分组。
+- **最近访问**：`RECENT_KEY='yingzhao-cmdk-recent'` / `RECENT_MAX=5`，空查询时置顶「最近访问」分组。
 - **主机组状态**：`hostsLoading`/`hostsError` refs，**失败时不置 `hostsLoaded` 可重试**（原 L187→L201 失败即 `hostsLoaded=true` 死锁）；模板底部 `.cmdk-status`（`err` 态 + `.cmdk-retry` 按钮）。
 - **键盘**：补 `Home`/`End`/`PageUp`/`PageDown`；`setActive(i)` 取模环绕。
 - **`markRaw(Monitor)`**：修「Vue received a Component that was made a reactive object」告警（组件对象放进 `hostItems` 响应式数组被代理）。
-- `defineExpose({ open, close, toggle })`；`MainLayout` 新增 `nebula:refresh` 监听 → 调 `refresh()`。
+- `defineExpose({ open, close, toggle })`；`MainLayout` 新增 `yingzhao:refresh` 监听 → 调 `refresh()`。
 
 **PS-29 `SiteFooter.vue`（104 → ~60 行）**
 
@@ -1891,7 +1891,7 @@ type permDomain struct {
 
 - 串行 vitest（`--pool=forks --poolOptions.forks.singleFork=true`）→ **48 files / 401 tests 全绿**（批次 17 新增 `CommandPalette.test.js` 6 例 + `SiteFooter.test.js` 3 例）。
 - `vite build --emptyOutDir=false` 通过（`✓ built in 16.24s`）。
-- **1440×900 / 1280 / 1024 浏览器实测**（`.workbuddy/tmp/b17-global.mjs`）：`/` 页脚品牌「NebulaEye」+ 版本「v1.30.66」+ 死代码链接 0；命令面板 `role=dialog aria-label=命令面板`、列表 `role=listbox`、选项 34 含命令分组、输入「切极」命中「切换主题：极光蓝」、↓↓ 后 `active=cmdk-opt-2 aria-selected=true`、选中后关闭 + `localStorage` 写入最近访问 + 重开含「最近访问」；`/hosts` @1440 11 列表头全含版本/分组 + 溢出 0px、@1280 收为 9 列 + 说明条出现 + 溢出 0px、@1024 同 1280（溢出 224px 为既有 D8 问题，原生滚动可用）；**`/screen` 恢复渲染（根元素命中、文本 480 字、无 TDZ 报错）**；`/status` 正常；打印层侧栏/顶栏/页脚/保存条 `display=none`、页面底色 `rgb(255,255,255)`；除 mock 环境 WS 握手外无 JS 报错。
+- **1440×900 / 1280 / 1024 浏览器实测**（`.workbuddy/tmp/b17-global.mjs`）：`/` 页脚品牌「YingzhaoEye」+ 版本「v1.30.66」+ 死代码链接 0；命令面板 `role=dialog aria-label=命令面板`、列表 `role=listbox`、选项 34 含命令分组、输入「切极」命中「切换主题：极光蓝」、↓↓ 后 `active=cmdk-opt-2 aria-selected=true`、选中后关闭 + `localStorage` 写入最近访问 + 重开含「最近访问」；`/hosts` @1440 11 列表头全含版本/分组 + 溢出 0px、@1280 收为 9 列 + 说明条出现 + 溢出 0px、@1024 同 1280（溢出 224px 为既有 D8 问题，原生滚动可用）；**`/screen` 恢复渲染（根元素命中、文本 480 字、无 TDZ 报错）**；`/status` 正常；打印层侧栏/顶栏/页脚/保存条 `display=none`、页面底色 `rgb(255,255,255)`；除 mock 环境 WS 握手外无 JS 报错。
 
 ---
 
@@ -1924,7 +1924,7 @@ type permDomain struct {
 
 ## 32. 验收清单
 
-- [x] `npm run build` 通过；三套主题切换后卡片/表格/按钮/**全部图表**（含 `BaselineTrendChart`）颜色跟随（**批次 17 复核，2026-10-09**）：`vite build --emptyOutDir=false` 通过（`✓ built in 16.24s`）；旧别名令牌清零后三套主题（`b`/`a`/`c`）色值全部经 `--t*`/`--bd*`/`--s*` 令牌解析，切主题派发 `nebula:theme-changed` 事件、`CommandPalette` 切主题命令实测生效
+- [x] `npm run build` 通过；三套主题切换后卡片/表格/按钮/**全部图表**（含 `BaselineTrendChart`）颜色跟随（**批次 17 复核，2026-10-09**）：`vite build --emptyOutDir=false` 通过（`✓ built in 16.24s`）；旧别名令牌清零后三套主题（`b`/`a`/`c`）色值全部经 `--t*`/`--bd*`/`--s*` 令牌解析，切主题派发 `yingzhao:theme-changed` 事件、`CommandPalette` 切主题命令实测生效
 - [x] B1–B12 全部修复，其中 B1 有单测覆盖（**批次 15 已修 B1**：后端 `permDomain` 补 json tag `domain`/`items` + `TestPermissionCatalogJSONKeysAreLowercase`；`RolesView.test.js` 的 mock 不再是 `{domains:[]}`，改非空目录）
 - [x] 全站状态表达 100% 走 `StatusPill`，且每个状态有颜色之外的第二编码（**批次 11–17 逐域落地，2026-10-09**：资产域（12：`AssetTable` 上报状态/来源、`AssetDetailDrawer` 生效值；原 4 套自绘 `.dot/.tag/.src-*` + 5 处写死色已删）、告警域（11）、列表页（13：`AuditView` 结果带图标第二编码）、图表工具页（14：`MetricsExploreView`/`DialTestView`/`ReportView`）、设置域（15）、**安全中心 `SecurityView` / 首页 `OverviewView` / 审批中心 `ApprovalsView`（16）**。**例外**：中间件域走 `MwStatusDot`（面向实例健康度，定位不同），见下行）
 - [ ] 全站容器 100% 走 `SectionCard`，`.glass` 零引用（**进行中**：中间件内容区 **15 个 Tab 全部接入、0 处 `.glass`**（批次 10）；**资产域 4 页全部 `SectionCard`**（批次 12）；**告警/通知/安全/首页/审批（11/16）** 与**设置域 5 子页（15）**已接入；**仅剩页面外壳** `aside.sidebar`/`header.topbar` 与 `screen/**` 大屏域仍在用，见 §31）
@@ -1974,7 +1974,7 @@ type permDomain struct {
 | 5 ✅ | 资产模型"声明但无资产携带"的字段              | **已实施**（2026-10-09）                                        | `attrRows`（`AssetModelView.vue:280-294`）已把 draft 里未出现在 `current.attrs` 的 key 追加显示 → 前端已支持草稿态；接口存在（`api/asset.js:156/158`）                                      | 已落地三层标注：① 字段列「新增」角标（区分 `fresh` 本次新增 vs `uncarried` 声明了没数据）② 覆盖度列对 0 台携带的行显示「未携带」而非空进度条（空条会被读成"采集坏了"）③ 表下 `el-alert` 列出全部未携带字段 + 保存前 `confirm` 明示"只改模型定义、不会给任何资产赋值" | 前端（已完成） |
 | ~~6~~ | ~~智能运维是否放开 PINNED~~ | **已决定：本轮不做，维持现状**（2026-10-09 确认） | 用户选择保留"AI 区块必须被看见"的定位 | **维持 `PINNED_KEYS` 现状**（`useOverviewLayout.js:17/36-47/82/95` 一律不动）。仅保留 PS-03 展示改进中的**可折叠**（折叠 ≠ 隐藏，不触碰 PINNED 逻辑）；`load()` 覆盖 localStorage 的行为本轮也不改 | 已定 |
 | 7 ⏳ | 首页两个告警区块                       | **去重已实施（2026-10-09）；合并仍待产品**                     | `criticalAlerts`（span 4）与 `recentAlerts`（span 12）时间基准不同、滚动位置不同；critical 本质上是 recent 的子集 → 内容重叠                                                                 | 第一步已落地：`recentAlerts` 过滤掉已在 critical 出现的条目（**区块被用户隐藏时自动还原完整列表**，避免静默丢信息），空状态由「暂无告警记录」改为「最近 N 条已在上方紧急告警中显示」+ 列表底部提示去重条数。第二步（合并为 span 12 单区块 + 内部 Tab）仍待拍板 | 产品          |
-| 8 ✅ | `ContainerView` namespace 列表接口 | **已实施**（2026-10-09）：不做下拉，改手输 + 自动补全 | 后端只有 `/api/v1/container/k8s/clusters`（`query.go:389`），**无 namespace 接口**；当前是手输 `.ns-input`（`ContainerView.vue:55-59`） | 已按"手输 + `el-autocomplete`"落地：建议源 = 查询结果里 namespace 列去重 + localStorage 历史（key `nebula-container-ns-history`，上限 12），零后端改动，拿到 70% 收益 | 前端（已完成） |
+| 8 ✅ | `ContainerView` namespace 列表接口 | **已实施**（2026-10-09）：不做下拉，改手输 + 自动补全 | 后端只有 `/api/v1/container/k8s/clusters`（`query.go:389`），**无 namespace 接口**；当前是手输 `.ns-input`（`ContainerView.vue:55-59`） | 已按"手输 + `el-autocomplete`"落地：建议源 = 查询结果里 namespace 列去重 + localStorage 历史（key `yingzhao-container-ns-history`，上限 12），零后端改动，拿到 70% 收益 | 前端（已完成） |
 | 9 ✅ | 数据大屏是否受 EP base 变更影响           | **已核查：影响面比预想小得多（2026-10-09）**                                  | 核查更正：`screen/` 目录 **`el-table` 用量 = 0**（`ScreenView.vue` 无 el-table、`tabs/NetworkTab.vue` 只用 `el-select`/`el-option`）。全目录仅 `ScreenView.vue` 有 **2 个 `el-button`**（设置对话框）。此前"ScreenView 与 NetworkTab 用了 el-table"的说法不成立。另：大屏自身字号在 `@media (min-width:2400px/3440px)` 放大，与 EP base 不同源 | EP base 16→14 对大屏的影响 = 2 个对话框按钮 + 少量下拉变小 2px，**组件是变小不是变大，无溢出风险**。实测 `/screen` 在 1440px 下 `scrollWidth == innerWidth`。**无需回归清单** | 前端（已核查） |
 | 10 ✅ | B10（NodeView 请求数）         | **已实测并已修复**（2026-10-09）                                 | 实测（Chrome headless + mock API，1440×900）：首屏 10 条、切「基础监控」Tab **96 条**（12 个 metric 各 8 次）、全 5 Tab 合计 **111 条** → **结论成立且比预估严重**。根因不是"缺批量接口"，而是 `setMonitorRef` 的 ref 回调每个面板挂载都触发一次**全量** `loadMonitor` | 已修：ref 回调改为 `if (!existed) loadMonitor(name, key)`——只补刷本次新建的图。复测：96 → **12 条**（每 metric 1 次，**零重复参数**），全 Tab 合计 111 → **27 条** | 前端（已完成） |
 | 11 ✅ | 字号 13→14px 后表格溢出               | **已实测：字号不是溢出原因，溢出另有归属**（2026-10-09）                | 1440px 下 4 个页面表格**当前就已横向溢出**：hosts 112px、assets 136px、ops 222px、audit 234px。注入「EP base 16→14 + 根字号 16→14 + 全站 13px→14px、小于 12px→12px」（实测改到 100+ 处声明）后，**四个页面溢出量一字未变**（112/136/222/234），仅行高 57→59px（+3.5%）。原因：el-table 是 `table-layout: fixed`，列宽由 `width/min-width` 决定，与字号无关 | **溢出归 D8 列宽重排 + ≤1280 断点降级**，❌ 不得回滚字号——这是 §33.2 兜底顺序里唯一被实测否掉的一项。字号上调的真实代价是**纵向**（行高 +2px），批次 8 落地时只需复核列表一屏可见行数。**批次 8 已落地并复核（2026-10-09）**：4 页横向溢出仍为 **0**（字号对 `table-layout: fixed` 列宽零影响再次验证）、行高 34.5→38px、表头无裁切；新发现 `AlertsView` 规则表 68px 溢出属既有 D8 问题（详见 §1.4.7） | 前端（已实测） |

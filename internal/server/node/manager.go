@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // metaFile 持久化结构。

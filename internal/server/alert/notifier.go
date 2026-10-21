@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // Notifier 通知渠道接口。
@@ -66,14 +66,14 @@ func (n *EmailNotifier) Notify(e model.AlertEvent) error {
 	msg.WriteString("Subject: " + subject + "\r\n")
 	msg.WriteString("MIME-Version: 1.0\r\n")
 	// multipart/alternative：HTML 与纯文本共存，客户端优先显示 HTML
-	msg.WriteString("Content-Type: multipart/alternative; boundary=\"__nebula_alert__\"\r\n\r\n")
-	msg.WriteString("--__nebula_alert__\r\n")
+	msg.WriteString("Content-Type: multipart/alternative; boundary=\"__yingzhao_alert__\"\r\n\r\n")
+	msg.WriteString("--__yingzhao_alert__\r\n")
 	msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
 	msg.WriteString(plain)
-	msg.WriteString("\r\n--__nebula_alert__\r\n")
+	msg.WriteString("\r\n--__yingzhao_alert__\r\n")
 	msg.WriteString("Content-Type: text/html; charset=UTF-8\r\n\r\n")
 	msg.WriteString(html)
-	msg.WriteString("\r\n--__nebula_alert__--\r\n")
+	msg.WriteString("\r\n--__yingzhao_alert__--\r\n")
 
 	addr := fmt.Sprintf("%s:%d", n.cfg.SMTPHost, n.cfg.SMTPPort)
 	var auth smtp.Auth
@@ -120,14 +120,14 @@ func (n *EmailNotifier) NotifyGroup(events []model.AlertEvent) error {
 	msg.WriteString("\r\n")
 	msg.WriteString("Subject: " + subject + "\r\n")
 	msg.WriteString("MIME-Version: 1.0\r\n")
-	msg.WriteString("Content-Type: multipart/alternative; boundary=\"__nebula_alert__\"\r\n\r\n")
-	msg.WriteString("--__nebula_alert__\r\n")
+	msg.WriteString("Content-Type: multipart/alternative; boundary=\"__yingzhao_alert__\"\r\n\r\n")
+	msg.WriteString("--__yingzhao_alert__\r\n")
 	msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
 	msg.WriteString(plain)
-	msg.WriteString("\r\n--__nebula_alert__\r\n")
+	msg.WriteString("\r\n--__yingzhao_alert__\r\n")
 	msg.WriteString("Content-Type: text/html; charset=UTF-8\r\n\r\n")
 	msg.WriteString(html)
-	msg.WriteString("\r\n--__nebula_alert__--\r\n")
+	msg.WriteString("\r\n--__yingzhao_alert__--\r\n")
 
 	addr := fmt.Sprintf("%s:%d", n.cfg.SMTPHost, n.cfg.SMTPPort)
 	var auth smtp.Auth

@@ -12,7 +12,7 @@ import (
 
 	"github.com/golang/snappy"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 以下结构为 Prometheus remote_write 协议中 WriteRequest 的最小 protobuf 表示，

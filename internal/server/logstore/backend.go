@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 日志后端标识。写进游标，用于拒绝「换后端后继续用旧游标」。

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 2026-10-10 重规划（ADR-0006）删除的动作**不得**回到目录里。

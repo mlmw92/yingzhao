@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/nebula/monitor/internal/server/dashboard"
+	"github.com/mlmw92/yingzhao/internal/server/dashboard"
 )
 
 // handleDashboardsList 返回全部自定义看板。

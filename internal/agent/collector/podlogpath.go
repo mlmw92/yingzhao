@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // parsePodLogPath 从 kubelet 的容器日志路径解析容器身份：

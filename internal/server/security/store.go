@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 安全事件与基线的服务端存储：内存索引 + JSON 文件持久化。

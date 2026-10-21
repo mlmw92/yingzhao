@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // openTestDB 用**真实台账库**建表：两张新表的 DDL 就在 asset 的 schemaStatements 里，

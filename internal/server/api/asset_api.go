@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
 )
 
 // AssetProvider 提供资产台账读取（由 asset 包实现）。

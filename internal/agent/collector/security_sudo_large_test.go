@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
 )
 
 // 大日志 + 偏移持久化的行为。

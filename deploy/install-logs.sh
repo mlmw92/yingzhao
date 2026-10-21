@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# nebula-monitor 集中日志后端（VictoriaLogs）安装脚本（独立部署，可与 Server 分机）
+# yingzhao-monitor 集中日志后端（VictoriaLogs）安装脚本（独立部署，可与 Server 分机）
 # ----------------------------------------------------------------------------
 # 功能：
 #   1. 从离线包安装 VictoriaLogs 二进制 + systemd 单元（不联网下载）
@@ -233,7 +233,7 @@ pick_vl_binary() {
 write_vl_service() {
   cat > "$SERVICE_DIR/$SERVICE_NAME" <<EOF
 [Unit]
-Description=VictoriaLogs (nebula-monitor centralized log backend)
+Description=VictoriaLogs (yingzhao-monitor centralized log backend)
 After=network.target
 
 [Service]

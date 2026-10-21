@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
 )
 
 // containerStore 复用 clusterStore 的全部替身方法，只补 QueryAllLatest——

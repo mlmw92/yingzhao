@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/metrics"
-	"github.com/nebula/monitor/internal/server/storage"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/metrics"
+	"github.com/mlmw92/yingzhao/internal/server/storage"
 )
 
 // metricScopeStore substitutes only external TSDB reads; all routing, scope and auditing remain real.

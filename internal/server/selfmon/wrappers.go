@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/alert"
-	"github.com/nebula/monitor/internal/server/storage"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/server/storage"
 )
 
 // Storage 装饰 storage.Storage，统计读写次数与失败次数。

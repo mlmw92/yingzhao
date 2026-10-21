@@ -181,7 +181,7 @@ type K8sService struct {
 
 **为什么必须自己造负载**：这台集群的业务命名空间里只有一个 `default/kubernetes`（apiserver 的后端
 **不是 Pod**），而 `kube-system` 的两个 Service 被清单的命名空间规则排除——不造就没有可验的边，
-而"没有边"与"关系没实现"在界面上长得一模一样。`seed` 造了 `nebula-svc-check`：Deployment 2 副本
+而"没有边"与"关系没实现"在界面上长得一模一样。`seed` 造了 `yingzhao-svc-check`：Deployment 2 副本
 （离线 pause 镜像）+ 一个有后端的 Service `web` + 一个选择器无匹配的 Service `orphan`。
 
 | 判据 | 实测 |
@@ -199,7 +199,7 @@ type K8sService struct {
 本轮临时脚本（已删），结论记在这里。另外 `eq()` 的**失败分支**少传了一个参数，导致第一次失败时
 直接抛 `TypeError` 把真实值盖住了（两处都是我的脚本问题，产品行为正确）。
 
-**收尾**：`kubectl delete ns nebula-svc-check` 已删；集群回到 3 个 Service；服务状态与升级前一致
+**收尾**：`kubectl delete ns yingzhao-svc-check` 已删；集群回到 3 个 Service；服务状态与升级前一致
 （`victoria-logs` 仍 inactive）。台账里那两条 service 资产会随停止上报转为 `missing`（不物理删除，
 是既有约定），符合预期。
 

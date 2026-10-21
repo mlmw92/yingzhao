@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/ai"
-	"github.com/nebula/monitor/internal/server/audit"
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/ai"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // AI 助手（大模型）配置接口。设计件：docs/superpowers/specs/2026-10-08-ai-assistant-design.md

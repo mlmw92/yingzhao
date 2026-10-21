@@ -4,7 +4,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 const minBaselineSamples = 24

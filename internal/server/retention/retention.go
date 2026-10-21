@@ -25,12 +25,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/alert"
-	"github.com/nebula/monitor/internal/server/audit"
-	"github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/logstore"
-	"github.com/nebula/monitor/internal/server/report"
-	"github.com/nebula/monitor/internal/server/security"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/server/report"
+	"github.com/mlmw92/yingzhao/internal/server/security"
 	"gopkg.in/yaml.v3"
 )
 

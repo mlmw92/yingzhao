@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // 告警 ↔ 资产 ↔ 变更 ↔ 波及范围（全景表 1-05）。

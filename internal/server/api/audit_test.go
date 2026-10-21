@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/audit"
-	"github.com/nebula/monitor/internal/server/auth"
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // 未认证不得读取审计记录。该约束现已由路由级 permit 包装承担（见 RegisterRoutes），

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/selfmon"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/selfmon"
 )
 
 // healthTestStore 是 storage.Storage 的测试替身：可注入查询错误。

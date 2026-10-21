@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/nebula/monitor/internal/server/nginxaccess"
+	"github.com/mlmw92/yingzhao/internal/server/nginxaccess"
 )
 
 // IP 地理库文件最大 64 MB（ip2region v4 全量库约 11 MB）

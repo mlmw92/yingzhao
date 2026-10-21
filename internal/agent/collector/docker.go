@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // DockerCollector 采集 Docker 容器指标，通过 Docker Engine API 自动发现宿主机上所有容器。

@@ -11,7 +11,7 @@ import (
 
 	"github.com/golang/snappy"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // TestPromTimeSeriesEncode_WireFormat 逐字节锁定 remote_write 的 protobuf 编码。

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // AlertRef 是自动调查看到的告警投影（不把 alert 包的类型带进 ai 包）。

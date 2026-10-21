@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // holdConnections 启动一个「假 Redis 服务端」：接受连接后保持打开但永不写入响应，

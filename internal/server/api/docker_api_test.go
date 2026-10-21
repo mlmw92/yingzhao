@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
 )
 
 // Docker 管理面（ADR-0006）：全部同步直连 daemon，端点清单来自 Agent 上报。

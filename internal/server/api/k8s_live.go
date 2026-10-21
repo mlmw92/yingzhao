@@ -18,8 +18,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/k8sproxy"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/k8sproxy"
 )
 
 // SetK8sLive 注入 K8s 直连查询管理器（未注入时接口返回 501，不静默空数据）。

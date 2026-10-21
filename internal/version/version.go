@@ -1,7 +1,7 @@
 // Package version 提供统一的版本信息，供 Server/Agent 编译时通过 ldflags 注入。
 // 编译示例：
 //
-//	go build -ldflags "-X github.com/nebula/monitor/internal/version.Version=v1.0.0" ./cmd/server
+//	go build -ldflags "-X github.com/mlmw92/yingzhao/internal/version.Version=v1.0.0" ./cmd/server
 package version
 
 import "runtime"

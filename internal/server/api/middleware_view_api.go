@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/nebula/monitor/internal/server/mwview"
+	"github.com/mlmw92/yingzhao/internal/server/mwview"
 )
 
 // handleMiddlewareViewConfigGET 返回展示配置：

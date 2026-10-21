@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/nebula/monitor/internal/server/crypto"
+	"github.com/mlmw92/yingzhao/internal/server/crypto"
 )
 
 // DataFile 是用户与角色持久化文件（与 server.yaml 解耦）。

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/agent/config"
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 本机护栏是这套通道最关键的一道：Agent 以 root 运行，Web 上的一个写权限 ≈ 一批机器的 root。
@@ -14,7 +14,7 @@ import (
 func boolPtr(v bool) *bool { return &v }
 
 func newTestExecutor(g config.OpsGuards) *Executor {
-	// statePath 留空：测试不落盘（真实部署写在 /var/lib/nebula-monitor/ops/）
+	// statePath 留空：测试不落盘（真实部署写在 /var/lib/yingzhao-monitor/ops/）
 	return New("test-node", g, "")
 }
 

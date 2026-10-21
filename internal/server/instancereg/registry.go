@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // Registry 按节点保存各类型中间件最近一次上报的实例清单。

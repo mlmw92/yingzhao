@@ -15,15 +15,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/analysis"
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/instancereg"
-	"github.com/nebula/monitor/internal/server/logstore"
-	"github.com/nebula/monitor/internal/server/mwreg"
-	"github.com/nebula/monitor/internal/server/node"
-	"github.com/nebula/monitor/internal/server/security"
-	"github.com/nebula/monitor/internal/server/storage"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/analysis"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/server/mwreg"
+	"github.com/mlmw92/yingzhao/internal/server/node"
+	"github.com/mlmw92/yingzhao/internal/server/security"
+	"github.com/mlmw92/yingzhao/internal/server/storage"
 )
 
 //go:embed template.html
@@ -1945,7 +1945,7 @@ func buildFindings(nodes []nodeStat, mw []mwInstance) []finding {
 				Title:      "主机离线",
 				Detail:     fmt.Sprintf("主机 %s（%s）在巡检周期内状态为离线，最近一次上报时间为 %s，期间无监控数据回传。", n.Name, n.IP, relTime(n.LastSeen)),
 				Impact:     "该主机上的所有业务与中间件指标不可见，发生故障时无法及时感知，存在监控盲区。",
-				Suggestion: "检查该主机的 nebula-agent 进程是否存活（systemctl status nebula-agent）、主机网络连通性与到 Server 的链路；若已主动下线请确认维护窗口配置。",
+				Suggestion: "检查该主机的 yingzhao-agent 进程是否存活（systemctl status yingzhao-agent）、主机网络连通性与到 Server 的链路；若已主动下线请确认维护窗口配置。",
 			})
 			continue
 		}

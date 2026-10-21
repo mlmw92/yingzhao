@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // errZKEmptyMntr 表示 mntr 无有效输出（四字命令可能被禁用）。

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 容器过滤（「只看某个 Pod」）：两个后端语义一致——**没有身份的行不命中任何容器条件**
@@ -23,8 +23,8 @@ func TestBackendContract_PodFilter(t *testing.T) {
 					t.Fatalf("写入失败: %v", err)
 				}
 			}
-			seed(&model.LogOrigin{Namespace: "nebula-demo", Pod: "web-1", Container: "nginx"}, now, "pod web-1")
-			seed(&model.LogOrigin{Namespace: "nebula-demo", Pod: "web-2", Container: "nginx"}, now-1000, "pod web-2")
+			seed(&model.LogOrigin{Namespace: "yingzhao-demo", Pod: "web-1", Container: "nginx"}, now, "pod web-1")
+			seed(&model.LogOrigin{Namespace: "yingzhao-demo", Pod: "web-2", Container: "nginx"}, now-1000, "pod web-2")
 			// 同名但别的命名空间：容器过滤必须带上命名空间，否则会串台
 			seed(&model.LogOrigin{Namespace: "kube-system", Pod: "web-1", Container: "coredns"}, now-2000, "same name other ns")
 			// 普通文件日志（没有身份）
@@ -32,7 +32,7 @@ func TestBackendContract_PodFilter(t *testing.T) {
 
 			single := mustQuery(t, store, model.LogQuery{
 				From: now - 10_000, To: now + 10_000,
-				Pods: []model.LogPodFilter{{Namespace: "nebula-demo", Pod: "web-1"}},
+				Pods: []model.LogPodFilter{{Namespace: "yingzhao-demo", Pod: "web-1"}},
 			})
 			if len(single.Lines) != 1 || single.Lines[0].Text != "pod web-1" {
 				t.Fatalf("单个容器过滤应只命中它（同名不同命名空间不算）：%+v", single.Lines)
@@ -42,8 +42,8 @@ func TestBackendContract_PodFilter(t *testing.T) {
 			multi := mustQuery(t, store, model.LogQuery{
 				From: now - 10_000, To: now + 10_000,
 				Pods: []model.LogPodFilter{
-					{Namespace: "nebula-demo", Pod: "web-1"},
-					{Namespace: "nebula-demo", Pod: "web-2"},
+					{Namespace: "yingzhao-demo", Pod: "web-1"},
+					{Namespace: "yingzhao-demo", Pod: "web-2"},
 				},
 			})
 			if len(multi.Lines) != 2 {
@@ -60,7 +60,7 @@ func TestBackendContract_PodFilter(t *testing.T) {
 			// 不存在的容器：空结果（而不是"退化成不限"）
 			none := mustQuery(t, store, model.LogQuery{
 				From: now - 10_000, To: now + 10_000,
-				Pods: []model.LogPodFilter{{Namespace: "nebula-demo", Pod: "no-such-pod"}},
+				Pods: []model.LogPodFilter{{Namespace: "yingzhao-demo", Pod: "no-such-pod"}},
 			})
 			if len(none.Lines) != 0 {
 				t.Fatalf("不存在的容器应无命中：%+v", none.Lines)
@@ -79,7 +79,7 @@ func TestBackendContract_LogOrigin(t *testing.T) {
 		t.Run(bc.name, func(t *testing.T) {
 			store := bc.newStore(t)
 			now := time.Now().UnixMilli()
-			origin := &model.LogOrigin{Namespace: "nebula-demo", Pod: "web-1", Container: "nginx"}
+			origin := &model.LogOrigin{Namespace: "yingzhao-demo", Pod: "web-1", Container: "nginx"}
 
 			if _, dropped, reason, err := store.Append(model.LogBatch{
 				Source: "podlog", Node: "web-01", Origin: origin,
@@ -112,7 +112,7 @@ func TestBackendContract_LogOrigin(t *testing.T) {
 			// 身份不可信比没有身份更危险，而合法 Agent 永远不会发出非法身份。
 			if _, _, _, err := store.Append(model.LogBatch{
 				Source: "podlog", Node: "web-01",
-				Origin: &model.LogOrigin{Namespace: "nebula-demo", Pod: "web_1", Container: "nginx"},
+				Origin: &model.LogOrigin{Namespace: "yingzhao-demo", Pod: "web_1", Container: "nginx"},
 				Lines:  []model.LogLine{{Ts: now, Text: "x"}},
 			}); err == nil {
 				t.Fatal("非法容器身份应被拒绝")

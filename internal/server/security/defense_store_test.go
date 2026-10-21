@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 防护任务曾经是**纯追加**的：只标 expired、从不删除，而每次状态变化都要全量重写整个文件。

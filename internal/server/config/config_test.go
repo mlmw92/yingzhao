@@ -106,7 +106,7 @@ func TestDatabaseConfigDefaultsAndParse(t *testing.T) {
 	}
 	path := writeConfigFile(t, `
 database:
-  dsn: "u:p@tcp(127.0.0.1:3306)/nebula?charset=utf8mb4"
+  dsn: "u:p@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4"
   maxOpenConns: 50
 `)
 	got, err := Load(path)

@@ -29,7 +29,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/node"
+	"github.com/mlmw92/yingzhao/internal/server/node"
 )
 
 // Component 描述升级包内一个组件。

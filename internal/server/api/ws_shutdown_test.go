@@ -19,8 +19,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/storage"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/storage"
 )
 
 // hubWSStore 只替代外部 TSDB 读取（真实 Hub / 真实 WS 连接保持不变），

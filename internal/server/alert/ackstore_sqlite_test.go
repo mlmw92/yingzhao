@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // openAckTestDB 用**真实台账库**建表：alert_acks 的 DDL 就在 asset 的 schemaStatements 里，

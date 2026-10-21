@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/alert"
-	"github.com/nebula/monitor/internal/server/metrics"
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/server/metrics"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 // 界面文案守则守卫：下面的目录（指标字典 / 告警规则模板 / 下行动作目录）的标题与说明

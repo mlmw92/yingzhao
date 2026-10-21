@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // handleNotifyGet 返回当前通知配置（敏感字段脱敏，不返回明文密码/加签密钥）。

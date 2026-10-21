@@ -14,40 +14,40 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
-// 受控 fail2ban 入侵防御（仅管理 nebula-monitor-sshd 专属 jail）。
+// 受控 fail2ban 入侵防御（仅管理 yingzhao-monitor-sshd 专属 jail）。
 //
 // 安全边界：
-//   - 仅创建并管理 /etc/fail2ban/jail.d/nebula-monitor-sshd.conf 与专属 action 配置；
+//   - 仅创建并管理 /etc/fail2ban/jail.d/yingzhao-monitor-sshd.conf 与专属 action 配置；
 //   - 绝不修改、删除或接管用户既有 jail.local 或其他 jail 配置；
-//   - “停用防护”只停止并移除 nebula 专属配置，随后重载 fail2ban，不卸载 fail2ban 软件包；
+//   - “停用防护”只停止并移除 yingzhao 专属配置，随后重载 fail2ban，不卸载 fail2ban 软件包；
 //   - 白名单由服务端下发（操作人真实来源 IP + 回环），不自动放行整个内网段。
 
 const (
-	// jailConfPath nebula 专属 fail2ban jail 配置文件路径。
-	jailConfPath = "/etc/fail2ban/jail.d/nebula-monitor-sshd.conf"
-	// actionConfPath nebula 专属 fail2ban action 配置文件路径。
-	actionConfPath       = "/etc/fail2ban/action.d/nebula-monitor-audit.conf"
-	legacyActionConfPath = "/etc/fail2ban/action.d/nebula-monitor.conf"
-	// jailName nebula 专属 jail 名称。
-	jailName = "nebula-monitor-sshd"
+	// jailConfPath yingzhao 专属 fail2ban jail 配置文件路径。
+	jailConfPath = "/etc/fail2ban/jail.d/yingzhao-monitor-sshd.conf"
+	// actionConfPath yingzhao 专属 fail2ban action 配置文件路径。
+	actionConfPath       = "/etc/fail2ban/action.d/yingzhao-monitor-audit.conf"
+	legacyActionConfPath = "/etc/fail2ban/action.d/yingzhao-monitor.conf"
+	// jailName yingzhao 专属 jail 名称。
+	jailName = "yingzhao-monitor-sshd"
 	// auditDir 防护审计数据根目录。
-	auditDir = "/var/lib/nebula-monitor/defense"
+	auditDir = "/var/lib/yingzhao-monitor/defense"
 	// auditPath 封禁审计流水文件路径（JSONL）。
 	auditPath = auditDir + "/ban_audit.jsonl"
 	// stateDir 防护状态目录（与 auditDir 相同）。
 	stateDir = auditDir
 	// executedPath 已执行指令记录文件路径，用于幂等。
 	executedPath = stateDir + "/executed.json"
-	// managedMarkPath 标记目录由 nebula 管理的标记文件路径。
-	managedMarkPath = stateDir + "/managed_by_nebula"
+	// managedMarkPath 标记目录由 yingzhao 管理的标记文件路径。
+	managedMarkPath = stateDir + "/managed_by_yingzhao"
 	// firewallActionPath 记录启用时选定的原生防火墙 action。
 	firewallActionPath = stateDir + "/firewall_action"
 )
 
-// Manager 管理节点上的 nebula 专属 SSH 防护。
+// Manager 管理节点上的 yingzhao 专属 SSH 防护。
 type Manager struct {
 	mu       sync.Mutex
 	executed map[string]string // commandID -> 结果消息（用于幂等）
@@ -115,7 +115,7 @@ func (m *Manager) Status() *model.DefenseStatus {
 	st.Jails = parseJailList(string(out))
 	jailOut, err := exec.Command("fail2ban-client", "status", jailName).CombinedOutput()
 	if err != nil {
-		st.Message = "fail2ban 正在运行，但 nebula 专属 jail 未启用"
+		st.Message = "fail2ban 正在运行，但 yingzhao 专属 jail 未启用"
 		return st
 	}
 	st.ManagedJail = true
@@ -151,7 +151,7 @@ func (m *Manager) supported() bool {
 	return strings.Contains(s, "sshd.service") || strings.Contains(s, "ssh.service")
 }
 
-// Enable 启用 nebula 专属 SSH 防护。
+// Enable 启用 yingzhao 专属 SSH 防护。
 // ignoreIPs 为精确白名单（操作人来源 IP + 回环），由服务端下发。
 func (m *Manager) Enable(ignoreIPs []string) (string, error) {
 	if !m.supported() {
@@ -195,7 +195,7 @@ func (m *Manager) Enable(ignoreIPs []string) (string, error) {
 		return "", fmt.Errorf("启动 fail2ban 失败: %w", err)
 	}
 
-	// 6. 确保 server 就绪并启用 nebula 专属 jail
+	// 6. 确保 server 就绪并启用 yingzhao 专属 jail
 	if err := m.enableJail(jailName); err != nil {
 		return "", err
 	}
@@ -203,7 +203,7 @@ func (m *Manager) Enable(ignoreIPs []string) (string, error) {
 		return "", err
 	}
 
-	// 标记由 nebula 托管
+	// 标记由 yingzhao 托管
 	if err := os.WriteFile(managedMarkPath, []byte(fmt.Sprintf("enabled at %d\n", time.Now().Unix())), 0600); err != nil {
 		return "", fmt.Errorf("写入托管标记失败: %w", err)
 	}
@@ -211,10 +211,10 @@ func (m *Manager) Enable(ignoreIPs []string) (string, error) {
 	return fmt.Sprintf("已启用 %s 专属 SSH 防护，防火墙 action: %s，白名单: %s", jailName, firewallAction, strings.Join(ignoreIPs, ",")), nil
 }
 
-// Disable 停用 nebula 专属 SSH 防护。仅移除 nebula 配置并重载，不卸载 fail2ban 包。
+// Disable 停用 yingzhao 专属 SSH 防护。仅移除 yingzhao 配置并重载，不卸载 fail2ban 包。
 func (m *Manager) Disable() (string, error) {
 	if _, err := os.Stat(managedMarkPath); err != nil {
-		return "", fmt.Errorf("未检测到由 nebula 托管的防护配置，跳过停用")
+		return "", fmt.Errorf("未检测到由 yingzhao 托管的防护配置，跳过停用")
 	}
 	if out, err := exec.Command("fail2ban-client", "stop", jailName).CombinedOutput(); err != nil && !strings.Contains(strings.ToLower(string(out)), "not found") {
 		return "", fmt.Errorf("停止 jail 失败: %s", strings.TrimSpace(string(out)))
@@ -233,7 +233,7 @@ func (m *Manager) Disable() (string, error) {
 	if err := os.Remove(managedMarkPath); err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("清理托管标记失败: %w", err)
 	}
-	return "已停用 nebula 专属 SSH 防护（保留 fail2ban 软件包与既有配置）", nil
+	return "已停用 yingzhao 专属 SSH 防护（保留 fail2ban 软件包与既有配置）", nil
 }
 
 // enableJail 确保 fail2ban server 运行并启用指定 jail。
@@ -366,7 +366,7 @@ func waitFail2banReady(attempts int, interval time.Duration) error {
 	return fmt.Errorf("fail2ban-client ping 超时（socket 可能未创建）。最后输出: %s；请检查 systemctl status fail2ban 与 journalctl -u fail2ban", last)
 }
 
-// buildJailConf 生成 nebula 专属 jail 配置（仅 sshd，含精确白名单）。
+// buildJailConf 生成 yingzhao 专属 jail 配置（仅 sshd，含精确白名单）。
 // 自动探测：SSH 实际监听端口、SSH 服务单元、可用的认证日志后端。
 //   - 端口：默认 22 不可靠（本机可能使用非标准端口），必须自动探测，否则封禁会落到错误端口；
 //   - 日志后端：必须真实可用，否则 fail2ban 会报 “Have not found any log file for sshd jail”。
@@ -746,10 +746,10 @@ func ensureDir(p string) {
 	_ = os.MkdirAll(filepath.Dir(p), 0700)
 }
 
-// jailConfTmpl 为 nebula 专属 SSH jail 配置模板。
+// jailConfTmpl 为 yingzhao 专属 SSH jail 配置模板。
 // 参数：ignoreip 白名单、jail 名称、实际 SSH 端口、日志配置、原生防火墙 action。
 const jailConfTmpl = `[DEFAULT]
-# nebula-monitor 托管：仅保护 SSH，勿手动修改本文件
+# yingzhao-monitor 托管：仅保护 SSH，勿手动修改本文件
 ignoreip = %s
 
 [%s]
@@ -761,17 +761,17 @@ maxretry = 5
 findtime = 10m
 bantime = 1h
 action = %s
-         nebula-monitor-audit
+         yingzhao-monitor-audit
 `
 
-// actionConf 为 nebula 专属 fail2ban 审计 action 配置。
+// actionConf 为 yingzhao 专属 fail2ban 审计 action 配置。
 // 实际封禁由 jail 中的发行版原生 action 执行；该 action 只记录结构化事件。
-const actionConf = `# nebula-monitor 审计 action：记录封禁/解封，不承担实际防火墙封禁
+const actionConf = `# yingzhao-monitor 审计 action：记录封禁/解封，不承担实际防火墙封禁
 [Definition]
 actionstart =
 actionstop =
 actioncheck =
 # fail2ban ConfigParser 要求 shell date 的百分号写成 %%。
-actionban = echo '{"action":"ban","ip":"<ip>","jail":"nebula-monitor-sshd","failures":"<failures>","time":"'"$(date +%%Y-%%m-%%dT%%H:%%M:%%S%%z)"'"}' >> /var/lib/nebula-monitor/defense/ban_audit.jsonl
-actionunban = echo '{"action":"unban","ip":"<ip>","jail":"nebula-monitor-sshd","time":"'"$(date +%%Y-%%m-%%dT%%H:%%M:%%S%%z)"'"}' >> /var/lib/nebula-monitor/defense/ban_audit.jsonl
+actionban = echo '{"action":"ban","ip":"<ip>","jail":"yingzhao-monitor-sshd","failures":"<failures>","time":"'"$(date +%%Y-%%m-%%dT%%H:%%M:%%S%%z)"'"}' >> /var/lib/yingzhao-monitor/defense/ban_audit.jsonl
+actionunban = echo '{"action":"unban","ip":"<ip>","jail":"yingzhao-monitor-sshd","time":"'"$(date +%%Y-%%m-%%dT%%H:%%M:%%S%%z)"'"}' >> /var/lib/yingzhao-monitor/defense/ban_audit.jsonl
 `

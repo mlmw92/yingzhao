@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 	// 业务范围的单条资产判定：差异项只有 asset_id、没有标签，只能在取回后补判
 	// （见 filterFindingsByAssetScope）
-	"github.com/nebula/monitor/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
 )
 
 // assetPathInt 解析路径上的正整数参数（用于巡检记录 ID 这类没有资产上下文的 ID）。

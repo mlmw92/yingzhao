@@ -412,18 +412,18 @@ export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" GOSUMDB=off GOTOOLCHAIN=l
 cd "$V" || exit 1
 
 echo "== 1) 解包源码 =="
-rm -rf "$V/nebula-new" "$V/nebula-old"
-mkdir -p "$V/nebula-new" "$V/nebula-old"
-tar -xzf "$V/new.tgz" -C "$V/nebula-new"
-tar -xzf "$V/old.tgz" -C "$V/nebula-old"
+rm -rf "$V/yingzhao-new" "$V/yingzhao-old"
+mkdir -p "$V/yingzhao-new" "$V/yingzhao-old"
+tar -xzf "$V/new.tgz" -C "$V/yingzhao-new"
+tar -xzf "$V/old.tgz" -C "$V/yingzhao-old"
 
 echo "== 2) 构建新旧 Agent =="
-(cd "$V/nebula-new" && CGO_ENABLED=0 "$GO" build -p 2 -o "$V/agent-new" ./cmd/agent) || exit 1
-(cd "$V/nebula-old" && CGO_ENABLED=0 "$GO" build -p 2 -o "$V/agent-old" ./cmd/agent) || exit 1
+(cd "$V/yingzhao-new" && CGO_ENABLED=0 "$GO" build -p 2 -o "$V/agent-new" ./cmd/agent) || exit 1
+(cd "$V/yingzhao-old" && CGO_ENABLED=0 "$GO" build -p 2 -o "$V/agent-old" ./cmd/agent) || exit 1
 
 if [ "${RACE:-0}" = "1" ]; then
   echo "== 2.1) 新版 -race 竞态检测 =="
-  (cd "$V/nebula-new" && CGO_ENABLED=1 "$GO" test -race -count=1 -p 2 ./internal/agent/...) || exit 1
+  (cd "$V/yingzhao-new" && CGO_ENABLED=1 "$GO" test -race -count=1 -p 2 ./internal/agent/...) || exit 1
 fi
 
 echo "== 3) 启动假服务（exporter + redis）=="
@@ -466,7 +466,7 @@ SH
 chmod +x "$PAYLOAD/remote_run.sh"
 
 # ---------------------------------------------------------------- 3) 传输
-REMOTE_DIR="/tmp/nebula-parity-$$"
+REMOTE_DIR="/tmp/yingzhao-parity-$$"
 echo "== 上传到 $HOST:$REMOTE_DIR =="
 ssh -o BatchMode=yes "$HOST" "mkdir -p '$REMOTE_DIR'"
 scp -q -o BatchMode=yes -r "$PAYLOAD/." "$HOST:$REMOTE_DIR/"

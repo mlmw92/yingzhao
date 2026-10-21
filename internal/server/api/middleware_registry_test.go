@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // seriesStore 是 storage.Storage 的测试替身：按指标名返回预置序列。

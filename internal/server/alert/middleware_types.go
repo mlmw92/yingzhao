@@ -1,6 +1,6 @@
 package alert
 
-import "github.com/nebula/monitor/internal/server/mwreg"
+import "github.com/mlmw92/yingzhao/internal/server/mwreg"
 
 // mwTypes 是中间件类型注册表：内置类型 + 由采集项模板派生的类型。
 //

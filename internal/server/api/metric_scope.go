@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
 )
 
 // metricTarget resolves the single effective node selector before querying storage.

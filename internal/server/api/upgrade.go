@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/nebula/monitor/internal/server/approval"
-	"github.com/nebula/monitor/internal/server/upgrade"
-	"github.com/nebula/monitor/internal/version"
+	"github.com/mlmw92/yingzhao/internal/server/approval"
+	"github.com/mlmw92/yingzhao/internal/server/upgrade"
+	"github.com/mlmw92/yingzhao/internal/version"
 )
 
 // 升级包最大 500 MB

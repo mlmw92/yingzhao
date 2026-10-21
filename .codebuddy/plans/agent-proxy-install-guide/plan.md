@@ -1,6 +1,6 @@
 ## 用户需求
 
-在 nebula-monitor 项目中实现 Agent 代理方案（网闸隔离双网区场景），同时提供 Web 端 Agent 安装引导页，并更新 README。
+在 yingzhao-monitor 项目中实现 Agent 代理方案（网闸隔离双网区场景），同时提供 Web 端 Agent 安装引导页，并更新 README。
 
 ### 产品概述
 
@@ -101,7 +101,7 @@ graph TB
 ## Directory Structure
 
 ```
-nebula-monitor/
+yingzhao-monitor/
 ├── cmd/agent/
 │   └── main.go                          # [MODIFY] 按 cfg.Mode 分流到 collectRun/edgeRun/hubRun
 ├── internal/agent/

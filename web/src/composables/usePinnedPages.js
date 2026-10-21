@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-const KEY = 'nebula-pinned-pages'
+const KEY = 'yingzhao-pinned-pages'
 const MAX = 5
 
 function load() {

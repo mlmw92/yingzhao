@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# nebula-monitor 卸载脚本
+# yingzhao-monitor 卸载脚本
 #   - 默认卸载：停服务 + 删二进制 + 删配置（**保留**数据目录）
 #   - --purge 额外删除数据目录（不可逆，删前逐项确认）
 #   - --yes 跳过所有交互确认
@@ -133,8 +133,8 @@ fi
 # TSDB (Mimir / Cortex / Thanos - Docker 模式)
 DOCKER_TSDB_PRESENT=0
 DOCKER_COMPOSE_FILE=""
-if [[ -f docker-compose.tsdb.yml ]] || [[ -f /opt/nebula-monitor/docker-compose.tsdb.yml ]]; then
-  [[ -f /opt/nebula-monitor/docker-compose.tsdb.yml ]] && DOCKER_COMPOSE_FILE=/opt/nebula-monitor/docker-compose.tsdb.yml
+if [[ -f docker-compose.tsdb.yml ]] || [[ -f /opt/yingzhao-monitor/docker-compose.tsdb.yml ]]; then
+  [[ -f /opt/yingzhao-monitor/docker-compose.tsdb.yml ]] && DOCKER_COMPOSE_FILE=/opt/yingzhao-monitor/docker-compose.tsdb.yml
   [[ -f docker-compose.tsdb.yml ]] && DOCKER_COMPOSE_FILE="$(pwd)/docker-compose.tsdb.yml"
   (( DO_TSDB )) && DOCKER_TSDB_PRESENT=1
 fi
@@ -148,7 +148,7 @@ fi
 # ---------------------------- 报告要删的内容 ----------------------------
 echo
 echo "================================================"
-echo "  nebula-monitor 卸载预览"
+echo "  yingzhao-monitor 卸载预览"
 echo "================================================"
 if (( ! ANY_PRESENT )); then
   c_info "未检测到已安装组件，无需卸载"
@@ -330,6 +330,6 @@ fi
 echo "================================================"
 echo
 c_info "如需重新安装："
-c_dim "  curl -fsSL -O https://github.com/mlmw92/yingzhao/releases/download/<VER>/nebula-monitor-<VER>-full.tar.gz"
-c_dim "  tar -xzf nebula-monitor-<VER>-full.tar.gz && cd nebula-monitor-<VER>-full"
+c_dim "  curl -fsSL -O https://github.com/mlmw92/yingzhao/releases/download/<VER>/yingzhao-monitor-<VER>-full.tar.gz"
+c_dim "  tar -xzf yingzhao-monitor-<VER>-full.tar.gz && cd yingzhao-monitor-<VER>-full"
 c_dim "  sudo ./install.sh"

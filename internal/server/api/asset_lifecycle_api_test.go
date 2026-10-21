@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // 忽略：从台账隐藏但不停止采集；列表默认不返回，`ignored=only` 可下钻；恢复后回到列表。

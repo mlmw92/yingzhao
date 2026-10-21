@@ -31,7 +31,7 @@
 | `auditKeyFile` | **审计防篡改链的 HMAC 密钥文件**（默认 `/etc/monitor-server/audit.key`，0600，首次启动自动生成）。**必须纳入备份**：丢了它，历史审计全部无法校验。**不要把它放进 `server.yaml`**，也不通过任何接口取（接口只返回指纹） |
 | `logDir` / `logBackend` | 集中日志落盘目录（默认 `/var/lib/monitor-server/logs`）与后端选择：`local`(默认，自研分片) / `victorialogs`（外部，配 `logVictoriaLogs.addr`） |
 | `logMaxBytesPerDay` / `logUploadRateBps` / `logMaxBodyBytes` | 集中日志的三个上限：单来源每日写入上限（默认 1 GiB）、单节点上行速率上限（默认 1 MiB/s）、单次上行请求体上限（默认 4 MiB）。**三个都必须有值**，否则"开了日志把盘写满"只是时间问题 |
-| `database.dsn` | MySQL 8+ 连接串，形如 `user:pass@tcp(127.0.0.1:3306)/nebula?charset=utf8mb4`。**阶段 0 仅解析、不连接**；阶段 1 起为必填 |
+| `database.dsn` | MySQL 8+ 连接串，形如 `user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4`。**阶段 0 仅解析、不连接**；阶段 1 起为必填 |
 | `database.maxOpenConns` | 连接池上限，默认 20 |
 | `database.maxIdleConns` | 空闲连接上限，默认 5 |
 | `database.connMaxLifetimeSeconds` | 连接最长存活秒数，默认 1800 |

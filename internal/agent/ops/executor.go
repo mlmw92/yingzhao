@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/agent/config"
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // defaultTimeout 是单个动作的执行超时。

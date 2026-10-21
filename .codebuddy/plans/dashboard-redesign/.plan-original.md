@@ -50,7 +50,7 @@
 ## 目录结构
 
 ```
-nebula-monitor/
+yingzhao-monitor/
 ├── internal/
 │   ├── model/
 │   │   └── metric.go                 # [MODIFY] 新增 NginxAccessStat 结构；NginxInstanceConfig 加 AccessLog/LogFormat；ReportPayload 加 NginxAccessStats

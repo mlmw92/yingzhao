@@ -1,4 +1,4 @@
-# 提示词：NebulaEye 运维平台前端视觉重构
+# 提示词：YingzhaoEye 运维平台前端视觉重构
 
 > **用法**：把本文件全文复制，作为提示词交给执行模型。执行前必须先打开参考设计稿：
 > - 框架与首页：`design/redesign-preview.html`（单文件，浏览器打开，右上角可切三套主题）
@@ -38,7 +38,7 @@
 | 布局 | `src/layouts/MainLayout.vue` + `src/components/Sidebar.vue` + `SiteFooter.vue` |
 | 全局样式 | `src/assets/style.css`（590 行，唯一全局样式源） |
 | 组件规模 | **93 个 `.vue` 文件** |
-| 主题 | `body[data-theme]` 三套：`b` 极光蓝（默认）/ `a` 星云青绿 / `c` 星河紫；切换逻辑在 `MainLayout.vue` 的 `applyTheme()`，存 `localStorage['nebula_theme']`，切换后 `window.dispatchEvent(new CustomEvent('nebula:theme-changed'))` |
+| 主题 | `body[data-theme]` 三套：`b` 极光蓝（默认）/ `a` 星云青绿 / `c` 星河紫；切换逻辑在 `MainLayout.vue` 的 `applyTheme()`，存 `localStorage['yingzhao_theme']`，切换后 `window.dispatchEvent(new CustomEvent('yingzhao:theme-changed'))` |
 | 暗色 | `src/main.js:40` 无条件 `document.documentElement.classList.add('dark')`；Element Plus 只引了 `dark/css-vars.css` |
 | 首页 | `src/components/OverviewView.vue`，12 栅格 + 7 个可拖拽 block，布局持久化在 `src/components/overview/useOverviewLayout.js` |
 | 路由 | hash 模式，共 22 个业务路由 + `/login` `/screen` `/status` |
@@ -289,7 +289,7 @@ emit:  action
 5. 图标按钮从 6 个精简到 4 个：折叠、刷新、告警（带 badge）、用户；主题切换并入用户下拉菜单
 6. 面包屑保留，但字号降到 13px / `--t3`
 
-**验收**：6 个入口功能全部可用；切换主题仍触发 `nebula:theme-changed`；无残留动画。
+**验收**：6 个入口功能全部可用；切换主题仍触发 `yingzhao:theme-changed`；无残留动画。
 
 ### 批次 4 · 命令面板（约 4 小时）
 
@@ -415,7 +415,7 @@ ECharts 主题统一读令牌（含 `--chart-*` 色板），换肤后重取色�
 | 1 | `.nav` 的 `min-height:0` | flex 子项默认 `min-height:auto` 不收缩，删了会导致菜单底部被裁且无法滚动。已修过一次 |
 | 2 | `openGroups` 只在 `onMounted` 设一次 | 路由切换后分组不展开。批次 2 必须加 `watch(route.path)` |
 | 3 | 硬编码白色 176 处 | 切主题时边框/填充不跟随，三套主题的"整体感"被稀释。这是本轮**顺带**要修的，不是主目标 |
-| 4 | ECharts 取色 | 图表组件监听 `nebula:theme-changed` 事件重取色。新增 sparkline 也要监听，否则换肤后颜色不更新 |
+| 4 | ECharts 取色 | 图表组件监听 `yingzhao:theme-changed` 事件重取色。新增 sparkline 也要监听，否则换肤后颜色不更新 |
 | 5 | SVG 内 `font-family="var(--mono)"` | presentation attribute 不解析 `var()`，必须写真实字体名 |
 | 6 | `--bg-card` 是 `rgba(...,.92)` | 半透明卡片叠在半透明上会越来越浑。新 `--s1` 是不透明色，替换时注意视觉差异 |
 | 7 | `MainLayout` 的 `keep-alive :include` | 只缓存 `OverviewView`/`HostsView`/`AlertsView`，新增组件名不要误加进去 |

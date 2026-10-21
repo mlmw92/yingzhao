@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
 )
 
 func newPipelineAPI(t *testing.T) *API {

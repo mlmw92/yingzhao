@@ -52,9 +52,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/ai"
-	"github.com/nebula/monitor/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/ai"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
 )
 
 func toolByName(t *testing.T, tb interface{ Tools() []ai.Tool }, name string) ai.Tool {
@@ -177,9 +177,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/ai"
-	"github.com/nebula/monitor/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/ai"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
 )
 
 type apiToolbox struct {
@@ -499,7 +499,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 func fakeChat(t *testing.T, handler func(call int, body map[string]any) map[string]any) *httptest.Server {
@@ -712,7 +712,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 type Step struct {
@@ -1223,7 +1223,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 type fakeSource struct{ refs []AlertRef }
@@ -1279,7 +1279,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 type AlertRef struct {

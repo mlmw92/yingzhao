@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/alert"
-	"github.com/nebula/monitor/internal/server/retention"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/server/retention"
 )
 
 // TestRoutes_Retention_PermissionGate 保留策略属系统配置：缺 system:config 一律拒绝。

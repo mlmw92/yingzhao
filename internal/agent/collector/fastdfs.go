@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // FastDFSCollector 采集 FastDFS 实例，支持两种模式：

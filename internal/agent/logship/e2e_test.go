@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/agent/collector"
-	"github.com/nebula/monitor/internal/agent/config"
-	"github.com/nebula/monitor/internal/agent/logship"
-	"github.com/nebula/monitor/internal/model"
-	serverconfig "github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/logstore"
-	"github.com/nebula/monitor/internal/server/node"
-	"github.com/nebula/monitor/internal/server/receiver"
+	"github.com/mlmw92/yingzhao/internal/agent/collector"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/agent/logship"
+	"github.com/mlmw92/yingzhao/internal/model"
+	serverconfig "github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/server/node"
+	"github.com/mlmw92/yingzhao/internal/server/receiver"
 )
 
 // TestEndToEnd_CollectShipStore 走一遍 C2 的数据路径：

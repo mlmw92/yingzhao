@@ -1,5 +1,5 @@
 BINARY_DIR := bin
-PKG := github.com/nebula/monitor
+PKG := github.com/mlmw92/yingzhao
 GO := go
 
 ## 版本号统一来自仓库根目录 VERSION 文件；每次编译前按改动大小手动 bump 主/次/修订。

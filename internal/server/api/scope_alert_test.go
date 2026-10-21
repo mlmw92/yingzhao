@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
 )
 
 // fakeRules 是 RulesProvider 的测试替身：Get 恒返回未找到，用于验证「通过授权后进入 handler」的行为。

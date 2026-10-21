@@ -18,7 +18,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // K8sCollector 采集 Kubernetes 集群指标，支持直连 apiserver（kubeconfig/token）与

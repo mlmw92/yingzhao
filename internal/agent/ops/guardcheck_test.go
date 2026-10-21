@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
 )
 
 // 这组用例钉住「护栏组合 = 任意代码执行」的两条路径，以及**不该报的那些**——

@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // ApplyFunc 热加载回调：保存后由调用方重建内存通知器（如 engine.SetNotifiers）。

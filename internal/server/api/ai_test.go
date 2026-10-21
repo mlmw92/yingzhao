@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/ai"
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/ai"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 func aiTestAPI(t *testing.T) (*API, *ai.Manager) {

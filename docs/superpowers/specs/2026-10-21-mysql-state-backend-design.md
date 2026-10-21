@@ -125,7 +125,7 @@ CREATE TABLE config_documents (
 ### 5.1 Schema 迁移
 
 - `schema_migrations(version INT PK, checksum VARCHAR(64), applied_at BIGINT)`。
-- 迁移文件按版本号顺序执行，启动时先取 MySQL 命名锁 `GET_LOCK('nebula_schema_migrate', 30)`，执行完 `RELEASE_LOCK`；多实例同时启动只有一个在迁移，其余等待。
+- 迁移文件按版本号顺序执行，启动时先取 MySQL 命名锁 `GET_LOCK('yingzhao_schema_migrate', 30)`，执行完 `RELEASE_LOCK`；多实例同时启动只有一个在迁移，其余等待。
 - 迁移失败**启动失败**并打印失败的版本与 SQL 摘要；不静默跳过。
 - 提供 `monitor-server migrate` 子命令（只迁移、不启动服务），便于发布流程先把库升好。
 - **管理员引导**：首次迁移把现有 `users.yaml`（或 `server.yaml` 的单用户 `auth` 段）导入 `users`/`roles`；之后运行时只认数据库，`server.yaml` 的 `auth` 段仅用于首次引导。
@@ -171,7 +171,7 @@ CREATE TABLE config_documents (
 
 方案：
 
-- `server.yaml` 增加 `masterKeyFile`（或环境变量 `NEBULA_MASTER_KEY`），保存 32 字节主密钥；两台实例部署同一份。
+- `server.yaml` 增加 `masterKeyFile`（或环境变量 `YINGZHAO_MASTER_KEY`），保存 32 字节主密钥；两台实例部署同一份。
 - 敏感字段用 AES-256-GCM 加密后存 `config_documents.payload` 的密文字段（带 `key_id` 前缀，便于轮换）。
 - 审计链密钥仍单独管理（现有 `AuditKeyFile` 的取向不变）：可存加密后的副本，但校验时必须能解出；主密钥丢失 = 审计链不可验，需要在文档里写清备份要求。
 - 迁移工具导入现有明文配置时，顺带加密；导入后旧文件里的密钥应删除或轮换。
@@ -282,4 +282,4 @@ CREATE TABLE config_documents (
 1. `timeout` 是驱动 `mysql.Config` 的专用字段，不在 `Params` 里；DSN 归一化用 `ParseDSN/FormatDSN`，测试按字段断言。
 2. MySQL 的 `JSON` 列会规范化空白（`{"a":1}` → `{"a": 1}`）；配置文档契约用例按语义比较，不按字节比较。
 
-**测试环境**：dev-server 上的 MySQL 8.0.46（容器 `mw-mysql`），独立测试库 `nebula_test` 与账号；凭据记录在服务器 `/root/.nebula-test-mysql.cnf`（0600），不进仓库。集成测试通过 SSH 隧道 `127.0.0.1:13306` 访问。
+**测试环境**：dev-server 上的 MySQL 8.0.46（容器 `mw-mysql`），独立测试库 `yingzhao_test` 与账号；凭据记录在服务器 `/root/.yingzhao-test-mysql.cnf`（0600），不进仓库。集成测试通过 SSH 隧道 `127.0.0.1:13306` 访问。

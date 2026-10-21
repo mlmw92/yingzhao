@@ -16,7 +16,7 @@ const (
 		checksum VARCHAR(64) NOT NULL,
 		applied_at BIGINT NOT NULL
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
-	advisoryLockName = "nebula_schema_migrate"
+	advisoryLockName = "yingzhao_schema_migrate"
 )
 
 // Apply 在命名锁保护下执行待应用的迁移，返回本次应用的数量。

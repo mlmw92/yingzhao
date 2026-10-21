@@ -3,7 +3,7 @@ package defense
 import "testing"
 
 func TestParseBannedIPs(t *testing.T) {
-	got := parseBannedIPs(`Status for the jail: nebula-monitor-sshd
+	got := parseBannedIPs(`Status for the jail: yingzhao-monitor-sshd
 |- Currently banned: 2
 |- Banned IP list: 192.0.2.1 2001:db8::1`)
 	if len(got) != 2 || got[0] != "192.0.2.1" || got[1] != "2001:db8::1" {
@@ -22,7 +22,7 @@ func TestJailTemplateUsesRealAndAuditActions(t *testing.T) {
 	if conf == "" {
 		t.Fatal("jail template is empty")
 	}
-	if !containsAll(conf, "action = %s", "nebula-monitor-audit") {
+	if !containsAll(conf, "action = %s", "yingzhao-monitor-audit") {
 		t.Fatalf("jail template does not contain composite actions: %s", conf)
 	}
 }

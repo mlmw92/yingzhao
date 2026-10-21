@@ -129,7 +129,7 @@ fi
 # 5) 统一入口 install.sh（无参数时进入交互菜单；带子命令时透传）
 cat > "$STAGE_FULL/install.sh" <<'EOF'
 #!/usr/bin/env bash
-# nebula-monitor 统一安装入口
+# yingzhao-monitor 统一安装入口
 #   无参数       进入交互菜单选择 server / agent / vm / logs
 #   server [..]  部署/升级 Server（透传给 deploy/install-server.sh）
 #   agent  [..]  安装 Agent   （透传给 deploy/agent-install.sh）
@@ -188,7 +188,7 @@ interactive_menu() {
   ver="$(cat "$HERE/VERSION" 2>/dev/null || echo '?')"
   cat <<MENU
 ============================================================
-  nebula-monitor v${ver}  安装入口
+  yingzhao-monitor v${ver}  安装入口
 ============================================================
 请选择要执行的操作：
 
@@ -274,7 +274,7 @@ chmod +x "$STAGE_FULL/deploy/uninstall.sh" "$STAGE_FULL/uninstall.sh"
 printf '%s\n' "$VERSION" > "$STAGE_FULL/VERSION"
 
 cat > "$STAGE_FULL/README.md" <<EOF
-# nebula-monitor v${VERSION} 全量离线发布包
+# yingzhao-monitor v${VERSION} 全量离线发布包
 
 下载后 \`tar -xzf\` 解压到任意目录即可。三步完成部署：
 
@@ -414,7 +414,7 @@ cat > "$STAGE_UPGRADE/manifest.json" <<EOF
 EOF
 
 cat > "$STAGE_UPGRADE/UPGRADE.md" <<EOF
-# nebula-monitor v${VERSION} 升级包（增量）
+# yingzhao-monitor v${VERSION} 升级包（增量）
 
 本包包含**编译后的产物**（Server / Agent 二进制 + 前端 web），以及 **deploy/agent-install.sh**（Server 自带 CDN 向 Agent 分发的安装脚本）。  
 **不包含** install.sh / uninstall.sh / 时序库等部署脚本与可选依赖（node / victoria-metrics），避免与现有部署版本错配。

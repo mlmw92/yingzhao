@@ -18,7 +18,7 @@ describe('首页区块默认布局', () => {
 
   it('升级前的本地布局也会把智能运维移到中间件之后', () => {
     // 旧版把智能运维固定在第一位，这是默认值残留、不是用户的选择
-    localStorage.setItem('nebula-overview-layout', JSON.stringify([
+    localStorage.setItem('yingzhao-overview-layout', JSON.stringify([
       { key: 'intelligence', span: 12, visible: true },
       { key: 'health', span: 4, visible: true },
       { key: 'kpi', span: 4, visible: true },

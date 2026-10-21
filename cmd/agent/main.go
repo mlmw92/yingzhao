@@ -15,24 +15,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nebula/monitor/internal/agent/collector"
-	"github.com/nebula/monitor/internal/agent/config"
-	"github.com/nebula/monitor/internal/agent/defense"
-	"github.com/nebula/monitor/internal/agent/logship"
-	opsagent "github.com/nebula/monitor/internal/agent/ops"
-	"github.com/nebula/monitor/internal/agent/proxy"
-	"github.com/nebula/monitor/internal/agent/reporter"
-	"github.com/nebula/monitor/internal/agent/upgrader"
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/version"
+	"github.com/mlmw92/yingzhao/internal/agent/collector"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/agent/defense"
+	"github.com/mlmw92/yingzhao/internal/agent/logship"
+	opsagent "github.com/mlmw92/yingzhao/internal/agent/ops"
+	"github.com/mlmw92/yingzhao/internal/agent/proxy"
+	"github.com/mlmw92/yingzhao/internal/agent/reporter"
+	"github.com/mlmw92/yingzhao/internal/agent/upgrader"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/version"
 )
 
 // pidFile Agent 进程 PID 文件路径。
 const pidFile = "/var/run/monitor-agent.pid"
 
 // opsExecutedPath 是下行操作执行记录的落盘路径（幂等：同一任务不重复执行）。
-// 与 defense 的状态文件同处一棵目录树（/var/lib/nebula-monitor）。
-const opsExecutedPath = "/var/lib/nebula-monitor/ops/executed.json"
+// 与 defense 的状态文件同处一棵目录树（/var/lib/yingzhao-monitor）。
+const opsExecutedPath = "/var/lib/yingzhao-monitor/ops/executed.json"
 
 // 受控 fail2ban 入侵防御相关全局组件（agent 单例）。
 var (
@@ -112,7 +112,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "显示版本信息")
 	flag.Parse()
 	if *showVersion {
-		fmt.Printf("nebula-monitor agent %s\n", version.Version)
+		fmt.Printf("yingzhao-monitor agent %s\n", version.Version)
 		fmt.Printf("build_time=%s\n", version.BuildTime)
 		fmt.Printf("go_version=%s\n", version.GoVersion)
 		return
@@ -464,7 +464,7 @@ func collectAndReport(ctx context.Context, coll *collector.Collector, rep *repor
 			// Server 只下发声明过的动作，于是"机器不同意"这件事在协议层就生效了。
 			Ops: opsSupported(),
 		},
-		// 上报当前 nebula 托管 SSH 防护状态
+		// 上报当前 yingzhao 托管 SSH 防护状态
 		DefenseStatus: defenseExec.Status(),
 		// 携带上一次指令执行结果回执（若有）
 		DefenseResult:  pendingResult,

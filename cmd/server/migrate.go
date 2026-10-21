@@ -7,9 +7,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/db"
-	"github.com/nebula/monitor/internal/server/migrate"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/db"
+	"github.com/mlmw92/yingzhao/internal/server/migrate"
 )
 
 // runMigrate 执行 Schema 迁移后退出，不启动 HTTP 服务。

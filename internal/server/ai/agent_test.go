@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 func fakeChat(t *testing.T, handler func(call int, body map[string]any) map[string]any) *httptest.Server {

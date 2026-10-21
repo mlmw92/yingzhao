@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 落盘侧要点：分片布局可预期、超长行截断、时间戳校正、**每日上限丢弃必须可见（带原因）**、

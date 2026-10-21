@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
 )
 
 // 校验接口：有 audit:read 就能查，返回里带覆盖区间与条数（不能只说"通过"）。

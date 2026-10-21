@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# nebula-monitor 时序库安装脚本（独立部署，可与 Server 分机）
+# yingzhao-monitor 时序库安装脚本（独立部署，可与 Server 分机）
 # ----------------------------------------------------------------------------
 # 功能：
 #   1. 安装 VictoriaMetrics（二进制 + systemd，离线包扫描；或 Docker）

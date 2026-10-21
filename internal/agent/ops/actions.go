@@ -3,7 +3,7 @@ package ops
 import (
 	"strings"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 三个内置动作的实现。

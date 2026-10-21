@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // MaxEvents 是**降级模式**下保留的最大审计事件条数（入库模式不再用它做保留口径）。

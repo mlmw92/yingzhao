@@ -5,8 +5,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 // 文件分发（file.push）的上传侧接口。

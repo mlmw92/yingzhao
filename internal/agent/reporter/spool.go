@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // Spool 是上报的**磁盘缓冲**：Server 不可达时把时序点落盘，恢复后随下一次上报补传。

@@ -105,7 +105,7 @@ describe('命令面板', () => {
 
     // 空查询下第一个分组是「命令」，首项即切换主题
     await w.find('[role="option"]').trigger('click')
-    expect(localStorage.getItem('nebula-cmdk-recent')).toContain('cmd:theme:b')
+    expect(localStorage.getItem('yingzhao-cmdk-recent')).toContain('cmd:theme:b')
 
     await openPalette(w)
     expect(w.text()).toContain('最近访问')

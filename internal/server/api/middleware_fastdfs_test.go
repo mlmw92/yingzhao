@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
 )
 
 // TestFastDFSInstances_DeclarativeShape 锁定 FastDFS 实例接口的声明式形状。

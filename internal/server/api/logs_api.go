@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/auth"
-	"github.com/nebula/monitor/internal/server/logparse"
-	"github.com/nebula/monitor/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/logparse"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
 )
 
 // 集中日志检索（C2 子批次 C）：GET /api/v1/logs?from&to&q&regex&nodes&sources&limit&cursor
@@ -434,7 +434,7 @@ func parseLogPodFilters(raw []string) ([]model.LogPodFilter, error) {
 		ns, pod, ok := strings.Cut(item, "|")
 		ns, pod = strings.TrimSpace(ns), strings.TrimSpace(pod)
 		if !ok || ns == "" || pod == "" {
-			return nil, fmt.Errorf("pods 需为 <命名空间>|<Pod> 形态（如 pods=nebula-demo|web-1）")
+			return nil, fmt.Errorf("pods 需为 <命名空间>|<Pod> 形态（如 pods=yingzhao-demo|web-1）")
 		}
 		// 与写入侧同一条规则：查不到的名字在这里就报错，而不是返回一个空结果
 		for _, part := range []string{ns, pod} {

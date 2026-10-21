@@ -3,7 +3,7 @@ package api
 import (
 	"strings"
 
-	"github.com/nebula/monitor/internal/server/analysis"
+	"github.com/mlmw92/yingzhao/internal/server/analysis"
 )
 
 // CorrelationNotes 实现 alert.CorrelationProvider：把智能分析的关联结论压成「一行一条」的文案，

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/agent/config"
+	"github.com/mlmw92/yingzhao/internal/agent/config"
 )
 
 // goroutineCount 返回当前 goroutine 数。

@@ -20,7 +20,7 @@
 - `GET /api/v1/groups` → 分组列表(决定分组顺序)
 - `GET /api/v1/alerts?state=active` → 活跃告警
 - `GET /api/v1/middleware/{redis|mysql|postgres|nginx|kafka|docker|rocketmq|k8s}/instances` → 8 类中间件实例聚合数据
-- 持久化：localStorage（自定义仪表盘配置，key: `nebula_overview_layout`）
+- 持久化：localStorage（自定义仪表盘配置，key: `yingzhao_overview_layout`）
 
 ## 实现方案
 
@@ -50,7 +50,7 @@
 4. **自定义仪表盘(编辑模式)**：
 
 - 配置数据结构：`{ modules: [{ id: 'health', label: '系统健康度', visible: true }, { id: 'kpi', ... }, { id: 'hosts', ... }, { id: 'middleware', ... }, { id: 'critical-alerts', ... }, { id: 'recent-alerts', ... }], order: ['health','kpi','hosts','middleware','critical-alerts','recent-alerts'] }`
-- 存储：`localStorage.setItem('nebula_overview_layout', JSON.stringify(config))`，页面加载时读取，无配置时用默认全显。
+- 存储：`localStorage.setItem('yingzhao_overview_layout', JSON.stringify(config))`，页面加载时读取，无配置时用默认全显。
 - 编辑模式 UI：右上角"自定义"按钮 → 切换 `editMode=true`，各区块出现拖拽手柄+显隐 checkbox+上下移动按钮；区块使用 `v-for` 按 order 渲染，拖拽用简单的"上移/下移"按钮（不引入第三方拖拽库，保持 KISS）。
 - 非编辑模式下，`visible=false` 的区块不渲染，`order` 决定渲染顺序。
 
@@ -77,7 +77,7 @@ OverviewView.vue (容器：编辑模式控制 + 布局编排 + 数据加载)
 ### 目录结构
 
 ```
-nebula-monitor/
+yingzhao-monitor/
 └── web/
     └── src/
         ├── components/
@@ -92,7 +92,7 @@ nebula-monitor/
         │   ├── KpiCard.vue                 [复用] 无改动
         │   └── OsIcon.vue                  [复用] 无改动
         ├── composables/                    [NEW] 目录
-        │   └── useOverviewLayout.js        [NEW] 管理首页模块显隐/排序配置；读写 localStorage('nebula_overview_layout')；提供 defaultLayout/editMode/moveModule/toggleVisible/saveLayout
+        │   └── useOverviewLayout.js        [NEW] 管理首页模块显隐/排序配置；读写 localStorage('yingzhao_overview_layout')；提供 defaultLayout/editMode/moveModule/toggleVisible/saveLayout
         └── assets/
             └── img/                        [复用] redis/mysql/postgresql/nginx/Kafka/docker/rocketMQ/kubernetes.svg
 ```
@@ -103,7 +103,7 @@ nebula-monitor/
 - **别名展示规则**：`displayName(n) = n.displayName?.trim() || n.hostname`，与后端 `SetNodeDisplayName` 逻辑一致(空串=清除别名回退 hostname)。
 - **分组逻辑**：`computed` 中先按 `/api/v1/groups` 顺序建立分组桶，遍历 nodes 填入对应桶，无匹配分组的归入"未分组"桶。排序：异常节点在组内置顶(复用现有 `nodeSeverity` 函数)。
 - **中间件指标映射**：TopN 排行指标需按类型区分——Redis:usedMemory、MySQL:threadsConnected、Postgres:numbackends、Nginx:activeConnections、Kafka:consumerLag、Docker:memPercent、RocketMQ:messageAccumulation、K8s:podsTotal。数值格式化复用 RedisTab 中已有的 `formatBytes`/`formatNum` 逻辑(在子组件内内联简洁版)。
-- **编辑模式持久化**：localStorage key `nebula_overview_layout`，结构含 `modules` 数组(id/label/visible)和 `order` 数组。`onMounted` 时读取并合并默认值(新增模块自动补入末尾)，编辑模式退出时自动保存。
+- **编辑模式持久化**：localStorage key `yingzhao_overview_layout`，结构含 `modules` 数组(id/label/visible)和 `order` 数组。`onMounted` 时读取并合并默认值(新增模块自动补入末尾)，编辑模式退出时自动保存。
 - **CSS 变量复用**：所有子组件沿用 `--accent`/`--warn`/`--danger`/`--bg-card`/`--border`/`--text`/`--text-dim`/`--mono`/`--chart-*` 等现有变量，保持视觉一致性。
 - **响应式**：保持 `@media (max-width: 1200px)` 和 `@media (max-width: 1100px)` 断点，中间件汇总卡网格在窄屏自动从多列变单列。
 - **构建与提交**：改完 `cd web && npm install && npm run build`；纯前端改动无需 cross-compile.sh 和重新分发 agent；但如需发布新版本需同步 VERSION 文件并重新编译 server 二进制(因前端 embed)。提交前 `git status` 检查工作区避免混入无关改动。

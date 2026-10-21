@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
 )
 
 // 集中日志上行（C2）。

@@ -3,7 +3,7 @@ package alert
 import (
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/metrics"
+	"github.com/mlmw92/yingzhao/internal/server/metrics"
 )
 
 // 本文件是「规则模板」的守卫。设计意图：模板是用户「不知道该怎么配」时的抄写范本，

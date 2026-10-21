@@ -11,8 +11,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/storage"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/storage"
 )
 
 // checkWSLSameOrigin 仅允许同源（或缺少 Origin 头的非浏览器客户端）建立 WebSocket，

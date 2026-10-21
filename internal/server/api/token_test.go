@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/server/auth"
-	"github.com/nebula/monitor/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/config"
 )
 
 // TestGenVerifyToken_RoundTrip 合法 token 往返：用户名与 tokenVersion 必须保真。
@@ -129,7 +129,7 @@ func TestAuthMiddleware_TokenPaths(t *testing.T) {
 
 	// Cookie 兜底：浏览器 WebSocket 握手无法设置请求头，依赖这条路径
 	req = newReq()
-	req.AddCookie(&http.Cookie{Name: "nebula_token", Value: genToken("alice", p.TokenVersion, cfg.Secret)})
+	req.AddCookie(&http.Cookie{Name: "yingzhao_token", Value: genToken("alice", p.TokenVersion, cfg.Secret)})
 	if code := do(req); code != http.StatusOK {
 		t.Fatalf("Cookie 合法 token 应放行，code = %d", code)
 	}

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 护栏组合风险的**服务端状态**与**首次出现的事件**（能力全景表 §3.4 后第 3 条的既有 TODO）。

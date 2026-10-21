@@ -9,7 +9,7 @@ import (
 
 	"github.com/IBM/sarama"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // KafkaCollector 采集 Kafka 实例指标，支持 sarama 直连与 JMX exporter 双模式。

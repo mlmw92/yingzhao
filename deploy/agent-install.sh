@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# nebula-monitor Agent 交互式安装脚本（分步引导）
+# yingzhao-monitor Agent 交互式安装脚本（分步引导）
 # ----------------------------------------------------------------------------
 # 功能：
 #   1. 预检环境（root / 架构 / systemd / 网络）
@@ -479,7 +479,7 @@ generate_config() {
   chmod 700 "$CONFIG_DIR"
 
   cat > "$CONFIG_DIR/agent.yaml" <<EOF
-# nebula-monitor Agent 配置（由 agent-install.sh 生成）
+# yingzhao-monitor Agent 配置（由 agent-install.sh 生成）
 serverURL: "$SERVER_URL"
 node: "$NODE"
 group: "$GROUP"
@@ -693,7 +693,7 @@ install_self_script() {
 write_service() {
   cat > "$SERVICE_DIR/$SERVICE_NAME.service" <<EOF
 [Unit]
-Description=nebula-monitor Agent (主机指标采集上报)
+Description=yingzhao-monitor Agent (主机指标采集上报)
 After=network.target
 
 [Service]
@@ -756,7 +756,7 @@ connectivity_check() {
 summary() {
   echo
   echo "============================================================"
-  echo " nebula-monitor Agent 安装完成"
+  echo " yingzhao-monitor Agent 安装完成"
   echo "------------------------------------------------------------"
   echo " 上报 Server : $SERVER_URL"
   echo " 节点名      : $NODE"
@@ -1389,7 +1389,7 @@ gen_self_signed_certs() {
     c_info "生成自签 CA（有效期 ${TLS_DAYS} 天）"
     openssl req -x509 -newkey rsa:2048 -nodes \
       -keyout "$ca_key" -out "$ca_crt" -days "$TLS_DAYS" \
-      -subj "/CN=nebula-monitor-ca" >/dev/null 2>&1 \
+      -subj "/CN=yingzhao-monitor-ca" >/dev/null 2>&1 \
       || die "生成 CA 失败"
   fi
 
@@ -1555,7 +1555,7 @@ generate_proxy_config() {
 
   local cfg="$CONFIG_DIR/agent.yaml"
   cat > "$cfg" <<EOF
-# nebula-monitor Agent 配置（代理模式 $MODE，由 agent-install.sh 生成）
+# yingzhao-monitor Agent 配置（代理模式 $MODE，由 agent-install.sh 生成）
 mode: "$MODE"
 node: "$NODE"
 group: "$GROUP"
@@ -1593,7 +1593,7 @@ write_proxy_service() {
   local svc_name="monitor-proxy-$MODE"
   cat > "$SERVICE_DIR/$svc_name.service" <<EOF
 [Unit]
-Description=nebula-monitor Agent Proxy ($MODE)
+Description=yingzhao-monitor Agent Proxy ($MODE)
 After=network.target
 
 [Service]
@@ -1633,7 +1633,7 @@ proxy_summary() {
   local svc_name="monitor-proxy-$MODE"
   echo
   echo "============================================================"
-  echo " nebula-monitor Agent 代理模式安装完成（$MODE）"
+  echo " yingzhao-monitor Agent 代理模式安装完成（$MODE）"
   echo "------------------------------------------------------------"
   echo " 模式        : $MODE"
   echo " 节点名      : $NODE"

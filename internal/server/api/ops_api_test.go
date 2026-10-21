@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
 )
 
 // opsTestAPI 在 scopeTestAPI 的基础上接入下行操作通道（临时任务文件）。

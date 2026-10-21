@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/nebula/monitor/internal/server/metrics"
+	"github.com/mlmw92/yingzhao/internal/server/metrics"
 )
 
 // handleMetricsCatalog 返回指标目录（指标自动发现主入口），同时给告警规则表单用。

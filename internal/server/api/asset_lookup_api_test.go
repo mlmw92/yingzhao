@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nebula/monitor/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
 )
 
 // lookupPath 拼出跨页联动用的精确查询地址（容器页就是这么拼的）。

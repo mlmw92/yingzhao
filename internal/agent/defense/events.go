@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // banEventCollector 增量采集 fail2ban action 写入的封禁审计 JSONL。

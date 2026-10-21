@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 上行侧的语义要点：请求形态正确（路径/密钥/内容），
@@ -31,7 +31,7 @@ func TestShipper_SendsBatchWithSecret(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	origin := &model.LogOrigin{Namespace: "nebula-demo", Pod: "web-1", Container: "app"}
+	origin := &model.LogOrigin{Namespace: "yingzhao-demo", Pod: "web-1", Container: "app"}
 	res, err := New(srv.URL, "s3cret", "n1", "default").Sink()(context.Background(), "podlog", origin, lines(2))
 	if err != nil {
 		t.Fatalf("不应报错：%v", err)
@@ -46,7 +46,7 @@ func TestShipper_SendsBatchWithSecret(t *testing.T) {
 		t.Fatalf("请求体不符：%+v", got)
 	}
 	// 容器身份必须随批次上行：中心靠它把日志行标到 Pod 资产上，丢了就只剩"来自某台机器"。
-	if got.Origin == nil || got.Origin.Namespace != "nebula-demo" || got.Origin.Pod != "web-1" || got.Origin.Container != "app" {
+	if got.Origin == nil || got.Origin.Namespace != "yingzhao-demo" || got.Origin.Pod != "web-1" || got.Origin.Container != "app" {
 		t.Fatalf("容器身份应随批次上行，got %+v", got.Origin)
 	}
 	if res.Dropped != 0 {

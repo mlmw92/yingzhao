@@ -16,34 +16,34 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/ai"
-	"github.com/nebula/monitor/internal/server/alert"
-	"github.com/nebula/monitor/internal/server/analysis"
-	"github.com/nebula/monitor/internal/server/approval"
-	"github.com/nebula/monitor/internal/server/audit"
-	"github.com/nebula/monitor/internal/server/auth"
-	"github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/dashboard"
-	"github.com/nebula/monitor/internal/server/dialtest"
-	"github.com/nebula/monitor/internal/server/instancereg"
-	"github.com/nebula/monitor/internal/server/k8sproxy"
-	"github.com/nebula/monitor/internal/server/logstore"
-	"github.com/nebula/monitor/internal/server/mwreg"
-	"github.com/nebula/monitor/internal/server/nginxaccess"
-	"github.com/nebula/monitor/internal/server/node"
-	"github.com/nebula/monitor/internal/server/notify"
-	"github.com/nebula/monitor/internal/server/ops"
-	"github.com/nebula/monitor/internal/server/receiver"
-	"github.com/nebula/monitor/internal/server/report"
-	"github.com/nebula/monitor/internal/server/retention"
-	"github.com/nebula/monitor/internal/server/screencfg"
-	"github.com/nebula/monitor/internal/server/security"
-	"github.com/nebula/monitor/internal/server/selfmon"
-	"github.com/nebula/monitor/internal/server/storage"
-	"github.com/nebula/monitor/internal/server/uicfg"
-	"github.com/nebula/monitor/internal/server/upgrade"
-	"github.com/nebula/monitor/internal/version"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/ai"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/server/analysis"
+	"github.com/mlmw92/yingzhao/internal/server/approval"
+	"github.com/mlmw92/yingzhao/internal/server/audit"
+	"github.com/mlmw92/yingzhao/internal/server/auth"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/dashboard"
+	"github.com/mlmw92/yingzhao/internal/server/dialtest"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/server/k8sproxy"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/server/mwreg"
+	"github.com/mlmw92/yingzhao/internal/server/nginxaccess"
+	"github.com/mlmw92/yingzhao/internal/server/node"
+	"github.com/mlmw92/yingzhao/internal/server/notify"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/server/receiver"
+	"github.com/mlmw92/yingzhao/internal/server/report"
+	"github.com/mlmw92/yingzhao/internal/server/retention"
+	"github.com/mlmw92/yingzhao/internal/server/screencfg"
+	"github.com/mlmw92/yingzhao/internal/server/security"
+	"github.com/mlmw92/yingzhao/internal/server/selfmon"
+	"github.com/mlmw92/yingzhao/internal/server/storage"
+	"github.com/mlmw92/yingzhao/internal/server/uicfg"
+	"github.com/mlmw92/yingzhao/internal/server/upgrade"
+	"github.com/mlmw92/yingzhao/internal/version"
 )
 
 // RulesProvider 提供告警规则读写（由 alert 包实现）。
@@ -356,7 +356,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	// 混在一张卡上会让人把两者当同一量级的提示。
 	mux.HandleFunc("GET /api/v1/security/guard-risks", a.permit(a.handleGuardRisks, "security:read"))
 
-	// 受控 fail2ban 入侵防御（仅管理 nebula 专属 SSH jail）
+	// 受控 fail2ban 入侵防御（仅管理 yingzhao 专属 SSH jail）
 	mux.HandleFunc("GET /api/v1/security/defense/status", a.permit(a.handleDefenseStatusList, "security:read"))
 	mux.HandleFunc("GET /api/v1/security/defense/status/{node}", a.permitNode(a.handleDefenseStatus, "security:read"))
 	mux.HandleFunc("POST /api/v1/security/defense/{node}/{action}", a.permitNode(a.handleDefenseAction, "security:write"))

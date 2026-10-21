@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // 结构化字段与原文写在**同一条 JSON**里：不需要另建索引，检索仍是顺序读 + 有界扫描。

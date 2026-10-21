@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
+	"github.com/mlmw92/yingzhao/internal/model"
 )
 
 // newRocketMQExporterServer 启动一个返回指定 exposition 文本的假 exporter。
@@ -223,11 +223,11 @@ func TestRocketMQCollectorExporterVersionAndUptime(t *testing.T) {
 // （rocketmq_topic_count / rocketmq_message_accumulation ...）。这里用 dev-server 上
 // apache/rocketmq-exporter 的实测输出形态锁定归并结果。
 func TestRocketMQCollectorExporterAdaptsMetrics(t *testing.T) {
-	body := `rocketmq_producer_offset{cluster="DefaultCluster",broker="broker-a",topic="nebula-mw-demo",} 200.0
+	body := `rocketmq_producer_offset{cluster="DefaultCluster",broker="broker-a",topic="yingzhao-mw-demo",} 200.0
 rocketmq_producer_offset{cluster="DefaultCluster",broker="broker-a",topic="TBW102",} 0.0
-rocketmq_group_diff{group="nebula-mw-demo-group",topic="nebula-mw-demo",countOfOnlineConsumers="1",msgModel="1",} 200.0
-rocketmq_group_diff{group="nebula-mw-demo-group",topic="other-topic",countOfOnlineConsumers="1",msgModel="1",} 30.0
-rocketmq_consumer_tps{cluster="DefaultCluster",broker="broker-a",topic="nebula-mw-demo",group="nebula-mw-demo-group",} 12.5
+rocketmq_group_diff{group="yingzhao-mw-demo-group",topic="yingzhao-mw-demo",countOfOnlineConsumers="1",msgModel="1",} 200.0
+rocketmq_group_diff{group="yingzhao-mw-demo-group",topic="other-topic",countOfOnlineConsumers="1",msgModel="1",} 30.0
+rocketmq_consumer_tps{cluster="DefaultCluster",broker="broker-a",topic="yingzhao-mw-demo",group="yingzhao-mw-demo-group",} 12.5
 rocketmq_brokeruntime_put_tps{cluster="DefaultCluster",brokerIP="127.0.0.1:10911",} 42.0
 `
 	srv := newRocketMQExporterServer(t, body)

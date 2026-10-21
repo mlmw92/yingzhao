@@ -4,7 +4,7 @@
 
 ## 产品概述
 
-在不改变现有功能与使用方式的前提下，对 nebula-monitor 的敏感凭据做静态加密存储。登录密码在 Server 配置中以 bcrypt 哈希存储、登录时哈希比对；中间件（Redis/MySQL/PostgreSQL/MongoDB 等）的连接密码在 Agent 配置中以 AES-GCM 密文存储，Agent 加载时解密为明文供采集器使用。两类配置均兼容现有明文旧格式，实现无感升级。
+在不改变现有功能与使用方式的前提下，对 yingzhao-monitor 的敏感凭据做静态加密存储。登录密码在 Server 配置中以 bcrypt 哈希存储、登录时哈希比对；中间件（Redis/MySQL/PostgreSQL/MongoDB 等）的连接密码在 Agent 配置中以 AES-GCM 密文存储，Agent 加载时解密为明文供采集器使用。两类配置均兼容现有明文旧格式，实现无感升级。
 
 ## 核心特性
 
@@ -48,7 +48,7 @@
 ### 目录结构与受影响文件
 
 ```
-nebula-monitor/
+yingzhao-monitor/
 ├── go.mod                                   # [MODIFY] 将 golang.org/x/crypto 由 indirect 提升为直接依赖（运行 go mod tidy）
 ├── internal/server/
 │   ├── crypto/crypto.go                     # [NEW] bcrypt 封装：HashPassword/VerifyPassword/IsHashed

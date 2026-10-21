@@ -10,17 +10,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nebula/monitor/internal/model"
-	"github.com/nebula/monitor/internal/server/alert"
-	"github.com/nebula/monitor/internal/server/asset"
-	"github.com/nebula/monitor/internal/server/config"
-	"github.com/nebula/monitor/internal/server/instancereg"
-	"github.com/nebula/monitor/internal/server/logstore"
-	"github.com/nebula/monitor/internal/server/nginxaccess"
-	"github.com/nebula/monitor/internal/server/node"
-	"github.com/nebula/monitor/internal/server/ops"
-	"github.com/nebula/monitor/internal/server/security"
-	"github.com/nebula/monitor/internal/server/storage"
+	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/alert"
+	"github.com/mlmw92/yingzhao/internal/server/asset"
+	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/instancereg"
+	"github.com/mlmw92/yingzhao/internal/server/logstore"
+	"github.com/mlmw92/yingzhao/internal/server/nginxaccess"
+	"github.com/mlmw92/yingzhao/internal/server/node"
+	"github.com/mlmw92/yingzhao/internal/server/ops"
+	"github.com/mlmw92/yingzhao/internal/server/security"
+	"github.com/mlmw92/yingzhao/internal/server/storage"
 )
 
 // itoa 整型转字符串。

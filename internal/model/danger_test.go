@@ -46,7 +46,7 @@ func TestDangerFindings_MultipleRules(t *testing.T) {
 func TestDangerFindings_NoFalsePositiveOnNormalPath(t *testing.T) {
 	for _, path := range []string{
 		"/opt/app/conf/app.conf",
-		"/tmp/nebula-filepush/e2e.txt",
+		"/tmp/yingzhao-filepush/e2e.txt",
 		"/etc/nginx/nginx.conf",         // 在 /etc 下但不是系统会自执行的目录
 		"/etc/systemd/systemd-foo/x",    // 前缀相近但不是那个目录（边界必须按目录段比）
 		"/etc/systemd/system-backup/x",  // 同上
@@ -71,7 +71,7 @@ func TestDangerFindings_RestartCriticalUnit(t *testing.T) {
 // **决定性负例**：普通业务服务重启必须放行——把它们也列为危险，
 // 结果是每次重启都弹警告，最后没人看警告。
 func TestDangerFindings_NoFalsePositiveOnNormalUnit(t *testing.T) {
-	for _, unit := range []string{"nginx.service", "mysql.service", "nebula-app.service", "redis@6379.service"} {
+	for _, unit := range []string{"nginx.service", "mysql.service", "yingzhao-app.service", "redis@6379.service"} {
 		if fs := DangerFindings(OpsKindSvcRestart, map[string]string{"unit": unit}); len(fs) > 0 {
 			t.Fatalf("普通服务 %s 不该被判为危险（否则警告会被无视）", unit)
 		}

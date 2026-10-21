@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# nebula-monitor Server 交互式安装脚本（分步引导）
+# yingzhao-monitor Server 交互式安装脚本（分步引导）
 # ----------------------------------------------------------------------------
 # 功能：
 #   1. 预检环境（root / 架构 / systemd）
@@ -820,7 +820,7 @@ generate_config() {
   fi
 
   cat > "$CONFIG_DIR/server.yaml" <<EOF
-# nebula-monitor Server 配置（由 install-server.sh 生成）
+# yingzhao-monitor Server 配置（由 install-server.sh 生成）
 mode: $MODE
 
 listen: "$LISTEN"
@@ -948,7 +948,7 @@ EOF
 write_server_service() {
   cat > "$SERVICE_DIR/monitor-server.service" <<EOF
 [Unit]
-Description=nebula-monitor Server
+Description=yingzhao-monitor Server
 After=network.target victoriametrics.service
 Wants=victoriametrics.service
 
@@ -1004,7 +1004,7 @@ health_check() {
 summary() {
   echo
   echo "============================================================"
-  echo " nebula-monitor Server 安装完成"
+  echo " yingzhao-monitor Server 安装完成"
   echo "------------------------------------------------------------"
   echo " 监听地址      : $LISTEN"
   echo " 时序库后端    : $TSDB_BACKEND"

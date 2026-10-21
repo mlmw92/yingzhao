@@ -52,7 +52,7 @@ export function invalidateChartColors() {
   gradientCache.clear()
 }
 if (typeof window !== 'undefined') {
-  window.addEventListener('nebula:theme-changed', invalidateChartColors)
+  window.addEventListener('yingzhao:theme-changed', invalidateChartColors)
 }
 
 // 代理让既有的 COLORS.cyan 这类写法零改动即可跟随主题

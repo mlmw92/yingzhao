@@ -1,9 +1,9 @@
-# NebulaEye monitor-server 崩溃日志
+# YingzhaoEye monitor-server 崩溃日志
 
 > **已归档（2026-10-08）｜一次性现场记录**：2026-08-28 的一次崩溃现场抓取，当时的版本早已被后续修复取代。
 抓取时间: 2026-08-28 21:xx (北京时间)
 主机: 124.223.77.206 (VM-0-10-ubuntu, 上海腾讯云)
-服务: monitor-server.service (nebula-monitor Server)
+服务: monitor-server.service (yingzhao-monitor Server)
 
 ---
 
@@ -26,24 +26,24 @@ net/http.(*conn).serve.func1()
     C:/Program Files/Go/src/net/http/server.go:1907 +0xbd
 panic({0x9a4340?, 0x197ea00?})
     C:/Program Files/Go/src/runtime/panic.go:860 +0x13a
-github.com/nebula/monitor/internal/server/report.(*Generator).collectSecurity(0x29f537cae0f0, 0x1a04339760b, 0x1a0485fd20b)
-    E:/codebuddy_project/nebula-monitor/internal/server/report/report.go:618 +0x271
-github.com/nebula/monitor/internal/server/report.(*Generator).collectData(_, {_, _, _}, {_, _, _}, {_, _})
-    E:/codebuddy_project/nebula-monitor/internal/server/report/report.go:419 +0x17fa
-github.com/nebula/monitor/internal/server/report.(*Generator).Generate(0x29f537cae0f0, {0x29f539c19414, 0x5})
-    E:/codebuddy_project/nebula-monitor/internal/server/report/report.go:264 +0x125
-github.com/nebula/monitor/internal/server/api.(*API).handleReportGenerate(0x29f538078820, {0xa879c0, 0x29f538fc7b48}, 0x29f538d1a140)
-    E:/codebuddy_project/nebula-monitor/internal/server/api/middleware_api.go:1423 +0xee
+github.com/mlmw92/yingzhao/internal/server/report.(*Generator).collectSecurity(0x29f537cae0f0, 0x1a04339760b, 0x1a0485fd20b)
+    E:/codebuddy_project/yingzhao-monitor/internal/server/report/report.go:618 +0x271
+github.com/mlmw92/yingzhao/internal/server/report.(*Generator).collectData(_, {_, _, _}, {_, _, _}, {_, _})
+    E:/codebuddy_project/yingzhao-monitor/internal/server/report/report.go:419 +0x17fa
+github.com/mlmw92/yingzhao/internal/server/report.(*Generator).Generate(0x29f537cae0f0, {0x29f539c19414, 0x5})
+    E:/codebuddy_project/yingzhao-monitor/internal/server/report/report.go:264 +0x125
+github.com/mlmw92/yingzhao/internal/server/api.(*API).handleReportGenerate(0x29f538078820, {0xa879c0, 0x29f538fc7b48}, 0x29f538d1a140)
+    E:/codebuddy_project/yingzhao-monitor/internal/server/api/middleware_api.go:1423 +0xee
 net/http.HandlerFunc.ServeHTTP(...)
     C:/Program Files/Go/src/net/http/server.go:2286 +0x29
 net/http.(*ServeMux).ServeHTTP(...)
     C:/Program Files/Go/src/net/http/server.go:2828 +0x1c7
 main.main.AuditMiddleware.func3(...)
-    E:/codebuddy_project/nebula-monitor/internal/server/api/audit.go:54 +0x255
+    E:/codebuddy_project/yingzhao-monitor/internal/server/api/audit.go:54 +0x255
 net/http.HandlerFunc.ServeHTTP(...)
     C:/Program Files/Go/src/net/http/server.go:2286 +0x29
 main.main.AuthMiddleware.func4(...)
-    E:/codebuddy_project/nebula-monitor/internal/server/api/auth.go:169 +0x49d
+    E:/codebuddy_project/yingzhao-monitor/internal/server/api/auth.go:169 +0x49d
 net/http.HandlerFunc.ServeHTTP(...)
     C:/Program Files/Go/src/net/http/server.go:2286 +0x29
 net/http.serverHandler.ServeHTTP(...)
@@ -58,7 +58,7 @@ created by net/http.(*Server).Serve in goroutine 1
 ## 三、崩溃点定位
 
 核心崩溃函数:
-  github.com/nebula/monitor/internal/server/report.(*Generator).collectSecurity
+  github.com/mlmw92/yingzhao/internal/server/report.(*Generator).collectSecurity
   文件: report/report.go 第 618 行
 
 调用链:

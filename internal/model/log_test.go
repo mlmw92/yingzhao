@@ -16,8 +16,8 @@ func TestNormalizeLogOrigin(t *testing.T) {
 	}{
 		{
 			name: "合法身份原样返回",
-			in:   &LogOrigin{Namespace: "nebula-demo", Pod: "web-7d9f", Container: "nginx"},
-			want: &LogOrigin{Namespace: "nebula-demo", Pod: "web-7d9f", Container: "nginx"},
+			in:   &LogOrigin{Namespace: "yingzhao-demo", Pod: "web-7d9f", Container: "nginx"},
+			want: &LogOrigin{Namespace: "yingzhao-demo", Pod: "web-7d9f", Container: "nginx"},
 			ok:   true,
 		},
 		{

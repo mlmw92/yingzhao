@@ -1,6 +1,6 @@
 package api
 
-import "github.com/nebula/monitor/internal/model"
+import "github.com/mlmw92/yingzhao/internal/model"
 
 // alertEventID 返回事件的稳定标识。
 //
