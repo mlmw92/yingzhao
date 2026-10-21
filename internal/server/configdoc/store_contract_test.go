@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -46,6 +47,37 @@ func runStoreContract(t *testing.T, newStore func(t *testing.T) Store) {
 		v, err := s.Save(ctx, "ui", []byte(`{"v":2}`), 1)
 		if err != nil || v != 2 {
 			t.Fatalf("正确版本保存 = %d, %v", v, err)
+		}
+	})
+
+	t.Run("concurrent create", func(t *testing.T) {
+		s := newStore(t)
+		var wg sync.WaitGroup
+		results := make(chan error, 2)
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := s.Save(ctx, "concurrent", []byte(`{"n":1}`), 0)
+				results <- err
+			}()
+		}
+		wg.Wait()
+		close(results)
+
+		var okCount, conflictCount int
+		for err := range results {
+			switch {
+			case err == nil:
+				okCount++
+			case errors.Is(err, ErrVersionConflict):
+				conflictCount++
+			default:
+				t.Fatalf("并发创建返回了非契约错误: %v", err)
+			}
+		}
+		if okCount != 1 || conflictCount != 1 {
+			t.Fatalf("并发创建应 1 成功 1 冲突，实际 ok=%d conflict=%d", okCount, conflictCount)
 		}
 	})
 

@@ -6,7 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
+
+// isConflictError 把 MySQL 的并发冲突翻译成契约里的 ErrVersionConflict。
+//
+// 1062 = duplicate key，1213 = deadlock。两者都表示「另一个写入者先完成了」：
+// 调用方应当重读版本后重试，而不是看到一个原始驱动错误。
+func isConflictError(err error) bool {
+	var me *mysql.MySQLError
+	if !errors.As(err, &me) {
+		return false
+	}
+	return me.Number == 1062 || me.Number == 1213
+}
 
 // MySQLStore 把配置文档存进 config_documents 表。
 type MySQLStore struct{ db *sql.DB }
@@ -50,6 +64,9 @@ func (s *MySQLStore) Save(ctx context.Context, ns string, payload []byte, expect
 		}
 		current = 0
 	case err != nil:
+		if isConflictError(err) {
+			return 0, ErrVersionConflict
+		}
 		return 0, err
 	default:
 		if expectedVersion != current {
@@ -69,9 +86,15 @@ func (s *MySQLStore) Save(ctx context.Context, ns string, payload []byte, expect
 			next, payload, now, ns)
 	}
 	if err != nil {
+		if isConflictError(err) {
+			return 0, ErrVersionConflict
+		}
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
+		if isConflictError(err) {
+			return 0, ErrVersionConflict
+		}
 		return 0, err
 	}
 	return next, nil
