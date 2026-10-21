@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // 取消失败的两种原因刻意分开，供 API 层给出不同的状态码与提示：
@@ -96,7 +97,8 @@ type Store struct {
 	files *FileStore
 	// db 非空时走台账库；flushed / capsFlushed / seqFlushed 是**上次落盘时的快照**，
 	// 用于把"整份重写"换成"只写变化的部分"。
-	db          *sql.DB
+	db          *sqlx.DB
+	mysql       bool
 	flushed     map[string]Task
 	capsFlushed map[string]string
 	seqFlushed  int64
@@ -127,12 +129,21 @@ func (s *Store) SetNow(fn func() int64) {
 // opsMigratedSuffix 是回填完成后原 JSON 文件的新后缀（与批次 18 同构）。
 const opsMigratedSuffix = ".bak-migrated"
 
-const upsertOpsTaskSQL = `INSERT INTO ops_tasks(
+func (s *Store) upsertOpsTaskSQL() string {
+	return `INSERT INTO ops_tasks(
 	id, batch_id, node, kind, state, created_at, done_at, task_json
-) VALUES(?,?,?,?,?,?,?,?)
-ON CONFLICT(id) DO UPDATE SET
-	batch_id=excluded.batch_id, node=excluded.node, kind=excluded.kind, state=excluded.state,
-	created_at=excluded.created_at, done_at=excluded.done_at, task_json=excluded.task_json`
+) VALUES(?,?,?,?,?,?,?,?)` + sqlx.Upsert(s.mysql, "id",
+		"batch_id=excluded.batch_id, node=excluded.node, kind=excluded.kind, state=excluded.state, created_at=excluded.created_at, done_at=excluded.done_at, task_json=excluded.task_json")
+}
+
+func (s *Store) upsertCapsSQL() string {
+	return "INSERT INTO ops_caps(node, kinds) VALUES(?,?)" + sqlx.Upsert(s.mysql, "node", "kinds=excluded.kinds")
+}
+
+func (s *Store) upsertMetaSQL() string {
+	return "INSERT INTO ops_meta(" + "`key`" + ", value) VALUES('seq', ?)" +
+		sqlx.Upsert(s.mysql, "`key`", "value=excluded.value")
+}
 
 // capsSignature 把能力集合压成可比对的字符串（排序后逗号连接）：既用于落盘，
 // 也用于判断"能力有没有变"（能力每次上报都写，但只有变化时才该真的落盘）。
@@ -156,7 +167,10 @@ func opsTaskArgs(t Task) ([]any, error) {
 //
 // 回填失败**不阻断启动**：返回错误由调用方记日志，本存储继续按降级模式工作——
 // 操作任务是"不能丢"的东西，但为了它让服务起不来更糟。
-func (s *Store) UseSQLite(db *sql.DB) error {
+func (s *Store) UseSQLite(db *sql.DB) error { return s.UseSQL(db, false) }
+
+// UseSQL 接入关系库；mysql 决定 upsert 方言。
+func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
 	if db == nil {
 		return nil
 	}
@@ -185,7 +199,8 @@ func (s *Store) UseSQLite(db *sql.DB) error {
 	s.tasks, s.caps, s.seq = tasks, caps, seq
 	s.mu.Unlock()
 	s.persistMu.Lock()
-	s.db = db
+	s.db = sqlx.Wrap(db, mysql)
+	s.mysql = mysql
 	s.snapshotLocked() // 切入库模式时不该产生"待写差集"
 	s.persistMu.Unlock()
 	slog.Info("操作任务已改用数据库", "tasks", len(s.tasks), "nodes", len(s.caps))
@@ -199,7 +214,7 @@ func (s *Store) backfill(db *sql.DB) error {
 		return fmt.Errorf("回填操作任务失败: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.Prepare(upsertOpsTaskSQL)
+	stmt, err := tx.Prepare(s.upsertOpsTaskSQL())
 	if err != nil {
 		return fmt.Errorf("回填操作任务失败: %w", err)
 	}
@@ -225,13 +240,11 @@ func (s *Store) backfill(db *sql.DB) error {
 		}
 	}
 	for node, set := range caps {
-		if _, err := tx.Exec(`INSERT INTO ops_caps(node, kinds) VALUES(?,?)
-			ON CONFLICT(node) DO UPDATE SET kinds=excluded.kinds`, node, capsSignature(set)); err != nil {
+		if _, err := tx.Exec(s.upsertCapsSQL(), node, capsSignature(set)); err != nil {
 			return fmt.Errorf("回填操作能力失败: %w", err)
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO ops_meta(key, value) VALUES('seq', ?)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, strconv.FormatInt(seq, 10)); err != nil {
+	if _, err := tx.Exec(s.upsertMetaSQL(), strconv.FormatInt(seq, 10)); err != nil {
 		return fmt.Errorf("回填操作任务序号失败: %w", err)
 	}
 	return tx.Commit()
@@ -441,14 +454,13 @@ func (s *Store) saveSQLiteLocked() {
 			slog.Warn("操作任务序列化失败", "id", t.ID, "err", err)
 			return
 		}
-		if _, err := tx.Exec(upsertOpsTaskSQL, row...); err != nil {
+		if _, err := tx.Exec(s.upsertOpsTaskSQL(), row...); err != nil {
 			slog.Warn("操作任务写入失败", "id", t.ID, "err", err)
 			return
 		}
 	}
 	for node, sig := range capsUpserts {
-		if _, err := tx.Exec(`INSERT INTO ops_caps(node, kinds) VALUES(?,?)
-			ON CONFLICT(node) DO UPDATE SET kinds=excluded.kinds`, node, sig); err != nil {
+		if _, err := tx.Exec(s.upsertCapsSQL(), node, sig); err != nil {
 			slog.Warn("操作能力写入失败", "node", node, "err", err)
 			return
 		}
@@ -460,8 +472,7 @@ func (s *Store) saveSQLiteLocked() {
 		}
 	}
 	if seq != s.seqFlushed {
-		if _, err := tx.Exec(`INSERT INTO ops_meta(key, value) VALUES('seq', ?)
-			ON CONFLICT(key) DO UPDATE SET value=excluded.value`, strconv.FormatInt(seq, 10)); err != nil {
+		if _, err := tx.Exec(s.upsertMetaSQL(), strconv.FormatInt(seq, 10)); err != nil {
 			slog.Warn("操作任务序号写入失败", "err", err)
 			return
 		}

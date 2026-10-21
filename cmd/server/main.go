@@ -273,30 +273,25 @@ func main() {
 	// 周期化巡检调度（设计件 2026-10-07-inspect-schedule-design.md）：构造在资产服务之后
 	// （它要调 RunInspect），启动在下面的后台任务块里（与报告调度同一位置）。
 	var inspectSched *asset.InspectScheduler
-	assetPath := cfg.AssetStoreFile
-	if assetPath == "" {
-		assetPath = filepath.Join(cfg.DataDir, "assets.db")
-	}
-	// 库句柄要在**审计与告警处置**之后还要用（它们与台账共用同一个库），故提到外层作用域。
+	// 台账与审计、告警处置、下行任务共用状态库（同一 *sql.DB）。
 	var assetStore *asset.Store
-	if s, err := asset.Open(assetPath); err != nil {
-		slog.Error("资产台账库不可用，资产能力已关闭", "path", assetPath, "err", err)
+	if s, err := asset.OpenMySQL(stateDB); err != nil {
+		slog.Error("资产台账初始化失败，资产能力已关闭", "err", err)
 	} else {
 		assetStore = s
-		defer func() { _ = s.Close() }()
 		assetSvc = asset.NewService(assetStore)
 		recv.SetAssetService(assetSvc)
-		slog.Info("资产台账已启用", "path", assetPath)
+		slog.Info("资产台账已启用", "db", "mysql")
 		// 告警处置与台账**共用同一个库**（设计件批次 18）：写入频率是人工操作级
 		// （每分钟几条到几十条），单连接下这点增量可忽略，换来一个备份文件、一套迁移机制。
 		// 首次启动会把既有 alert_acks.json 回填进库并改名 .bak-migrated。
 		// 回填失败**不阻断启动**：记日志，继续按 JSON 降级模式工作。
-		if err := ackStore.UseSQLite(assetStore.DB()); err != nil {
+		if err := ackStore.UseSQL(stateDB, true); err != nil {
 			slog.Error("告警处置改用数据库失败，继续按 JSON 文件工作", "err", err)
 		}
 		// 操作任务同理（设计件批次 19）。首次启动会把既有 ops_tasks.json 回填进库并改名
 		// .bak-migrated；回填失败不阻断启动，继续按 JSON 降级模式工作。
-		if err := opsStore.UseSQLite(assetStore.DB()); err != nil {
+		if err := opsStore.UseSQL(stateDB, true); err != nil {
 			slog.Error("操作任务改用数据库失败，继续按 JSON 文件工作", "err", err)
 		}
 	}
@@ -396,7 +391,7 @@ func main() {
 	// 首次启动会把既有 audit_events.json 回填进库并改名 .bak-migrated（幂等：判据是表为空）。
 	// 台账库不可用（assetStore == nil）时保持 JSON 降级模式，审计不跟着失效。
 	if assetStore != nil {
-		if err := auditStore.UseSQLite(assetStore.DB()); err != nil {
+		if err := auditStore.UseSQL(stateDB, true); err != nil {
 			slog.Error("审计事件改用数据库失败，继续按 JSON 文件工作", "err", err)
 		}
 	}

@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // 链式 HMAC：让"改过 / 删过审计"变成**可检测**。
@@ -135,10 +137,6 @@ func chainDigest(key []byte, seq int64, prev string, e Event) string {
 
 const (
 	selectChainHeadSQL = `SELECT seq, hash, key_fingerprint FROM audit_chain WHERE id = 1`
-	upsertChainHeadSQL = `INSERT INTO audit_chain(id, seq, hash, key_fingerprint, updated_ms)
-		VALUES(1, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET seq=excluded.seq, hash=excluded.hash,
-			key_fingerprint=excluded.key_fingerprint, updated_ms=excluded.updated_ms`
 	insertChainedSQL = `INSERT INTO audit_events(
 		time_ms, user_name, method, path, status, remote_ip, source_loc, succeeded,
 		category, action, detail, request_id, seq, prev_hash, hash, key_fp
@@ -160,7 +158,7 @@ func (s *Store) appendChained(key *ChainKey, e Event) error {
 
 	var headSeq int64
 	var headHash, headFP string
-	err = tx.QueryRow(selectChainHeadSQL).Scan(&headSeq, &headHash, &headFP)
+	err = tx.QueryRow(s.selectChainHeadSQL()).Scan(&headSeq, &headHash, &headFP)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("读取审计链头失败: %w", err)
 	}
@@ -171,7 +169,7 @@ func (s *Store) appendChained(key *ChainKey, e Event) error {
 		append(eventArgs(e), seq, headHash, hash, key.fp)...); err != nil {
 		return fmt.Errorf("写入审计事件失败: %w", err)
 	}
-	if _, err := tx.Exec(upsertChainHeadSQL, seq, hash, key.fp, time.Now().UnixMilli()); err != nil {
+	if _, err := tx.Exec(s.upsertChainHeadSQL(), seq, hash, key.fp, time.Now().UnixMilli()); err != nil {
 		return fmt.Errorf("更新审计链头失败: %w", err)
 	}
 	return tx.Commit()
@@ -189,4 +187,19 @@ func (s *Store) ChainHead() (seq int64, hash, keyFP string, ok bool) {
 		return 0, "", "", false
 	}
 	return seq, hash, keyFP, true
+}
+
+// selectChainHeadSQL 读取链头；MySQL 多实例下必须 FOR UPDATE 锁住这一行，
+// 否则两个实例会读到同一个 seq 并写出分叉的链。
+func (s *Store) selectChainHeadSQL() string {
+	if s.mysql {
+		return selectChainHeadSQL + " FOR UPDATE"
+	}
+	return selectChainHeadSQL
+}
+
+func (s *Store) upsertChainHeadSQL() string {
+	return `INSERT INTO audit_chain(id, seq, hash, key_fingerprint, updated_ms) VALUES(1, ?, ?, ?, ?)` +
+		sqlx.Upsert(s.mysql, "id",
+			"seq=excluded.seq, hash=excluded.hash, key_fingerprint=excluded.key_fingerprint, updated_ms=excluded.updated_ms")
 }

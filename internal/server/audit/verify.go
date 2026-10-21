@@ -85,6 +85,9 @@ func (s *Store) Verify() VerifyReport {
 		return rep
 	}
 	rep.Mode = "sqlite"
+	if s.mysql {
+		rep.Mode = "mysql"
+	}
 	if key == nil {
 		rep.Note = "审计链**未启用**（密钥不可用）：审计仍在记录，但**没有完整性保护**。"
 		return rep

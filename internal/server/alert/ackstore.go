@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/server/config"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // 告警处置状态（D4 协作状态机）。
@@ -86,10 +87,11 @@ func (i AckInfo) Handled() bool {
 //     内存 map 保留为**读缓存**——告警引擎的 IsHandled 在热路径上，不该每次都查库。
 //   - **降级模式**（db == nil）：退回 JSON 文件，每次变更全量重写（原行为）。
 type AckStore struct {
-	mu   sync.RWMutex
-	acks map[string]AckInfo
-	path string
-	db   *sql.DB
+	mu    sync.RWMutex
+	acks  map[string]AckInfo
+	path  string
+	db    *sqlx.DB
+	mysql bool
 }
 
 // NewAckStore 创建确认存储并加载。
@@ -99,15 +101,13 @@ func NewAckStore(path string) *AckStore {
 	return s
 }
 
-const upsertAckSQL = `INSERT INTO alert_acks(
+func (s *AckStore) upsertAckSQL() string {
+	return `INSERT INTO alert_acks(
 	ack_key, rule, host, instance, starts_at, status, user_name, assignee,
 	time_ms, ack_time_ms, close_time_ms, close_reason, comments
-) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-ON CONFLICT(ack_key) DO UPDATE SET
-	status=excluded.status, user_name=excluded.user_name, assignee=excluded.assignee,
-	time_ms=excluded.time_ms, ack_time_ms=excluded.ack_time_ms,
-	close_time_ms=excluded.close_time_ms, close_reason=excluded.close_reason,
-	comments=excluded.comments`
+) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)` + sqlx.Upsert(s.mysql, "ack_key",
+		"status=excluded.status, user_name=excluded.user_name, assignee=excluded.assignee, time_ms=excluded.time_ms, ack_time_ms=excluded.ack_time_ms, close_time_ms=excluded.close_time_ms, close_reason=excluded.close_reason, comments=excluded.comments")
+}
 
 func ackArgs(key string, a AckInfo) ([]any, error) {
 	comments := a.Comments
@@ -147,13 +147,13 @@ func readJSONAcks(path string) ([]AckInfo, error) {
 }
 
 // insertAcks 单事务批量写入（回填用）。
-func insertAcks(db *sql.DB, list []AckInfo) error {
+func (s *AckStore) insertAcks(db *sql.DB, list []AckInfo) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("回填告警处置失败: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.Prepare(upsertAckSQL)
+	stmt, err := tx.Prepare(s.upsertAckSQL())
 	if err != nil {
 		return fmt.Errorf("回填告警处置失败: %w", err)
 	}
@@ -204,7 +204,10 @@ func loadAcksFromDB(db *sql.DB) (map[string]AckInfo, error) {
 // 最后以库为准重建内存读缓存（库里有数据就以库为准）。
 //
 // 回填失败不阻断启动：返回错误由调用方记日志，本存储继续按降级模式工作。
-func (s *AckStore) UseSQLite(db *sql.DB) error {
+func (s *AckStore) UseSQLite(db *sql.DB) error { return s.UseSQL(db, false) }
+
+// UseSQL 接入关系库；mysql 决定 upsert 方言。
+func (s *AckStore) UseSQL(db *sql.DB, mysql bool) error {
 	if db == nil {
 		return nil
 	}
@@ -218,7 +221,7 @@ func (s *AckStore) UseSQLite(db *sql.DB) error {
 			return err
 		}
 		if len(list) > 0 {
-			if err := insertAcks(db, list); err != nil {
+			if err := s.insertAcks(db, list); err != nil {
 				return err
 			}
 		}
@@ -235,7 +238,8 @@ func (s *AckStore) UseSQLite(db *sql.DB) error {
 		return err
 	}
 	s.mu.Lock()
-	s.db = db
+	s.db = sqlx.Wrap(db, mysql)
+	s.mysql = mysql
 	s.acks = loaded
 	s.mu.Unlock()
 	return nil
@@ -294,7 +298,7 @@ func (s *AckStore) saveLocked(key string, info AckInfo) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.db.Exec(upsertAckSQL, args...); err != nil {
+	if _, err := s.db.Exec(s.upsertAckSQL(), args...); err != nil {
 		return fmt.Errorf("保存告警处置失败: %w", err)
 	}
 	return nil
