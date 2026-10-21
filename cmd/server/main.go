@@ -51,6 +51,11 @@ import (
 )
 
 func main() {
+	// 子命令：只执行 Schema 迁移后退出，不启动 HTTP 服务。
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		os.Exit(runMigrate(os.Args[2:], os.Stdout))
+	}
+
 	cfgPath := flag.String("config", "server.yaml", "配置文件路径")
 	flag.Parse()
 
