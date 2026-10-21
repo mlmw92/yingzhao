@@ -283,3 +283,31 @@ CREATE TABLE config_documents (
 2. MySQL 的 `JSON` 列会规范化空白（`{"a":1}` → `{"a": 1}`）；配置文档契约用例按语义比较，不按字节比较。
 
 **测试环境**：dev-server 上的 MySQL 8.0.46（容器 `mw-mysql`），独立测试库 `yingzhao_test` 与账号；凭据记录在服务器 `/root/.yingzhao-test-mysql.cnf`（0600），不进仓库。集成测试通过 SSH 隧道 `127.0.0.1:13306` 访问。
+
+---
+
+## 13. 阶段 1 实施记录（2026-10-21）
+
+**已落地**
+
+- 新增 `configdoc.Persister`（原始字节读写）与两种实现：`FilePersister`（测试/迁移源）、`DBPersister`（`config_documents` 表，JSON 信封 + 可选 AES-256-GCM 加密）。
+- 13 个整份读写的配置 store 全部改走该接口：ui / screen / notify / dashboards / ai / alert_pipeline / alert_inhibit / alert_grouping / maintenance / retention / middleware_view / report_schedule / inspect_schedule。
+- 主密钥独立于数据库：`database.masterKeyFile`（0600，首次启动自动生成）。
+- `cmd/server/main.go` 启动时连库并执行迁移；数据库成为硬依赖。新增 `cmd/server/state.go` 集中管理命名空间与连接。
+- 敏感配置（ai / notify）加密入库；其余为 base64 明文。
+
+**为什么用「原始字节 + 信封」而不是结构化 JSON**
+
+现有 store 各自用 YAML 序列化，直接换成 JSON 结构体要逐字段补 tag，且有丢字段风险。持久化层只搬字节，序列化格式留在 store 内，迁移时也能原样搬运文件内容。
+
+**dev-server 实机（1.36.0）**
+
+- 一次性迁移工具（`dist/migrate-config`，**不入库**）把 `/etc/monitor-server` 与 `/var/lib/monitor-server` 下 9 份现有配置导入 `yingzhao` 库：导入 9、跳过 4（文件不存在）、失败 0。
+- 启动日志确认 `db:notify` / `db:ai` / `db:screen` 等从数据库加载；AI 配置（加密）解密正常、`hasApiKey=true`。
+- 写路径验证：`PUT /api/v1/ui/settings` 后 `config_documents` 版本 1 → 2，重启后配置仍在。
+- 其余配置接口（notify / retention / screen）读取正常。
+
+**未覆盖**
+
+- 其他状态（规则、用户、审批、资产、审计）仍在本阶段之前的存储里；属于阶段 2–4。
+- 迁移工具没有写进仓库（测试环境一次性使用），生产迁移路径在阶段 5 统一处理。
