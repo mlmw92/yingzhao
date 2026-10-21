@@ -12,9 +12,9 @@
 # 因此独立成脚本，而不是给 install-tsdb.sh 加一个 `--backend victorialogs`：
 # 那会让"时序库后端"这个选项多出一个根本不是 TSDB 的值，读代码的人会先困惑再改错。
 #
-# 只在 Server 端把 logBackend 设为 victorialogs 时才需要装它（ADR-0002）：
-#   - 默认后端是自研分片落盘（local），不装本组件也能用集中日志；
-#   - 切到 VL 后，日志的**保留与容量由 VL 自己负责**（本脚本的 --retention），
+# **集中日志的唯一后端**（设计件阶段 6）：Server 启动时要求 logVictoriaLogs.addr 可解析，
+# 本地分片实现已退出生产路径。因此本脚本是 Server 部署的必选前置步骤。
+#   - 日志的**保留与容量由 VL 自己负责**（本脚本的 --retention），
 #     平台不再叠加"单来源每日上限"，也不再执行按天清理；
 #   - 上行的限速与请求体上限仍然生效（在 Server 的 receiver 侧，与后端无关）。
 #
@@ -93,7 +93,7 @@ usage() {
   -h, --help            显示本帮助
 
 说明：本脚本只安装**日志存储**（VictoriaLogs）。指标时序库请用 deploy/install-tsdb.sh；
-      装完后在 Server 端设 logBackend=victorialogs + logVictoriaLogs.addr 指向本机（见输出末尾）。
+      装完后在 Server 端把 logVictoriaLogs.addr 指向本机（见输出末尾）。
 EOF
   exit 0
 }
@@ -338,10 +338,9 @@ summary() {
   echo " 接下来在 Server 机器执行（若分机部署，把地址换成日志库机 IP）："
   echo "   首次安装："
   echo "     sudo bash deploy/install-server.sh --yes --tsdb-addr <时序库> \\"
-  echo "          --log-backend victorialogs --log-addr $VL_ADDR"
+  echo "          --log-addr $VL_ADDR"
   echo "   已装好的 Server（改配置后重启）："
-  echo "     sudo \$EDITOR /etc/monitor-server/server.yaml   # logBackend: victorialogs"
-  echo "                                                    # logVictoriaLogs.addr: \"$VL_ADDR\""
+  echo "     sudo \$EDITOR /etc/monitor-server/server.yaml   # logVictoriaLogs.addr: \"$VL_ADDR\""
   echo "     sudo systemctl restart monitor-server"
   echo "============================================================"
 }

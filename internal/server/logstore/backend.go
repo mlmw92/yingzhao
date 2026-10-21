@@ -130,7 +130,11 @@ type BackendOptions struct {
 	VictoriaLogs VictoriaLogsOptions
 }
 
-// NewBackend 依据配置创建日志存储后端。
+// NewBackend 依据后端名创建日志存储。
+//
+// **生产路径不再使用它**：设计件阶段 6 起集中日志统一走 VictoriaLogs，
+// server 直接调用 NewVictoriaLogs；本地分片实现只作为契约测试的对照实现保留
+// （`TestNewBackend` 与 `backend_contract_test.go` 用它跑同一套断言）。
 //
 // 返回 (nil, nil) 表示**该能力未启用**（本地后端未配置目录）：调用方据此让接口回 503，
 // 而不是拿一个"永远写失败"的存储去假装启用。

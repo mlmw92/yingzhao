@@ -81,11 +81,10 @@ download "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/$
 download "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VM_VERSION}/victoria-metrics-linux-arm-${VM_VERSION}.tar.gz" \
          "${OUT_DIR}/victoria-metrics-linux-arm-${VM_VERSION}.tar.gz"
 
-# ---------- VictoriaLogs（可选：集中日志的外部后端） ----------
-# 只有把 logBackend 设为 victorialogs 时才需要，因此**失败不致命**：
-# 拉不到就让 full 包少一个可选组件，而不是让整条发布流水线断掉
-# （离线包的主体是 Server/Agent，日志后端是可选能力，见 ADR-0002）。
-c_info "VictoriaLogs ${VL_VERSION}（可选组件）"
+# ---------- VictoriaLogs（集中日志的唯一后端） ----------
+# 拉不到不阻断整条发布流水线（Server/Agent 仍是主体），但 full 包会缺日志后端，
+# 部署后日志页不可用——发布时必须提示。
+c_info "VictoriaLogs ${VL_VERSION}（集中日志后端）"
 for arch in amd64 arm64 arm; do
   download_optional "https://github.com/VictoriaMetrics/VictoriaLogs/releases/download/${VL_VERSION}/victoria-logs-linux-${arch}-${VL_VERSION}.tar.gz" \
                     "${OUT_DIR}/victoria-logs-linux-${arch}-${VL_VERSION}.tar.gz" || true

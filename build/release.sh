@@ -118,12 +118,12 @@ for f in "$PKG_DIR"/node-*.tar.xz "$PKG_DIR"/victoria-metrics-*.tar.gz "$PKG_DIR
 done
 shopt -u nullglob
 if (( !any_pkg )); then
-  c_warn "未在 ${PKG_DIR}/ 找到 node / victoria-metrics / victoria-logs tarball（full 包将不含相关可选依赖）"
+  c_warn "未在 ${PKG_DIR}/ 找到 node / victoria-metrics / victoria-logs tarball（full 包将缺少对应组件）"
 fi
-# VictoriaLogs 是可选组件：缺它不影响默认部署（logBackend 默认 local），但要在日志里说清楚，
-# 免得客户拿着 full 包跑到现场才发现"想接外部日志后端却没带包"。
+# VictoriaLogs 是集中日志的唯一后端（设计件阶段 6）：full 包缺了它，Server 起来后
+# 日志页会不可用。缺包不阻断打包，但必须在日志里说清楚。
 if ! ls "$STAGE_FULL"/packages/victoria-logs-*.tar.gz >/dev/null 2>&1; then
-  c_warn "full 包不含 victoria-logs（可选日志后端）；如需离线安装请先跑 build/fetch-packages.sh"
+  c_warn "full 包不含 victoria-logs（集中日志的唯一后端）；如需离线安装请先跑 build/fetch-packages.sh"
 fi
 
 # 5) 统一入口 install.sh（无参数时进入交互菜单；带子命令时透传）
@@ -176,8 +176,7 @@ usage() {
   agent     - 监控 Agent（向 Server 上报指标）
   vm        - 时序库（可与 Server 同机或分机；VM 默认二进制+systemd，
               Mimir/Cortex/Thanos 自动走 Docker）
-  logs      - 日志后端 VictoriaLogs（可选；只有把 Server 的 logBackend
-              设为 victorialogs 时才需要，默认的 local 自研落盘不需要任何组件）
+  logs      - 日志后端 VictoriaLogs（集中日志的唯一后端；Server 必须能连到它）
   uninstall - 卸载组件；默认保留数据目录（仅停服务+删二进制+删配置），
               加 --purge 才会删数据（不可逆）
 USAGE

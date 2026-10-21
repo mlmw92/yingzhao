@@ -29,8 +29,9 @@
 | `securityStoreFile` | 安全事件 / 基线持久化文件（默认 `/var/lib/monitor-server/security_store.json`） |
 | `retentionFile` | 数据保留策略文件（默认 `/etc/monitor-server/retention.yaml`，Web 端可改、保存即热生效） |
 | `auditKeyFile` | **审计防篡改链的 HMAC 密钥文件**（默认 `/etc/monitor-server/audit.key`，0600，首次启动自动生成）。**必须纳入备份**：丢了它，历史审计全部无法校验。**不要把它放进 `server.yaml`**，也不通过任何接口取（接口只返回指纹） |
-| `logDir` / `logBackend` | 集中日志落盘目录（默认 `/var/lib/monitor-server/logs`）与后端选择：`local`(默认，自研分片) / `victorialogs`（外部，配 `logVictoriaLogs.addr`） |
-| `logMaxBytesPerDay` / `logUploadRateBps` / `logMaxBodyBytes` | 集中日志的三个上限：单来源每日写入上限（默认 1 GiB）、单节点上行速率上限（默认 1 MiB/s）、单次上行请求体上限（默认 4 MiB）。**三个都必须有值**，否则"开了日志把盘写满"只是时间问题 |
+| `logVictoriaLogs.addr` | 集中日志后端地址（VictoriaLogs，**唯一后端且必填**，如 `http://127.0.0.1:9428`）。本地分片落盘已退出生产路径，未配置地址时 Server 拒绝启动 |
+| `logVictoriaLogs.queryTimeout` / `writeTimeout` | 查询 / 写入超时（秒），默认 30 / 10 |
+| `logUploadRateBps` / `logMaxBodyBytes` | 单节点日志上行速率上限（默认 1 MiB/s）与单次上行请求体上限（默认 4 MiB）。日志的保留期与容量由 VictoriaLogs 的 `-retentionPeriod` 负责 |
 | `database.dsn` | MySQL 8+ 连接串，形如 `user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4`。**必填**：配置文档已入库，连不上则拒绝启动 |
 | `database.maxOpenConns` | 连接池上限，默认 20 |
 | `database.maxIdleConns` | 空闲连接上限，默认 5 |

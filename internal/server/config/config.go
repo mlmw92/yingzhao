@@ -53,13 +53,13 @@ type Config struct {
 	AuditKeyFile string `yaml:"auditKeyFile"`
 	SecurityStoreFile string          `yaml:"securityStoreFile"` // 安全事件/基线持久化文件
 	AssetStoreFile    string          `yaml:"assetStoreFile"`    // 资产台账库（内嵌 SQLite 单文件）；留空取 <DataDir>/assets.db
-	LogDir            string             `yaml:"logDir"`            // 集中日志存储目录（按 来源/日期/节点 分片）；留空取 <DataDir>/logs
-	LogMaxBytesPerDay int64              `yaml:"logMaxBytesPerDay"` // 单来源每日写入上限（字节），超出丢弃并计数
 	LogUploadRateBps  int64              `yaml:"logUploadRateBps"`  // 单节点日志上行速率上限（字节/秒）
 	LogMaxBodyBytes   int64              `yaml:"logMaxBodyBytes"`   // 单次日志上行请求体上限（字节）
-	LogBackend        string             `yaml:"logBackend"`        // 日志后端：local（默认，自研分片落盘）| victorialogs（外部后端）
-	LogVictoriaLogs   VictoriaLogsConfig `yaml:"logVictoriaLogs"`   // 外部日志后端连接配置（logBackend=victorialogs 时生效）
-	Database          DatabaseConfig     `yaml:"database"`          // 关系型数据库（MySQL 8+）；阶段 1 起为必填
+	// LogVictoriaLogs 是集中日志后端（唯一后端，见设计件阶段 6）。
+	// **addr 必填**：本地分片实现已退出生产路径（它把日志状态留在 Server 本机，
+	// 与「Server 无状态」冲突），只剩测试在用。
+	LogVictoriaLogs VictoriaLogsConfig `yaml:"logVictoriaLogs"`
+	Database        DatabaseConfig     `yaml:"database"` // 关系型数据库（MySQL 8+）；必填
 }
 
 // DatabaseConfig 是 MySQL 连接配置。
@@ -76,13 +76,13 @@ type DatabaseConfig struct {
 	MasterKeyFile string `yaml:"masterKeyFile"`
 }
 
-// VictoriaLogsConfig 是外部日志后端（VictoriaLogs）的连接配置。
+// VictoriaLogsConfig 是集中日志后端（VictoriaLogs）的连接配置。
 //
-// 默认**不启用**：只有显式把 logBackend 设为 victorialogs 时才会用到它——
-// 引入外部后端是可选能力，离线包的默认真空不因此改变（ADR-0002）。
+// **唯一后端**（设计件阶段 6）：本地分片实现已退出生产路径——它把日志状态留在
+// Server 本机，与「Server 无状态」的目标冲突。addr 为空时启动失败。
 //
-// 注意：切到外部后端后，日志的**保留与容量治理由该后端负责**（VictoriaLogs 的
-// `-retentionPeriod`），平台不再叠加"单来源每日上限"，也不再执行按天清理。
+// 日志的**保留与容量治理由该后端负责**（VictoriaLogs 的 `-retentionPeriod`），
+// 平台不再叠加"单来源每日上限"，也不再执行按天清理。
 // 上行的限速与请求体上限仍然生效（它们在 receiver 侧，与后端无关）。
 type VictoriaLogsConfig struct {
 	Addr         string `yaml:"addr"`         // 基址，如 http://127.0.0.1:9428
@@ -462,14 +462,11 @@ func Default() *Config {
 		AuditKeyFile:      "/etc/monitor-server/audit.key",
 		SecurityStoreFile: "/var/lib/monitor-server/security_store.json",
 		AssetStoreFile:    "/var/lib/monitor-server/assets.db",
-		// 集中日志（C2）：目录留空时由启动逻辑取 <DataDir>/logs；三个上限都必须有值，
-		// 否则「开了日志把盘写满」只是时间问题。
-		LogDir:            "/var/lib/monitor-server/logs",
-		LogMaxBytesPerDay: 1 << 30, // 1 GiB/来源/天
-		LogUploadRateBps:  1 << 20, // 1 MiB/s/节点
-		LogMaxBodyBytes:   4 << 20, // 4 MiB/请求
-		// 日志后端默认自研落盘：外部后端是可选能力，默认值必须保持"离线单机可用"。
-		LogBackend: "local",
+		// 集中日志（C2）：上行限速与请求体上限仍然生效（它们在 receiver 侧，与后端无关）。
+		LogUploadRateBps: 1 << 20, // 1 MiB/s/节点
+		LogMaxBodyBytes:  4 << 20, // 4 MiB/请求
+		// 日志后端只有一个：VictoriaLogs（地址必须由部署时给出）。
+		LogVictoriaLogs: VictoriaLogsConfig{QueryTimeout: 30, WriteTimeout: 10},
 		// 数据库连接池默认值；阶段 0 只解析，阶段 1 起 DSN 必填。
 		Database:          DatabaseConfig{MaxOpenConns: 20, MaxIdleConns: 5, ConnMaxLifetime: 1800, MasterKeyFile: "/etc/monitor-server/master.key"},
 		GeoIPFile:         "/var/lib/monitor-server/geoip/ip2region_v4.xdb",

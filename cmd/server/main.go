@@ -241,35 +241,25 @@ func main() {
 	}
 	recv.SetOps(opsSvc)
 
-	// 集中日志（C2）：目录留空时取 <DataDir>/logs；未配置时该能力关闭（接口回 503）。
-	// 三个上限都必须有值——「开了日志把盘写满」不是会不会的问题，只是时间问题。
-	logDir := cfg.LogDir
-	if logDir == "" {
-		logDir = filepath.Join(cfg.DataDir, "logs")
-	}
-	// 日志后端可替换（ADR-0002）：默认自研分片落盘，可选外部后端 VictoriaLogs。
-	// 后端名写错**必须让启动失败**：静默降级成"日志不可用"会把一个配置笔误
-	// 变成一次"日志功能消失了"的事故（而日志恰好是排障时才去看的东西）。
-	logBackend, err := logstore.NewBackend(cfg.LogBackend, logstore.BackendOptions{
-		Dir:            logDir,
-		MaxBytesPerDay: cfg.LogMaxBytesPerDay,
-		VictoriaLogs: logstore.VictoriaLogsOptions{
-			Addr:         cfg.LogVictoriaLogs.Addr,
-			QueryTimeout: time.Duration(cfg.LogVictoriaLogs.QueryTimeout) * time.Second,
-			WriteTimeout: time.Duration(cfg.LogVictoriaLogs.WriteTimeout) * time.Second,
-		},
+	// 集中日志（C2）：统一 VictoriaLogs（设计件阶段 6）。
+	// 本地分片实现只保留给测试——它有扫描预算上限、且状态在 Server 本机，
+	// 与「Server 无状态」的目标相冲突。
+	//
+	// 地址缺失**必须让启动失败**：静默关闭日志会把一个配置遗漏变成一次
+	// "日志功能消失了"的事故（而日志恰好是排障时才去看的东西）。
+	logBackend, err := logstore.NewVictoriaLogs(logstore.VictoriaLogsOptions{
+		Addr:         cfg.LogVictoriaLogs.Addr,
+		QueryTimeout: time.Duration(cfg.LogVictoriaLogs.QueryTimeout) * time.Second,
+		WriteTimeout: time.Duration(cfg.LogVictoriaLogs.WriteTimeout) * time.Second,
 	})
 	if err != nil {
-		slog.Error("初始化集中日志后端失败", "backend", cfg.LogBackend, "err", err)
+		slog.Error("初始化集中日志后端失败（请安装 VictoriaLogs 并配置 logVictoriaLogs.addr）", "err", err)
 		os.Exit(1)
 	}
 	// 同一个实例既供上行写入、也供检索读取：读写两侧共用同一个后端实例，
 	// 不会出现"写到一个后端、读另一个后端"这种只在查不到日志时才暴露的问题。
-	// logBackend 是接口：nil 表示未启用（上面已把"具体类型的 nil"挡在工厂里）。
 	recv.SetLogStore(logBackend, cfg.LogMaxBodyBytes, cfg.LogUploadRateBps)
-	if logBackend != nil {
-		slog.Info("集中日志已启用", "backend", logBackend.Backend(), "dir", logDir)
-	}
+	slog.Info("集中日志已启用", "backend", logBackend.Backend(), "addr", cfg.LogVictoriaLogs.Addr)
 
 	// 资产台账（内嵌 SQLite 单文件）：库路径留空时取 <DataDir>/assets.db。
 	// 打开失败**不阻断启动**——台账是次要能力，缺它时监控主链路仍应可用。
@@ -428,14 +418,9 @@ func main() {
 		slog.Error("初始化数据保留策略失败", "err", err)
 		os.Exit(1)
 	}
-	// 集中日志的保留清理只对**自研落盘**生效：按「来源/日期/节点」的日期分片整天删除。
-	// 外部后端的保留期由它自己管（VictoriaLogs 的 -retentionPeriod），平台既不该也不能
+	// 集中日志的保留期由 VictoriaLogs 自己管（-retentionPeriod），平台既不该也不能
 	// 去删它的数据；但必须显式声明，否则界面会把"日志 0 文件"说成"日志未接入"。
-	if local, ok := logBackend.(*logstore.Store); ok {
-		retentionMgr.SetLogStore(local)
-	} else if logBackend != nil {
-		retentionMgr.SetLogStoreExternal(logBackend.Backend())
-	}
+	retentionMgr.SetLogStoreExternal(logBackend.Backend())
 	rest := api.New(store, nodeMgr, rules, alertStore, hub, cfg.AgentAuth, cfg.AgentBinDir, cfg.WebDir, cfg.Auth, upgrader, notifyMgr, engine, maintenance, dialtestStore, reportGen, screenMgr, ackStore, inhibitStore, groupingStore, ngxWin, uiMgr, *cfgPath, securityStore, defenseStore, auditStore, authStore)
 	rest.SetDashboardManager(dashMgr)
 	// AI 配置管理器（可选能力；未注入时 AI 接口明确报"未初始化"，不静默）。
@@ -472,10 +457,8 @@ func main() {
 	}
 	// 集中日志检索（C2）：与上行共用同一个后端实例（读写两侧必然是同一个后端）
 	rest.SetLogStore(logBackend)
-	// 报告的「日志」章节也读同一个后端（未接入日志时该章节不渲染）。
-	if logBackend != nil {
-		reportGen.SetLogStore(logBackend)
-	}
+	// 报告的「日志」章节也读同一个后端。
+	reportGen.SetLogStore(logBackend)
 	rest.SetMiddlewareRegistry(mwRegistry)
 	// 资产台账接口：仅在库可用时注入（传 nil 具体值进接口会得到「非 nil 接口」，必须显式判断）
 	if assetSvc != nil {
