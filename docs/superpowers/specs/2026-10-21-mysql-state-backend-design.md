@@ -334,3 +334,28 @@ CREATE TABLE config_documents (
 - `ai_investigations` 是整份文档（当前约 6 MB），每次追加调查都会重写整篇。调查频率低，测试环境可接受；量级上去后应改成按记录的表。
 - 告警确认、下行任务、资产台账、审计仍在 SQLite（`assets.db`），属于阶段 3/4。
 - 节点注册信息仍在 `nodes.json` 且每次上报都会写盘，属于阶段 3。
+
+---
+
+## 15. 阶段 3 实施记录（2026-10-21）
+
+**已落地**
+
+- 新增 `internal/server/sqlx`：统一处理 SQLite / MySQL 差异——upsert 子句、`key` 保留字加反引号、`COLLATE NOCASE`、`FROM DUAL`、以及 `IN (子查询 LIMIT)` 的派生表写法。
+- `asset.OpenMySQL` 用共享 `*sql.DB` 初始化 24 张表（MySQL 方言），版本记在 `schema_version`。
+- 告警处置、下行任务、审计通过 `UseSQL(db, true)` 接入同一连接。
+- 审计链头在 MySQL 下 `SELECT ... FOR UPDATE`；裁剪条件改为派生表，避免 MySQL 不支持 `IN (... LIMIT)`。
+- 审计校验报告显示 `mode: mysql`。
+
+**dev-server 实机（1.38.0）**
+
+- 一次性迁移工具（`dist/migrate-assets`，不入库）从 `assets.db` 导入 **14694 行**：资产 65、属性 424、关系 64、变更 456、快照 87/397、巡检 21/20/406/44、审计 8485、处置 6127、下行任务 76。
+- 启动后资产台账 200、审计链头 seq 3057 连续、处置与下行任务均从 MySQL 读取。
+- 接口验证：资产列表 / 摘要、审计列表 / 校验（3074 行）、下行任务列表均 200。
+- 修复两处 MySQL 方言问题：`IN (子查询 LIMIT)`（审计裁剪、资产分页）、审计列宽（action 超过 64）。
+
+**未覆盖**
+
+- 阶段 5（节点注册信息与心跳）尚未迁移；`nodes.json` 仍在本地。
+- 阶段 6（日志统一 VictoriaLogs）、阶段 7（主备切换）未开始。
+- 二进制产物（巡检报告、升级包、备份）与 Server 升级串行化按约定留到下一阶段。
