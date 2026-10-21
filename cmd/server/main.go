@@ -111,8 +111,12 @@ func main() {
 	mon := selfmon.New(version.Version)
 	store = selfmon.NewStorage(rawStore, mon)
 
-	// 节点管理
-	nodeMgr := node.New(cfg.NodeMeta, time.Duration(cfg.OfflineTimeout)*time.Second)
+	// 节点管理：注册信息存状态库；心跳按固定间隔合并落库（见下方后台任务）。
+	nodeMgr, err := node.NewWithDB(stateDB, time.Duration(cfg.OfflineTimeout)*time.Second)
+	if err != nil {
+		slog.Error("加载节点表失败", "err", err)
+		os.Exit(1)
+	}
 
 	// Agent 接入授权（参考哪吒探针：启用后 Agent 需携带密钥；未配置则启动自动生成随机密钥）
 	if cfg.AgentAuth.Enabled && cfg.AgentAuth.Secret == "" {
@@ -521,6 +525,9 @@ func main() {
 		engine.Start(runCtx)
 	}
 	go offlineChecker(runCtx, nodeMgr, 10*time.Second)
+	// 节点心跳落库：每 30 秒把内存里的 last_seen/status 批量写一次。
+	// 注册信息变化时已即时写库，这里只补心跳——它每轮上报都变，逐次写会把节点表打成写热点。
+	go nodeMgr.RunHeartbeatFlusher(runCtx, 30*time.Second)
 	// 自监控指标周期写入时序库（走未包装的原始存储）：self_* 指标因此可查询、可画趋势，
 	// 也能直接复用现有告警规则来监控 Server 自身。
 	go selfmon.NewReporter(rawStore, mon, selfmon.DefaultReportInterval).Run(runCtx)

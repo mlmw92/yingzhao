@@ -3,9 +3,13 @@
 package node
 
 import (
-	"encoding/json"
+	"context"
+	"database/sql"
 	"log/slog"
+	"maps"
 	"os"
+	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -31,38 +35,68 @@ type Manager struct {
 	mu             sync.RWMutex
 	nodes          map[string]*model.Node // key: hostname
 	groups         map[string]*model.Group
-	metaPath       string
+	store          Persist
 	offlineTimeout time.Duration
 	upgradeQueue   map[string]*upgradeTask         // 待升级节点集合（内存态，重启丢失）
 	lastPayloads   map[string]*model.ReportPayload // 各节点最近一次上报快照（含 Top 进程）
 }
 
-// New 创建 Manager 并从 meta 文件加载已有节点/分组。
+// New 用文件持久化（测试与迁移源）。
 func New(metaPath string, offlineTimeout time.Duration) *Manager {
-	m := &Manager{
+	m := newManager(&filePersist{path: metaPath}, offlineTimeout)
+	if err := m.load(); err != nil {
+		// 文件后端把「读不到 / 读坏了」都当作空库，正常不会返回错误；这里只是兜底。
+		slog.Warn("加载节点 meta 失败，按空库启动", "err", err, "path", metaPath)
+	}
+	m.ensureDefaultGroup()
+	return m
+}
+
+// NewWithDB 用 MySQL 状态库（生产）。读库失败直接返回错误：节点表是启动的必要状态，
+// 读不到就启动会让所有节点被当作「新注册」，覆盖掉分组与自定义显示名。
+func NewWithDB(db *sql.DB, offlineTimeout time.Duration) (*Manager, error) {
+	m := newManager(NewMySQLPersist(db), offlineTimeout)
+	if err := m.load(); err != nil {
+		return nil, err
+	}
+	m.ensureDefaultGroup()
+	return m, nil
+}
+
+func newManager(p Persist, offlineTimeout time.Duration) *Manager {
+	return &Manager{
 		nodes:          map[string]*model.Node{},
 		groups:         map[string]*model.Group{},
-		metaPath:       metaPath,
+		store:          p,
 		offlineTimeout: offlineTimeout,
 		upgradeQueue:   map[string]*upgradeTask{},
 		lastPayloads:   map[string]*model.ReportPayload{},
 	}
-	m.load()
-	// 默认分组
-	if _, ok := m.groups["default"]; !ok {
-		m.groups["default"] = &model.Group{Name: "default", Description: "默认分组", CreatedAt: model.NowMillis()}
-		m.persist()
+}
+
+// ensureDefaultGroup 保证「默认分组」始终存在（首次启动建组并落盘）。
+func (m *Manager) ensureDefaultGroup() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.groups["default"]; ok {
+		return
 	}
-	return m
+	m.groups["default"] = &model.Group{Name: "default", Description: "默认分组", CreatedAt: model.NowMillis()}
+	m.persistLocked()
 }
 
 // Register 处理一次上报：注册/更新节点并刷新心跳。
+//
+// **注册信息只在真的变化时才落库**：上报是每节点每 5 秒一次的热路径，
+// 而 IP/OS/架构/版本/主机信息几乎不变；每轮整份重写会把节点表变成写热点
+// （设计件 §5.2.1）。心跳（last_seen/status）另走 FlushHeartbeats 定时合并。
 func (m *Manager) Register(p *model.ReportPayload) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := model.NowMillis()
 	n, ok := m.nodes[p.Node]
+	regChanged := !ok
 	if !ok {
 		// 新节点：Agent 上报的 group 仅作为默认值；若为空则归入默认分组
 		n = &model.Node{
@@ -74,40 +108,69 @@ func (m *Manager) Register(p *model.ReportPayload) {
 		}
 		m.nodes[p.Node] = n
 	}
+	if n.IP != p.IP {
+		regChanged = true
+	}
 	n.IP = p.IP
+	if n.OS != p.OS {
+		regChanged = true
+	}
 	n.OS = p.OS
+	if n.Arch != p.Arch {
+		regChanged = true
+	}
 	n.Arch = p.Arch
 	// 每次上报都同步模式，兼容代理节点在旧版本注册为 collect 后升级的情况。
 	// 仅在为空时赋值会导致 nodes.json 中残留的旧模式永远无法被纠正，
 	// 进而使 Edge/Hub 继续出现在主机列表中。
 	if p.Mode == model.ModeCollect || p.Mode == model.ModeEdge || p.Mode == model.ModeHub {
+		if n.Mode != p.Mode {
+			regChanged = true
+		}
 		n.Mode = p.Mode
 	}
-	// 已存在节点：分组以 Server 端（nodes.json）为准，避免 Agent 默认 group 覆盖用户自定义分组。
+	// 已存在节点：分组以 Server 端（nodes 表）为准，避免 Agent 默认 group 覆盖用户自定义分组。
 	// 仅当该节点尚无有效分组时，才用 Agent 上报的 group 作为兜底。
 	if !ok || n.Group == "" {
-		if p.Group != "" {
-			n.Group = p.Group
-		} else {
-			n.Group = "default"
+		group := p.Group
+		if group == "" {
+			group = "default"
 		}
+		if n.Group != group {
+			regChanged = true
+		}
+		n.Group = group
 	}
 	if p.Labels != nil {
+		if !maps.Equal(n.Labels, p.Labels) {
+			regChanged = true
+		}
 		n.Labels = p.Labels
 	}
 	if p.Version != "" {
+		if n.Version != p.Version {
+			regChanged = true
+		}
 		n.Version = p.Version
 	}
 	if hasHostInfo(p.HostInfo) {
+		if !reflect.DeepEqual(n.HostInfo, p.HostInfo) {
+			regChanged = true
+		}
 		n.HostInfo = p.HostInfo
 	}
 	if p.Capabilities != nil {
+		if !slices.Equal(n.LogSources, p.Capabilities.LogSources) {
+			regChanged = true
+		}
 		n.LogSources = p.Capabilities.LogSources
 	}
 	n.Status = "online"
 	n.LastSeen = now
 	m.lastPayloads[p.Node] = p
-	m.persistLocked()
+	if regChanged || !m.store.CoalesceHeartbeat() {
+		m.persistLocked()
+	}
 }
 
 // LastPayload 返回指定节点最近一次上报的完整快照（含 Top 进程），无则返回 nil。
@@ -279,17 +342,14 @@ func (m *Manager) RemoveGroup(name string) {
 	m.persistLocked()
 }
 
-// load 从 meta 文件加载。
-func (m *Manager) load() {
-	data, err := os.ReadFile(m.metaPath)
+// load 从持久化层加载节点与分组。
+func (m *Manager) load() error {
+	mf, err := m.store.Load()
 	if err != nil {
-		return
+		return err
 	}
-	var mf metaFile
-	if err := json.Unmarshal(data, &mf); err != nil {
-		slog.Warn("解析节点 meta 文件失败，忽略", "path", m.metaPath, "err", err)
-		return
-	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i := range mf.Nodes {
 		n := mf.Nodes[i]
 		m.nodes[n.Hostname] = &n
@@ -298,6 +358,7 @@ func (m *Manager) load() {
 		g := mf.Groups[i]
 		m.groups[g.Name] = &g
 	}
+	return nil
 }
 
 // persist 持久化到 meta 文件。
@@ -316,17 +377,25 @@ func (m *Manager) persistLocked() {
 	for _, g := range m.groups {
 		mf.Groups = append(mf.Groups, *g)
 	}
-	data, err := json.MarshalIndent(mf, "", "  ")
-	if err != nil {
-		slog.Warn("序列化节点 meta 失败", "err", err)
-		return
+	if err := m.store.SaveMeta(mf); err != nil {
+		slog.Warn("保存节点 meta 失败", "err", err, "store", m.store.Name())
 	}
-	if err := os.MkdirAll(dirOf(m.metaPath), 0o755); err != nil {
-		slog.Warn("创建 meta 目录失败", "err", err)
-		return
+}
+
+// FlushHeartbeats 把内存里的心跳与状态批量写入持久化层。
+//
+// 为什么单独一条路径：心跳每次上报都变（每节点每 5 秒一次），而注册信息几乎不变；
+// 把心跳混进注册写入，等于在热路径上重写整份节点表（设计件 §5.2.1）。
+// 文件后端是空操作——它的整份写已经把心跳带上了。
+func (m *Manager) FlushHeartbeats() {
+	m.mu.RLock()
+	states := make([]heartbeat, 0, len(m.nodes))
+	for _, n := range m.nodes {
+		states = append(states, heartbeat{Hostname: n.Hostname, Status: n.Status, LastSeen: n.LastSeen})
 	}
-	if err := os.WriteFile(m.metaPath, data, 0o644); err != nil {
-		slog.Warn("写入节点 meta 文件失败", "err", err, "path", m.metaPath)
+	m.mu.RUnlock()
+	if err := m.store.FlushHeartbeat(states); err != nil {
+		slog.Warn("节点心跳落库失败", "err", err)
 	}
 }
 
@@ -338,4 +407,26 @@ func dirOf(path string) string {
 		}
 	}
 	return "."
+}
+
+// RunHeartbeatFlusher 按固定间隔把心跳写进持久化层，直到 ctx 结束。
+//
+// 30 秒是「切换后不误判离线」与「写入频率」的折中：节点离线阈值默认 60 秒，
+// 30 秒的落库间隔保证新 active 实例接管时看到的 last_seen 最多旧 30 秒，
+// 不会把刚上报过的节点判成离线。
+func (m *Manager) RunHeartbeatFlusher(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			m.FlushHeartbeats() // 退出前补一次，避免丢掉最后一个间隔的心跳
+			return
+		case <-t.C:
+			m.FlushHeartbeats()
+		}
+	}
 }

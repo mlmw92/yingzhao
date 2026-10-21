@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS node_groups(
+  name        VARCHAR(128) NOT NULL,
+  description VARCHAR(255) NOT NULL DEFAULT '',
+  created_at  BIGINT       NOT NULL DEFAULT 0,
+  PRIMARY KEY (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
