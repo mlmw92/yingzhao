@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/server/sqlx"
@@ -73,10 +72,10 @@ func Apply(ctx context.Context, pool *sql.DB, d sqlx.Dialect, migrations []Migra
 		return 0, err
 	}
 	for _, m := range pending {
-		sqlText := strings.TrimSpace(m.SQL)
-		sqlText = strings.TrimSuffix(sqlText, ";")
-		if _, err := conn.ExecContext(ctx, sqlText); err != nil {
-			return 0, fmt.Errorf("执行迁移 %d（%s）失败: %w", m.Version, m.Name, err)
+		for _, stmt := range splitStatements(m.SQL) {
+			if _, err := conn.ExecContext(ctx, stmt); err != nil {
+				return 0, fmt.Errorf("执行迁移 %d（%s）失败: %w", m.Version, m.Name, err)
+			}
 		}
 		if _, err := conn.ExecContext(ctx,
 			d.Bind(d.Rewrite("INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES(?,?,?,?)")),

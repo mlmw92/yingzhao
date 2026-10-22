@@ -22,7 +22,13 @@
 go test -tags schemadoc ./internal/server/asset -run TestDumpSchemaScripts
 ```
 
-脚本带表/列注释（`--`），可直接按表评审字段含义与类型。
+脚本里的表/列说明是**数据库注释**，不是 `--` 注释：
+
+- MySQL：建表语句里的 `COMMENT '...'` / `COMMENT='...'`；
+- PostgreSQL / 达梦：建表后的 `COMMENT ON TABLE/COLUMN ... IS '...'`。
+
+自动建表时会一并写入数据库，可用 `SHOW FULL COLUMNS`（MySQL）、
+`\d+ 表名`（PG）或 `USER_COL_COMMENTS`（达梦）查看。
 
 ## 表清单
 

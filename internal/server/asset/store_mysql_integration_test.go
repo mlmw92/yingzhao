@@ -105,3 +105,34 @@ func TestAssetStoreMySQL(t *testing.T) {
 		t.Fatalf("人工关系不应被采集降级，实际 source=%q", src)
 	}
 }
+
+// 表/列注释必须真的写进数据库（不是 SQL 文件里的 -- 注释）。
+func TestAssetMySQLComments(t *testing.T) {
+	dsn := os.Getenv("TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("TEST_MYSQL_DSN 未设置")
+	}
+	pool, err := db.Open(context.Background(), db.Config{Driver: "mysql", DSN: dsn})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+	if _, err := OpenMySQL(pool); err != nil {
+		t.Fatalf("OpenMySQL: %v", err)
+	}
+	var colComment, tableComment string
+	if err := pool.QueryRow(`SELECT COLUMN_COMMENT FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='assets' AND COLUMN_NAME='natural_key'`).Scan(&colComment); err != nil {
+		t.Fatalf("查询列注释失败: %v", err)
+	}
+	if colComment == "" {
+		t.Fatal("assets.natural_key 缺少数据库注释")
+	}
+	if err := pool.QueryRow(`SELECT TABLE_COMMENT FROM information_schema.TABLES
+		WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='assets'`).Scan(&tableComment); err != nil {
+		t.Fatalf("查询表注释失败: %v", err)
+	}
+	if tableComment == "" {
+		t.Fatal("assets 缺少表注释")
+	}
+}

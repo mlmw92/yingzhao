@@ -5,7 +5,10 @@ package asset
 // 与 SQLite 版的差异只在类型与少数关键字：自增用 BIGINT AUTO_INCREMENT、
 // 主键/索引列用 VARCHAR（TEXT 不能直接做键）、`key`/`schema` 是 MySQL 关键字需要反引号、
 // 部分索引（WHERE ...）不被支持，改为普通索引。
-var mySQLSchemaStatements = []string{
+var mySQLSchemaStatements = mysqlWithComments(mySQLRawSchemaStatements)
+
+// mySQLRawSchemaStatements 是不带 COMMENT 的建表语句；注释由 mysqlWithComments 注入。
+var mySQLRawSchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS asset_types(
 		` + "`key`" + `  VARCHAR(64) PRIMARY KEY,
 		title   VARCHAR(255) NOT NULL DEFAULT '',

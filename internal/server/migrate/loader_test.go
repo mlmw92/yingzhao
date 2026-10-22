@@ -41,8 +41,8 @@ func TestLoadDMMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(dm): %v", err)
 	}
-	if len(ms) != 4 {
-		t.Fatalf("达梦迁移 %d 条，want 4", len(ms))
+	if len(ms) != 5 {
+		t.Fatalf("达梦迁移 %d 条，want 5", len(ms))
 	}
 	for i := 1; i < len(ms); i++ {
 		if ms[i-1].Version >= ms[i].Version {

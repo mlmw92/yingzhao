@@ -21,7 +21,7 @@ import (
 //
 // v2：关系加来源列（asset_links.source）与关联抑制表（asset_link_suppressions），
 // 支撑「人工维护的关系优先于采集自动发现」以及关系的逻辑删除。
-const schemaVersion = 2
+const schemaVersion = 3
 
 // schemaStatements 是幂等的建表语句。每次启动都执行：`IF NOT EXISTS` 保证重复执行无副作用，
 // 同时能修复被手工删表的库。
@@ -489,6 +489,15 @@ func (s *Store) migrateSQL() error {
 			return fmt.Errorf("资产库建表失败: %w", err)
 		}
 	}
+	// PostgreSQL / 达梦：表与列注释用 COMMENT ON（幂等，元数据操作）。
+	// MySQL 的注释已经写在 CREATE TABLE 里。
+	if s.d.Name() != "mysql" {
+		for _, stmt := range commentOnStatements(stmts) {
+			if _, err := s.db.Exec(stmt); err != nil {
+				return fmt.Errorf("写入表注释失败: %w", err)
+			}
+		}
+	}
 	for _, t := range BuiltinTypes() {
 		if _, err := s.db.Exec(
 			`INSERT INTO asset_types(`+s.quote("key")+`,title,builtin) VALUES(?,?,1)`+
@@ -503,6 +512,16 @@ func (s *Store) migrateSQL() error {
 		for _, idx := range dmIndexStatements {
 			if err := s.ensureIndexDM(idx.name, idx.ddl); err != nil {
 				return err
+			}
+		}
+	}
+	if s.d.Name() == "mysql" && version > 0 && version < schemaVersion {
+		// 存量库（版本 2 及更早）的建表语句里没有 COMMENT；一次性补上。
+		// 新库（version==0）的 CREATE TABLE 已带注释，不需要再 ALTER。
+		// 注意用 raw 语句：带 COMMENT 的那份会在 MODIFY 里重复追加注释。
+		for _, stmt := range mysqlCommentStatements(mySQLRawSchemaStatements) {
+			if _, err := s.db.Exec(stmt); err != nil {
+				return fmt.Errorf("补充表注释失败: %w", err)
 			}
 		}
 	}

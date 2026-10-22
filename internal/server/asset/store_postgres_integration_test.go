@@ -102,3 +102,32 @@ func TestAssetStorePostgres(t *testing.T) {
 		t.Fatalf("重复保存同一份类型模型: %v", err)
 	}
 }
+
+func TestAssetPostgresComments(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN 未设置")
+	}
+	pool, err := db.Open(context.Background(), db.Config{Driver: "postgres", DSN: dsn})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+	if _, err := OpenSQL(pool, sqlx.Postgres()); err != nil {
+		t.Fatalf("OpenSQL: %v", err)
+	}
+	var colComment, tableComment string
+	if err := pool.QueryRow(`SELECT col_description('assets'::regclass, ordinal_position)
+		FROM information_schema.columns WHERE table_name='assets' AND column_name='natural_key'`).Scan(&colComment); err != nil {
+		t.Fatalf("查询列注释失败: %v", err)
+	}
+	if colComment == "" {
+		t.Fatal("assets.natural_key 缺少数据库注释")
+	}
+	if err := pool.QueryRow(`SELECT obj_description('assets'::regclass)`).Scan(&tableComment); err != nil {
+		t.Fatalf("查询表注释失败: %v", err)
+	}
+	if tableComment == "" {
+		t.Fatal("assets 缺少表注释")
+	}
+}

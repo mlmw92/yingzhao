@@ -100,3 +100,32 @@ func TestAssetStoreDM(t *testing.T) {
 		t.Fatalf("重复保存同一份类型模型: %v", err)
 	}
 }
+
+func TestAssetDMComments(t *testing.T) {
+	dsn := os.Getenv("TEST_DM_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DM_DSN 未设置")
+	}
+	pool, err := db.Open(context.Background(), db.Config{Driver: "dm", DSN: dsn})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+	if _, err := OpenSQL(pool, sqlx.DM()); err != nil {
+		t.Fatalf("OpenSQL: %v", err)
+	}
+	var colComment, tableComment string
+	if err := pool.QueryRow(`SELECT COMMENTS FROM USER_COL_COMMENTS
+		WHERE TABLE_NAME='ASSETS' AND COLUMN_NAME='NATURAL_KEY'`).Scan(&colComment); err != nil {
+		t.Fatalf("查询列注释失败: %v", err)
+	}
+	if colComment == "" {
+		t.Fatal("ASSETS.NATURAL_KEY 缺少数据库注释")
+	}
+	if err := pool.QueryRow(`SELECT COMMENTS FROM USER_TAB_COMMENTS WHERE TABLE_NAME='ASSETS'`).Scan(&tableComment); err != nil {
+		t.Fatalf("查询表注释失败: %v", err)
+	}
+	if tableComment == "" {
+		t.Fatal("ASSETS 缺少表注释")
+	}
+}

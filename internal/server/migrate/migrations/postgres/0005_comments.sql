@@ -1,0 +1,26 @@
+COMMENT ON TABLE config_documents IS '整份读写的配置文档（JSON 信封；敏感内容 AES-GCM 加密）';
+COMMENT ON COLUMN config_documents.namespace IS '配置命名空间（notify / ui / alert_rules …）';
+COMMENT ON COLUMN config_documents.version IS '乐观锁版本号，每次写入 +1';
+COMMENT ON COLUMN config_documents.payload IS 'JSON 信封：format / encoding / nonce / data';
+COMMENT ON COLUMN config_documents.updated_at IS '最后写入时间（epoch ms）';
+COMMENT ON COLUMN config_documents.updated_by IS '最后写入人（预留）';
+COMMENT ON TABLE nodes IS '节点注册信息与最近心跳';
+COMMENT ON COLUMN nodes.hostname IS '主机名（主键，Agent 上报原样）';
+COMMENT ON COLUMN nodes.mode IS '运行模式 collect / edge / hub';
+COMMENT ON COLUMN nodes.display_name IS '界面显示名（人工设置，不改 hostname）';
+COMMENT ON COLUMN nodes.ip IS '最近上报 IP';
+COMMENT ON COLUMN nodes.os IS '操作系统';
+COMMENT ON COLUMN nodes.arch IS 'CPU 架构';
+COMMENT ON COLUMN nodes.group_name IS '所属分组（Server 端管理）';
+COMMENT ON COLUMN nodes.labels IS '标签 JSON';
+COMMENT ON COLUMN nodes.version IS 'Agent 版本';
+COMMENT ON COLUMN nodes.host_info IS '主机硬件信息 JSON（注册级字段）';
+COMMENT ON COLUMN nodes.log_sources IS '日志来源 JSON';
+COMMENT ON COLUMN nodes.status IS 'online / offline';
+COMMENT ON COLUMN nodes.last_seen IS '最近心跳时间（epoch ms）';
+COMMENT ON COLUMN nodes.created_at IS '首次注册时间';
+COMMENT ON COLUMN nodes.updated_at IS '最近写入时间';
+COMMENT ON TABLE node_groups IS '节点分组';
+COMMENT ON COLUMN node_groups.name IS '分组名（主键）';
+COMMENT ON COLUMN node_groups.description IS '分组说明';
+COMMENT ON COLUMN node_groups.created_at IS '创建时间'
