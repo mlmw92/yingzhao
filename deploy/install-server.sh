@@ -32,7 +32,8 @@ SERVICE_DIR="/etc/systemd/system"
 ALERT_WEBHOOK=""
 LOG_ADDR=""             # VictoriaLogs 地址（集中日志的唯一后端，必填；默认本机 :9428）
 LOG_EXPLICIT=0          # 是否由命令行显式指定日志地址，升级时据此决定是否就地更新配置
-DB_DSN=""               # 状态库 DSN（MySQL 8+）。数据库是硬依赖（设计件 §1.4），必填
+DB_DSN=""               # 状态库 DSN。数据库是硬依赖（设计件 §1.4），必填
+DB_DRIVER="mysql"       # 状态库类型：mysql（默认）/ postgres / highgo / kingbase
 DB_EXPLICIT=0           # 是否由命令行显式指定 DSN，升级时据此决定是否就地更新配置
 ENABLE_AGENT_AUTH=""    # yes/no：是否启用 Agent 接入授权密钥（未显式指定时默认 yes）
 AGENT_SECRET=""         # 授权密钥（启用时生成或显式传入）
@@ -146,6 +147,7 @@ while [[ $# -gt 0 ]]; do
     --packages)        PKG_DIR="$2"; shift 2 ;;
     --node-package)    NODE_PKG="$2"; shift 2 ;;
     --alert-webhook)   ALERT_WEBHOOK="$2"; shift 2 ;;
+    --db-driver)       DB_DRIVER="$2"; DB_EXPLICIT=1; shift 2 ;;
     --db-dsn)          DB_DSN="$2"; DB_EXPLICIT=1; shift 2 ;;
     --log-addr)        LOG_ADDR="$2"; LOG_EXPLICIT=1; shift 2 ;;
     # 兼容旧调用：--log-backend / --log-dir 已无意义（日志只走 VictoriaLogs），
@@ -769,26 +771,38 @@ config_block_has_value() {
   ' "$cfg"
 }
 
-# 状态库（MySQL 8+）：硬依赖，没有它 Server 直接退出（设计件 §1.4）。
+# 状态库：硬依赖，没有它 Server 直接退出（设计件 §1.4）。
 step_db() {
   # 已有配置且没显式传 --db-dsn：沿用（升级场景的常态）。
   if config_block_has_value database dsn && (( ! DB_EXPLICIT )); then
-    c_ok "状态库: 沿用现有 database 配置"
+    local existing
+    existing="$(awk '/^database:/{f=1;next} f&&/^[^[:space:]]/{f=0} f&&/^[[:space:]]*driver:/{print $2; exit}' "$CONFIG_DIR/server.yaml" | tr -d '"')"
+    [[ -n "$existing" ]] && DB_DRIVER="$existing"
+    c_ok "状态库: 沿用现有 database 配置（driver=$DB_DRIVER）"
     return
   fi
   if [[ -z "$DB_DSN" ]]; then
     if (( ASSUME_YES )); then
       die "缺少 --db-dsn：数据库是硬依赖（设计件 §1.4）。请先建库与账号，再带 --db-dsn 重跑：
-  CREATE DATABASE yingzhao DEFAULT CHARSET utf8mb4;
-  CREATE USER 'yingzhao'@'%' IDENTIFIED BY '<password>';
-  GRANT ALL PRIVILEGES ON yingzhao.* TO 'yingzhao'@'%';
-  --db-dsn 'yingzhao:<password>@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4'"
+  MySQL:
+    CREATE DATABASE yingzhao DEFAULT CHARSET utf8mb4;
+    CREATE USER 'yingzhao'@'%' IDENTIFIED BY '<password>';
+    GRANT ALL PRIVILEGES ON yingzhao.* TO 'yingzhao'@'%';
+    --db-driver mysql --db-dsn 'yingzhao:<password>@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4'
+  PostgreSQL / 瀚高 / 金仓:
+    CREATE USER yingzhao WITH PASSWORD '<password>';
+    CREATE DATABASE yingzhao OWNER yingzhao;
+    --db-driver postgres --db-dsn 'host=127.0.0.1 port=5432 user=yingzhao password=<password> dbname=yingzhao sslmode=disable'"
     fi
-    prompt DB_DSN "状态库 DSN（MySQL 8+，形如 user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4）" ""
+    prompt DB_DRIVER "状态库类型（mysql|postgres|highgo|kingbase）" "$DB_DRIVER"
+    if [[ "$DB_DRIVER" == "mysql" ]]; then
+      prompt DB_DSN "状态库 DSN（MySQL 8+，形如 user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4）" ""
+    else
+      prompt DB_DSN "状态库 DSN（PostgreSQL 系，形如 host=127.0.0.1 port=5432 user=yingzhao password=... dbname=yingzhao sslmode=disable）" ""
+    fi
   fi
   [[ -n "$DB_DSN" ]] || die "状态库 DSN 不能为空（数据库是硬依赖）"
-  # 只回显主机/库部分，绝不打印密码。
-  c_ok "状态库: ${DB_DSN#*@}"
+  c_ok "状态库: $DB_DRIVER（DSN 已配置）"
 }
 
 # 给已有配置写入 database 块（老版本安装升级时用；显式改 DSN 时也会走到）。
@@ -803,8 +817,8 @@ patch_db_config() {
     skip && /^[^[:space:]]/ { skip=0 }
     !skip { print }
   ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
-  printf '\ndatabase:\n  dsn: "%s"\n  maxOpenConns: 20\n  maxIdleConns: 5\n  connMaxLifetimeSeconds: 1800\n  masterKeyFile: "%s"\n' \
-    "$esc" "$MASTER_KEY_FILE" >> "$cfg"
+  printf '\ndatabase:\n  driver: "%s"\n  dsn: "%s"\n  maxOpenConns: 20\n  maxIdleConns: 5\n  connMaxLifetimeSeconds: 1800\n  masterKeyFile: "%s"\n' \
+    "$DB_DRIVER" "$esc" "$MASTER_KEY_FILE" >> "$cfg"
 }
 
 generate_config() {
@@ -826,7 +840,7 @@ generate_config() {
     # 显式 --db-dsn，或老配置根本没有 database 块时补上：缺它 Server 起不来。
     if (( DB_EXPLICIT )) || ! config_block_has_value database dsn; then
       patch_db_config
-      c_ok "已补充 database 配置: ${DB_DSN#*@}"
+      c_ok "已补充 database 配置: $DB_DRIVER（DSN 已配置）"
     fi
     # 显式 --log-addr，或老配置根本没有 logVictoriaLogs.addr 时补上：
     # 阶段 6 起日志只走 VictoriaLogs，缺地址会在启动时直接退出。
@@ -870,10 +884,12 @@ mode: $MODE
 
 listen: "$LISTEN"
 
-# 状态库（MySQL 8+）：所有配置/协作状态/资产/审计的唯一后端。
+# 状态库：所有配置/协作状态/资产/审计的唯一后端。
+# driver 可选 mysql（默认）|postgres|highgo|kingbase；瀚高与金仓走 PostgreSQL 协议。
 # 数据库是硬依赖——连不上或没配置，Server 会直接退出（设计件 §1.4）。
 # 主密钥独立于数据库：它加密 AI Key / 通知口令等敏感字段，必须与库分开备份。
 database:
+  driver: "$DB_DRIVER"
   dsn: "$db_dsn_escaped"
   maxOpenConns: 20
   maxIdleConns: 5
@@ -1028,7 +1044,7 @@ summary() {
   echo " 时序库后端    : $TSDB_BACKEND"
   echo " 时序库地址    : $TSDB_ADDR${TSDB_QUERY_ADDR:+ (查询 $TSDB_QUERY_ADDR)}"
   echo " 集中日志后端  : VictoriaLogs @ $LOG_ADDR（保留与容量由该后端负责）"
-  echo " 状态库        : ${DB_DSN:+${DB_DSN#*@}}${DB_DSN:-沿用现有配置}"
+  echo " 状态库        : $DB_DRIVER${DB_DSN:+（DSN 已配置）}${DB_DSN:-（沿用现有配置）}"
   echo " 配置文件      : $CONFIG_DIR/server.yaml"
   echo " 二进制        : $BIN_DIR/monitor-server"
   echo "------------------------------------------------------------"
