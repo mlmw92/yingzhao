@@ -1,4 +1,4 @@
-// Package db 管理 Server 的关系型数据库连接（MySQL 8+ / PostgreSQL 系）。
+// Package db 管理 Server 的关系型数据库连接（MySQL 8+ / PostgreSQL 系 / 达梦 DM8）。
 package db
 
 import (

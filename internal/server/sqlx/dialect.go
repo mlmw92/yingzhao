@@ -1,4 +1,4 @@
-// Package sqlx 收纳状态库各目标之间的语法差异（MySQL / PostgreSQL）。
+// Package sqlx 收纳状态库各目标之间的语法差异（MySQL / PostgreSQL / 达梦）。
 //
 // 目标库按「方言」区分：MySQL 与 PostgreSQL 各实现一份 Dialect，
 // 执行入口（DB/Tx）统一做 Rewrite + Bind，调用点不再感知具体数据库。
