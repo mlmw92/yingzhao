@@ -139,7 +139,9 @@ func (p *sqlPersist) Load() (metaFile, error) {
 // 为什么不做增量：注册信息的变化（新增节点、改分组、改标签）是低频人工/首次上报事件，
 // 一次全量同步的代价可以忽略；而增量需要一套「哪些字段变了」的簿记，反而容易漏。
 func (p *sqlPersist) SaveMeta(mf metaFile) error {
-	tx, err := p.db.Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -196,7 +198,9 @@ func (p *sqlPersist) FlushHeartbeat(states []heartbeat) error {
 	if len(states) == 0 {
 		return nil
 	}
-	tx, err := p.db.Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}

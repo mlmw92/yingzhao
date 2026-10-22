@@ -215,7 +215,9 @@ func (s *Store) UseSQL(db *sql.DB, d sqlx.Dialect) error {
 
 // backfill 把内存里（刚从 JSON 读进来的）任务、caps 与 seq 整份写进库。
 func (s *Store) backfill(db *sql.DB, d sqlx.Dialect) error {
-	tx, err := sqlx.Wrap(db, d).Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := sqlx.Wrap(db, d).BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("回填操作任务失败: %w", err)
 	}
@@ -452,7 +454,9 @@ func (s *Store) saveSQLiteLocked() {
 		return
 	}
 
-	tx, err := s.db.Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		slog.Warn("操作任务入库失败", "err", err)
 		return

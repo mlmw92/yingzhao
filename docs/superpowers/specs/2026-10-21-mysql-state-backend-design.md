@@ -484,9 +484,70 @@ CREATE TABLE config_documents (
 
 ### 19.3 已知缺口（未在本次处理）
 
-- **安全事件/防护任务与审批配置仍是本地文件**（`security_store.json`、`defense_tasks.json`、`approval.json`）。
-  它们在本文件 §2 的落表清单里，但阶段 2–6 没有迁移；审批配置丢失会让审批开关回到默认关闭（fail-open）。
-- **资产表结构没有 MySQL 升级路径**：`migrateMySQL` 只建表、不执行 `ALTER`。下一版加列前必须先补版本化迁移。
-- **数据库调用尚未全面带 context 超时**：配置文档已加；审计 `Record`、ops/ack/node 的部分调用仍是阻塞式。
+- ~~**安全事件/防护任务与审批配置仍是本地文件**~~（`security_store.json`、`defense_tasks.json`、`approval.json`）
+  → **已迁移（阶段 7）**：三者改存状态库文档 `security` / `defense_tasks` / `approval_config`；
+  旧文件在首次启动时一次性导入并改名 `.bak-migrated`；读失败一律拒绝启动（审批开关
+  不再可能静默回到默认关闭）。
+- ~~**资产表结构没有版本化 `ALTER` 路径**~~ → **已补（阶段 8）**：`assetMigrations`
+  按版本升序执行，存量库升级不再只跑 `CREATE TABLE IF NOT EXISTS`（那对已有表是 no-op）。
+  新增列时：`schemaVersion` 加 1、三种方言改建表语句、同时追加一条同版本的 `assetMigration`。
+- ~~**数据库调用尚未全面带 context 超时**~~ → **已补（阶段 8）**：`sqlx.WithTimeout`（10 秒）
+  统一加在所有事务边界（`BeginTx`）与关键 `ExecContext` 上——审计写入/裁剪、
+  资产写事务、告警处置、下行任务、节点心跳、安全存储。
 - **`sqlx` 仍是正则改写**：只认识列出的保留字，且绕过 `sqlx` 的裸 `*sql.DB` 调用不会被覆盖。
   多数据库支持会把它替换为显式 Dialect 接口（见 §20）。
+
+---
+
+## 20. 阶段 7：安全事件 / 防护任务 / 审批配置入库（2026-10-22）
+
+**动机**：`security_store.json`、`defense_tasks.json`、`approval.json` 是本文件 §2 落表清单里
+唯一还在本机文件的三项。其中审批配置最危险——文件丢失会让审批开关回到默认**关闭**，
+高风险操作变成无需审批即可执行（fail-open），而且没有任何地方会提示这件事。
+
+**落地**
+
+| 旧文件 | 状态库文档（命名空间） |
+|---|---|
+| `security_store.json`（安全事件 / 基线 / 防护状态 / 护栏风险） | `security` |
+| `defense_tasks.json`（防护任务与节点能力） | `defense_tasks` |
+| `approval.json`（审批开关与范围） | `approval_config` |
+
+- **一次性导入**：文档不存在且旧文件存在时导入，随后把旧文件改名 `.bak-migrated`。
+  重复启动不会重复导入（判据是文档是否存在）。
+- **读失败即拒绝启动**：与规则 / 拨测 / 审批单一致——带着空集合继续跑，
+  下一次保存就会用空集合覆盖库里的原文档。审批配置尤其不能静默回到默认值。
+- **写入合并**：安全事件文档约 1.5MB，Agent 每次上报都整份重写会成为写热点。
+  改为 `markDirty` + `RunFlusher`（10 秒合并一次，进程退出时补一次）；
+  文件后端（测试用）保持同步写，既有测试语义不变。
+
+**验证**
+
+- 单测：三个存储的旧文件导入、导入后改名、重新加载读回、合并写入（`Ingest` 不立即落库、
+  `Flush` 后落库）。
+- dev-server 实机：`security_store.json`（约 1.5MB，2000 事件）、
+  `defense_tasks.json`（19 条任务 + 4 条能力）、`approval.json`（`enabled=false`、
+  `requireFor=["ops:write"]`）导入后由状态库接管，界面上的安全态势与审批开关与迁移前一致。
+
+---
+
+## 21. 阶段 8：资产表版本化升级与数据库超时（2026-10-22）
+
+**资产表版本化升级**
+
+- `assetMigrations` 是按版本升序执行的升级列表（`asset/schema_comments.go`），
+  每条按方言给出 `ALTER` 语句；`migrateSQL` 对 `version > 0` 的存量库依次执行。
+- v3 是把「补注释」从一次性特例改成机制的第一个使用者（MySQL 用
+  `MODIFY COLUMN ... COMMENT`，新库的 `CREATE TABLE` 已带注释）。
+- 约定（写在 `assetMigration` 的注释里）：加列时 `schemaVersion` 加 1、三种方言改建表语句、
+  同时追加一条同版本的 `assetMigration`——只改建表语句的话，存量库永远不会加列。
+- 回归用例：`TestAssetMySQLUpgradeFromV2` 把注释清空、版本降到 2，重开资产库后
+  注释恢复、版本升到 3。
+
+**数据库超时**
+
+- `sqlx.WithTimeout`（10 秒）统一加在所有事务边界与关键单条语句上。
+- 覆盖：审计写入（`Record`/`appendChained`）与裁剪、资产写事务（人工属性删除、
+  快照、巡检记录）、告警处置写入与清理、下行任务保存与回填、节点整份同步与心跳、
+  安全存储写入。
+- 效果：DB 网络黑洞或锁等待时，请求与进程退出不再无限挂起。

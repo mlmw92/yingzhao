@@ -136,3 +136,46 @@ func TestAssetMySQLComments(t *testing.T) {
 		t.Fatal("assets 缺少表注释")
 	}
 }
+
+// 存量库（schema_version=2）在启动时执行版本化升级（v3 补注释），
+// 而不是只跑 CREATE TABLE IF NOT EXISTS（那对已有表是 no-op）。
+func TestAssetMySQLUpgradeFromV2(t *testing.T) {
+	dsn := os.Getenv("TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("TEST_MYSQL_DSN 未设置")
+	}
+	pool, err := db.Open(context.Background(), db.Config{Driver: "mysql", DSN: dsn})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+	if _, err := OpenMySQL(pool); err != nil {
+		t.Fatalf("OpenMySQL: %v", err)
+	}
+	// 模拟旧版本库：清掉注释、版本降到 2。
+	if _, err := pool.Exec(`ALTER TABLE assets MODIFY COLUMN natural_key VARCHAR(255) NOT NULL COMMENT ''`); err != nil {
+		t.Fatalf("清除注释失败: %v", err)
+	}
+	if _, err := pool.Exec(`UPDATE schema_version SET version=2 WHERE id=1`); err != nil {
+		t.Fatalf("降版本失败: %v", err)
+	}
+
+	if _, err := OpenMySQL(pool); err != nil {
+		t.Fatalf("升级启动失败: %v", err)
+	}
+	var comment string
+	if err := pool.QueryRow(`SELECT COLUMN_COMMENT FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='assets' AND COLUMN_NAME='natural_key'`).Scan(&comment); err != nil {
+		t.Fatalf("查询注释失败: %v", err)
+	}
+	if comment == "" {
+		t.Fatal("v3 升级没有把注释补回来")
+	}
+	var version int
+	if err := pool.QueryRow(`SELECT version FROM schema_version WHERE id=1`).Scan(&version); err != nil {
+		t.Fatalf("读取版本失败: %v", err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("升级后版本 = %d, want %d", version, schemaVersion)
+	}
+}

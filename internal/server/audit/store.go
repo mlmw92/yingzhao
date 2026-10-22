@@ -137,7 +137,9 @@ func eventArgs(e Event) []any {
 
 // insertEvents 单事务批量写入（回填用）。
 func insertEvents(db *sql.DB, events []Event) error {
-	tx, err := db.Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("回填审计事件失败: %w", err)
 	}
@@ -220,7 +222,9 @@ func (s *Store) Record(event Event) error {
 			// 没有密钥（未配置或加载失败）：**不阻断业务**——审计写不进去不该让管理操作失败。
 			// 这些行 seq=0、hash 为空，校验时会如实报成"无链、不可验"，
 			// 而不是混在"已验证"里（设计件 §4.1）。
-			_, err := s.db.Exec(insertEventSQL, eventArgs(event)...)
+			ctx, cancel := sqlx.WithTimeout(nil)
+			defer cancel()
+			_, err := s.db.ExecContext(ctx, insertEventSQL, eventArgs(event)...)
 			return err
 		}
 		return s.appendChained(s.chainKey, event)

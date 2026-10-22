@@ -3,6 +3,7 @@ package sqlx
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 // DB 是 *sql.DB 的薄包装，按方言改写并绑定 SQL。
@@ -115,4 +116,18 @@ func (t *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.
 
 func (t *Tx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return t.tx.QueryRowContext(ctx, t.prepare(query), args...)
+}
+
+// OpTimeout 是单次数据库操作的上限。
+//
+// 不加超时的话，DB 网络黑洞或锁等待会让请求永久挂起（HTTP 连接不返回，
+// 进程退出也会被拖住）。10 秒足够任何正常读写。
+const OpTimeout = 10 * time.Second
+
+// WithTimeout 给一次数据库操作加上默认超时。
+func WithTimeout(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	return context.WithTimeout(parent, OpTimeout)
 }

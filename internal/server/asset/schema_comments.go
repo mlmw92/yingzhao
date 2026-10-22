@@ -417,3 +417,39 @@ func mysqlCommentStatements(stmts []string) []string {
 	}
 	return out
 }
+
+// assetMigration 是一次资产库结构升级。
+//
+// 用法：新增列/改类型时
+//  1. 把 store.go 的 schemaVersion 加 1；
+//  2. 改三种方言的建表语句（新库直接按新结构建）；
+//  3. 在这里追加一条同版本号的 assetMigration，三种方言各写 ALTER（存量库靠它升级）。
+//
+// 只改第 2 步是不够的：存量库的 CREATE TABLE IF NOT EXISTS 是 no-op，永远不会加列。
+type assetMigration struct {
+	Version  int
+	MySQL    []string
+	Postgres []string
+	DM       []string
+}
+
+func (m assetMigration) statementsFor(dialect string) []string {
+	switch dialect {
+	case "mysql":
+		return m.MySQL
+	case "postgres":
+		return m.Postgres
+	case "dm":
+		return m.DM
+	}
+	return nil
+}
+
+// assetMigrations 按版本升序执行；版本号必须与 schemaVersion 的递增对应。
+var assetMigrations = []assetMigration{
+	{
+		// v3：给存量 MySQL 库补表/列注释（新库的 CREATE TABLE 已带 COMMENT）。
+		Version: 3,
+		MySQL:   mysqlCommentStatements(mySQLRawSchemaStatements),
+	},
+}

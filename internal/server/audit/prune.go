@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // 保留策略裁剪与链的协调（设计件 `2026-10-08-audit-tamper-evident-design.md` §4.3）。
@@ -53,8 +55,10 @@ func (s *Store) pruneWhere(where string, args ...any) (int, error) {
 		// 降级模式不做任何事：它的保留口径本来就是"最近 MaxEvents 条"，没有时间语义。
 		return 0, nil
 	}
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
 	if key == nil {
-		res, err := db.Exec("DELETE FROM audit_events WHERE "+where, args...)
+		res, err := db.ExecContext(ctx, "DELETE FROM audit_events WHERE "+where, args...)
 		if err != nil {
 			return 0, fmt.Errorf("清理审计事件失败: %w", err)
 		}
@@ -62,7 +66,7 @@ func (s *Store) pruneWhere(where string, args ...any) (int, error) {
 		return int(n), nil
 	}
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("开启审计裁剪事务失败: %w", err)
 	}
@@ -73,19 +77,19 @@ func (s *Store) pruneWhere(where string, args ...any) (int, error) {
 	var fromSeq, toSeq sql.NullInt64
 	var headHash sql.NullString
 	var rows int
-	if err := tx.QueryRow(
+	if err := tx.QueryRowContext(ctx,
 		`SELECT MIN(seq), MAX(seq), COUNT(*) FROM audit_events WHERE `+where+` AND seq > 0`,
 		args...).Scan(&fromSeq, &toSeq, &rows); err != nil {
 		return 0, fmt.Errorf("统计待裁剪的链区间失败: %w", err)
 	}
 	if rows > 0 && toSeq.Valid {
-		if err := tx.QueryRow(`SELECT hash FROM audit_events WHERE seq = ?`, toSeq.Int64).
+		if err := tx.QueryRowContext(ctx, `SELECT hash FROM audit_events WHERE seq = ?`, toSeq.Int64).
 			Scan(&headHash); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return 0, fmt.Errorf("读取待裁剪区间的末条 hash 失败: %w", err)
 		}
 	}
 
-	res, err := tx.Exec("DELETE FROM audit_events WHERE "+where, args...)
+	res, err := tx.ExecContext(ctx, "DELETE FROM audit_events WHERE "+where, args...)
 	if err != nil {
 		return 0, fmt.Errorf("清理审计事件失败: %w", err)
 	}
@@ -93,7 +97,7 @@ func (s *Store) pruneWhere(where string, args ...any) (int, error) {
 
 	if rows > 0 && toSeq.Valid {
 		now := time.Now().UnixMilli()
-		if _, err := tx.Exec(insertPrunedSQL, fromSeq.Int64, toSeq.Int64, headHash.String, rows, now,
+		if _, err := tx.ExecContext(ctx, insertPrunedSQL, fromSeq.Int64, toSeq.Int64, headHash.String, rows, now,
 			prunedMAC(key.key, fromSeq.Int64, toSeq.Int64, headHash.String, rows, now)); err != nil {
 			return 0, fmt.Errorf("记录裁剪区间失败: %w", err)
 		}

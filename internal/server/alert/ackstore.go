@@ -154,7 +154,9 @@ func readJSONAcks(path string) ([]AckInfo, error) {
 
 // insertAcks 单事务批量写入（回填用）。
 func (s *AckStore) insertAcks(db *sql.DB, list []AckInfo, d sqlx.Dialect) error {
-	tx, err := sqlx.Wrap(db, d).Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := sqlx.Wrap(db, d).BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("回填告警处置失败: %w", err)
 	}
@@ -304,7 +306,9 @@ func (s *AckStore) saveLocked(key string, info AckInfo) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.db.Exec(s.upsertAckSQL(), args...); err != nil {
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	if _, err := s.db.ExecContext(ctx, s.upsertAckSQL(), args...); err != nil {
 		return fmt.Errorf("保存告警处置失败: %w", err)
 	}
 	return nil
@@ -446,7 +450,9 @@ func (s *AckStore) PruneHandled(before int64) (int, error) {
 		return 0, nil
 	}
 	if s.db != nil {
-		if _, err := s.db.Exec(`DELETE FROM alert_acks WHERE status IN ('ack','closed','') AND time_ms < ?`, before); err != nil {
+		ctx, cancel := sqlx.WithTimeout(nil)
+		defer cancel()
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM alert_acks WHERE status IN ('ack','closed','') AND time_ms < ?`, before); err != nil {
 			return 0, fmt.Errorf("清理告警处置失败: %w", err)
 		}
 	} else if s.path != "" {

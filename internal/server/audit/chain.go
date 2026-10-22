@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // 链式 HMAC：让"改过 / 删过审计"变成**可检测**。
@@ -148,7 +150,9 @@ const (
 // 代价是每次审计多一次读 + 一次 HMAC（微秒级），而审计写入是"人工管理操作"级的量
 // （设计件 D7 已接受这笔开销）。
 func (s *Store) appendChained(key *ChainKey, e Event) error {
-	tx, err := s.db.Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("开启审计写入事务失败: %w", err)
 	}
@@ -156,18 +160,18 @@ func (s *Store) appendChained(key *ChainKey, e Event) error {
 
 	var headSeq int64
 	var headHash, headFP string
-	err = tx.QueryRow(s.selectChainHeadSQL()).Scan(&headSeq, &headHash, &headFP)
+	err = tx.QueryRowContext(ctx, s.selectChainHeadSQL()).Scan(&headSeq, &headHash, &headFP)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("读取审计链头失败: %w", err)
 	}
 
 	seq := headSeq + 1
 	hash := chainDigest(key.key, seq, headHash, e)
-	if _, err := tx.Exec(insertChainedSQL,
+	if _, err := tx.ExecContext(ctx, insertChainedSQL,
 		append(eventArgs(e), seq, headHash, hash, key.fp)...); err != nil {
 		return fmt.Errorf("写入审计事件失败: %w", err)
 	}
-	if _, err := tx.Exec(s.upsertChainHeadSQL(), seq, hash, key.fp, time.Now().UnixMilli()); err != nil {
+	if _, err := tx.ExecContext(ctx, s.upsertChainHeadSQL(), seq, hash, key.fp, time.Now().UnixMilli()); err != nil {
 		return fmt.Errorf("更新审计链头失败: %w", err)
 	}
 	return tx.Commit()

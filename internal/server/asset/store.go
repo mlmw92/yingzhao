@@ -515,13 +515,17 @@ func (s *Store) migrateSQL() error {
 			}
 		}
 	}
-	if s.d.Name() == "mysql" && version > 0 && version < schemaVersion {
-		// 存量库（版本 2 及更早）的建表语句里没有 COMMENT；一次性补上。
-		// 新库（version==0）的 CREATE TABLE 已带注释，不需要再 ALTER。
-		// 注意用 raw 语句：带 COMMENT 的那份会在 MODIFY 里重复追加注释。
-		for _, stmt := range mysqlCommentStatements(mySQLRawSchemaStatements) {
-			if _, err := s.db.Exec(stmt); err != nil {
-				return fmt.Errorf("补充表注释失败: %w", err)
+	// 版本化结构升级：存量库不会重新执行 CREATE TABLE，加列/改类型必须走这里。
+	// 新库（version==0）按当前建表语句创建，跳过全部升级。
+	if version > 0 {
+		for _, m := range assetMigrations {
+			if m.Version <= version {
+				continue
+			}
+			for _, stmt := range m.statementsFor(s.d.Name()) {
+				if _, err := s.db.Exec(stmt); err != nil {
+					return fmt.Errorf("资产库升级到版本 %d 失败: %w", m.Version, err)
+				}
 			}
 		}
 	}
@@ -1560,7 +1564,9 @@ func (s *Store) assetStats(f ListFilter, changesSince int64) (Stats, error) {
 // 删除与记录放在同一事务：否则会出现「界面显示已恢复、历史里查不到」这类自相矛盾。
 // 只删 source=manual，不动采集值——"恢复采集值"从来不需要写采集侧。
 func (s *Store) deleteManualAttrs(assetID int64, keys []string, at int64, actor, requestID string) ([]Attr, error) {
-	tx, err := s.db.Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("开启事务失败: %w", err)
 	}
@@ -2050,7 +2056,9 @@ func (s *Store) deleteSnapshot(id int64) error {
 
 // recordSnapshot 在同一事务里写入快照头与字段，避免出现「有头无字段」的半截数据。
 func (s *Store) recordSnapshot(assetID, takenAt int64, fields map[string]string) (int64, error) {
-	tx, err := s.db.Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("写入配置快照失败: %w", err)
 	}
@@ -2138,7 +2146,9 @@ func (s *Store) latestSnapshot(assetID int64) (Snapshot, bool, error) {
 // 为什么必须原子：记录与差异项是同一份证据的两半，「有记录、没差异」会被读成
 // 「本次全部合规」——那比直接报错更糟。findings 为空时不写任何差异项行。
 func (s *Store) recordInspectRun(r InspectRun, members []InspectRunMember, findings []InspectFinding) (int64, error) {
-	tx, err := s.db.Begin()
+	ctx, cancel := sqlx.WithTimeout(nil)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("写入巡检记录失败: %w", err)
 	}
