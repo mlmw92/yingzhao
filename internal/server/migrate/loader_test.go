@@ -35,3 +35,18 @@ func TestLoadReturnsOrderedMigrations(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadDMMigrations(t *testing.T) {
+	ms, err := Load("dm")
+	if err != nil {
+		t.Fatalf("Load(dm): %v", err)
+	}
+	if len(ms) != 4 {
+		t.Fatalf("达梦迁移 %d 条，want 4", len(ms))
+	}
+	for i := 1; i < len(ms); i++ {
+		if ms[i-1].Version >= ms[i].Version {
+			t.Fatalf("迁移未按版本升序: %d >= %d", ms[i-1].Version, ms[i].Version)
+		}
+	}
+}

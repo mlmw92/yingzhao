@@ -15,10 +15,16 @@ func tableSuffix(d sqlx.Dialect) string {
 
 // quote 按方言引用一个标识符（用于需要拼接进 SQL 的列名）。
 func (s *Store) quote(ident string) string {
-	if s.d.Name() == "mysql" {
+	switch s.d.Name() {
+	case "mysql":
 		return "`" + ident + "`"
+	case "dm":
+		// 达梦未加引号的标识符统一大写；key/schema 在 DM 中不是保留字，
+		// 加引号反而会造出大小写不一致的列名。
+		return ident
+	default:
+		return `"` + ident + `"`
 	}
-	return `"` + ident + `"`
 }
 func (s *Store) mysql() bool { return s.d.Name() == "mysql" }
 

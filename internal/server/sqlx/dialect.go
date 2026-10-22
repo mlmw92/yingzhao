@@ -36,6 +36,9 @@ func MySQL() Dialect { return mysqlDialect{} }
 // Postgres 返回 PostgreSQL 方言（瀚高 / 金仓同样适用）。
 func Postgres() Dialect { return postgresDialect{} }
 
+// DM 返回达梦 DM8 方言。
+func DM() Dialect { return dmDialect{} }
+
 // SQLite 返回 SQLite 方言。
 //
 // 生产路径不使用 SQLite（设计件阶段 5 起只作为测试替身与旧库迁移源），
@@ -234,7 +237,9 @@ func Parse(name string) (Dialect, error) {
 		return MySQL(), nil
 	case "postgres", "postgresql", "pg", "highgo", "kingbase":
 		return Postgres(), nil
+	case "dm", "dameng":
+		return DM(), nil
 	default:
-		return nil, fmt.Errorf("不支持的数据库驱动: %q（可选: mysql|postgres|highgo|kingbase）", name)
+		return nil, fmt.Errorf("不支持的数据库驱动: %q（可选: mysql|postgres|highgo|kingbase|dm）", name)
 	}
 }

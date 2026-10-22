@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	_ "github.com/lib/pq" // PostgreSQL / 瀚高 / 金仓 的驱动注册
+	_ "github.com/lib/pq"         // PostgreSQL / 瀚高 / 金仓 的驱动注册
+	_ "gitee.com/chunanyong/dm"   // 达梦 DM8 驱动注册
 )
 
 // Config 是数据库连接参数。
@@ -55,8 +56,8 @@ func DriverName(driver string) (string, error) {
 		return "mysql", nil
 	case "postgres", "postgresql", "pg", "highgo", "kingbase":
 		return "postgres", nil
-	case "dm":
-		return "", errors.New("当前构建未包含达梦驱动：需带 -tags dm 构建并引入 gitee.com/chunanyong/dm（见 docs/superpowers/specs/2026-10-21-multi-database-support-design.md）")
+	case "dm", "dameng":
+		return "dm", nil
 	default:
 		return "", fmt.Errorf("不支持的数据库驱动: %q（可选: mysql|postgres|highgo|kingbase）", driver)
 	}
@@ -143,8 +144,8 @@ func RedactDSN(driver, dsn string) string {
 		}
 		return cfg.FormatDSN()
 	}
-	// PostgreSQL：支持 URL 与 key=value 两种写法。
-	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+	// PostgreSQL / 达梦：URL 形态（postgres://、dm://）与 key=value 形态。
+	if strings.Contains(dsn, "://") {
 		u, err := url.Parse(dsn)
 		if err != nil {
 			return "<invalid dsn>"

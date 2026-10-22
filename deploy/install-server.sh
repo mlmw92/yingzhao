@@ -33,7 +33,7 @@ ALERT_WEBHOOK=""
 LOG_ADDR=""             # VictoriaLogs 地址（集中日志的唯一后端，必填；默认本机 :9428）
 LOG_EXPLICIT=0          # 是否由命令行显式指定日志地址，升级时据此决定是否就地更新配置
 DB_DSN=""               # 状态库 DSN。数据库是硬依赖（设计件 §1.4），必填
-DB_DRIVER="mysql"       # 状态库类型：mysql（默认）/ postgres / highgo / kingbase
+DB_DRIVER="mysql"       # 状态库类型：mysql（默认）/ postgres / highgo / kingbase / dm
 DB_EXPLICIT=0           # 是否由命令行显式指定 DSN，升级时据此决定是否就地更新配置
 ENABLE_AGENT_AUTH=""    # yes/no：是否启用 Agent 接入授权密钥（未显式指定时默认 yes）
 AGENT_SECRET=""         # 授权密钥（启用时生成或显式传入）
@@ -111,12 +111,12 @@ usage() {
   --packages <dir>              本地离线包目录（默认自动探测 dist/artifacts/packages 或 offline，含 node tarball）
   --node-package <name>         指定离线包内的 Node 压缩包文件名（如 node-v24.18.0-linux-x64.tar.xz）
   --alert-webhook <urls>        告警 webhook 地址（逗号分隔，可选）
-  --db-dsn <dsn>                状态库 DSN（MySQL 8+，必填），如
-                                user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4
-                                库与账号需事先建好；平台启动时自动建表。
-  --log-backend <type>          集中日志后端: local(默认)|victorialogs
-  --log-addr <url>              外部日志后端地址（victorialogs 时用），如 http://10.0.0.10:9428
-  --log-dir <dir>               集中日志存储目录（local 后端用；默认 $DATA_DIR/logs）
+  --db-driver <type>            状态库类型: mysql（默认）|postgres|highgo|kingbase|dm
+  --db-dsn <dsn>                状态库 DSN（必填）。库与账号需事先建好，平台启动时自动建表。
+                                MySQL: user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4
+                                PostgreSQL: host=127.0.0.1 port=5432 user=yingzhao password=... dbname=yingzhao sslmode=disable
+                                达梦: dm://yingzhao:password@127.0.0.1:5236?schema=YINGZHAO
+  --log-addr <url>              VictoriaLogs 地址（默认 http://127.0.0.1:9428）
   --agent-auth                  启用 Agent 接入授权密钥
   --agent-secret <key>          指定授权密钥（与 --agent-auth 配合；缺省则自动生成）
   --yes                         非交互式；未提供二进制来源且处于源码目录时自动从源码构建
@@ -792,13 +792,19 @@ step_db() {
   PostgreSQL / 瀚高 / 金仓:
     CREATE USER yingzhao WITH PASSWORD '<password>';
     CREATE DATABASE yingzhao OWNER yingzhao;
-    --db-driver postgres --db-dsn 'host=127.0.0.1 port=5432 user=yingzhao password=<password> dbname=yingzhao sslmode=disable'"
+    --db-driver postgres --db-dsn 'host=127.0.0.1 port=5432 user=yingzhao password=<password> dbname=yingzhao sslmode=disable'
+  达梦:
+    --db-driver dm --db-dsn 'dm://yingzhao:<password>@127.0.0.1:5236?schema=YINGZHAO'"
     fi
-    prompt DB_DRIVER "状态库类型（mysql|postgres|highgo|kingbase）" "$DB_DRIVER"
+    prompt DB_DRIVER "状态库类型（mysql|postgres|highgo|kingbase|dm）" "$DB_DRIVER"
     if [[ "$DB_DRIVER" == "mysql" ]]; then
       prompt DB_DSN "状态库 DSN（MySQL 8+，形如 user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4）" ""
     else
-      prompt DB_DSN "状态库 DSN（PostgreSQL 系，形如 host=127.0.0.1 port=5432 user=yingzhao password=... dbname=yingzhao sslmode=disable）" ""
+      if [[ "" == "dm" ]]; then
+        prompt DB_DSN "状态库 DSN（达梦，形如 dm://yingzhao:password@127.0.0.1:5236?schema=YINGZHAO）" ""
+      else
+        prompt DB_DSN "状态库 DSN（PostgreSQL 系，形如 host=127.0.0.1 port=5432 user=yingzhao password=... dbname=yingzhao sslmode=disable）" ""
+      fi
     fi
   fi
   [[ -n "$DB_DSN" ]] || die "状态库 DSN 不能为空（数据库是硬依赖）"

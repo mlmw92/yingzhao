@@ -19,9 +19,9 @@ var migrationsFS embed.FS
 func Load(dialect string) ([]Migration, error) {
 	dialect = strings.ToLower(strings.TrimSpace(dialect))
 	switch dialect {
-	case "mysql", "postgres":
+	case "mysql", "postgres", "dm":
 	default:
-		return nil, fmt.Errorf("不支持的迁移方言: %q（可选: mysql|postgres）", dialect)
+		return nil, fmt.Errorf("不支持的迁移方言: %q（可选: mysql|postgres|dm）", dialect)
 	}
 	dir := "migrations/" + dialect
 	entries, err := fs.ReadDir(migrationsFS, dir)

@@ -244,7 +244,9 @@ func groupNames(groups []model.Group) []string {
 }
 
 // marshalOrNil 把可选结构编码成 JSON；零值返回 NULL（列可空，读回时保持零值）。
-func marshalOrNil(v any) ([]byte, error) {
+// marshalOrNil 把可选结构序列化成 JSON 字符串；空值返回 nil（写 NULL）。
+// 用 string 而不是 []byte：达梦的 CLOB 对 []byte 会按 BLOB 处理，类型不匹配。
+func marshalOrNil(v any) (any, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return nil, err
@@ -252,7 +254,7 @@ func marshalOrNil(v any) ([]byte, error) {
 	if string(data) == "null" || string(data) == "{}" || string(data) == "[]" {
 		return nil, nil
 	}
-	return data, nil
+	return string(data), nil
 }
 
 // ImportMeta 把一份 meta 快照整份写入持久化层。

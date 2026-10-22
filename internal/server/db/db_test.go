@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
@@ -108,10 +109,19 @@ func TestDriverName(t *testing.T) {
 			t.Fatalf("DriverName(%q) = %q, %v", in, got, err)
 		}
 	}
-	if _, err := DriverName("dm"); err == nil {
-		t.Fatal("未包含达梦驱动的构建应明确报错")
+	if got, err := DriverName("dm"); err != nil || got != "dm" {
+		t.Fatalf("DriverName(dm) = %q, %v", got, err)
 	}
 	if _, err := DriverName("oracle"); err == nil {
 		t.Fatal("未知驱动应报错")
 	}
+}
+
+// 达梦驱动必须被编译进二进制（sql.Open 只校验驱动名，不建立连接）。
+func TestDMDriverRegistered(t *testing.T) {
+	conn, err := sql.Open("dm", "dm://yingzhao:pass@127.0.0.1:5236?schema=YINGZHAO")
+	if err != nil {
+		t.Fatalf("达梦驱动未注册: %v", err)
+	}
+	_ = conn.Close()
 }

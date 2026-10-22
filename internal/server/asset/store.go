@@ -464,8 +464,11 @@ func (s *Store) migrate() error {
 // 索引直接写在建表语句里（MySQL 不支持部分索引，改为普通索引）。
 func (s *Store) migrateSQL() error {
 	stmts := mySQLSchemaStatements
-	if s.d.Name() == "postgres" {
+	switch s.d.Name() {
+	case "postgres":
 		stmts = postgresSchemaStatements
+	case "dm":
+		stmts = dmSchemaStatements
 	}
 	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version(
 		id INT PRIMARY KEY, version INT NOT NULL
@@ -495,10 +498,33 @@ func (s *Store) migrateSQL() error {
 			return fmt.Errorf("播种内置资产类型失败: %w", err)
 		}
 	}
+	if s.d.Name() == "dm" {
+		// DM 不支持 CREATE INDEX IF NOT EXISTS，先查 USER_INDEXES 再建。
+		for _, idx := range dmIndexStatements {
+			if err := s.ensureIndexDM(idx.name, idx.ddl); err != nil {
+				return err
+			}
+		}
+	}
 	if version != schemaVersion {
 		if _, err := s.db.Exec(`INSERT INTO schema_version(id, version) VALUES(1, ?)`+s.onConflict("id", "version=excluded.version"), schemaVersion); err != nil {
 			return fmt.Errorf("写入资产库版本失败: %w", err)
 		}
+	}
+	return nil
+}
+
+// ensureIndexDM 在达梦下幂等创建索引（DM 没有 CREATE INDEX IF NOT EXISTS）。
+func (s *Store) ensureIndexDM(name, ddl string) error {
+	var n int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM USER_INDEXES WHERE INDEX_NAME = ?", strings.ToUpper(name)).Scan(&n); err != nil {
+		return fmt.Errorf("检查索引 %s 失败: %w", name, err)
+	}
+	if n > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(ddl); err != nil {
+		return fmt.Errorf("创建索引 %s 失败: %w", name, err)
 	}
 	return nil
 }

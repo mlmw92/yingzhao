@@ -125,12 +125,18 @@ internal/server/migrate/migrations/dm/0001_*.sql ...
 4. 自增：`BIGSERIAL` 可用；金仓 Oracle 模式下需改 `IDENTITY`。
 5. 迁移锁：`pg_advisory_lock` 可用；不可用时退回控制行 `FOR UPDATE`。
 
-## 8. 达梦的当前状态
+## 8. 达梦（DM8）
 
-- 代码层：`Dialect` 预留 `dm` 分支（`?` 占位、双引号标识符、`MERGE` upsert、`IDENTITY` 自增）。
-- 驱动层：`gitee.com/chunanyong/dm` 不在依赖中，当前环境无外网，无法拉取。
-  默认构建在 `driver: dm` 时明确报错并提示构建方式；带 `-tags dm` 构建时才注册驱动。
-- 验收：拿到驱动后需要真实 DM8 实例跑一遍 `TEST_DM_DSN` 集成用例。
+- 驱动：`gitee.com/chunanyong/dm v1.8.23` 已加入依赖并注册为 `dm`。
+- 方言：`?` 占位符、未加引号的标识符统一大写；只有保留字 `rows` 加双引号。
+- upsert：`INSERT ... ON CONFLICT(...)` 由 `sqlx` 改写成 `MERGE INTO ... USING
+  (SELECT ... FROM DUAL) ...`（含 `DO NOTHING` 与 `MAX → GREATEST`）。
+- schema：`migrations/dm/` 4 条迁移；资产台账 `schema_dm.go`（25 表 + 23 索引，
+  索引先查 `USER_INDEXES` 再建）。
+- 自增主键：DM 驱动支持 `LastInsertId`，走 `Exec + LastInsertId`。
+- **尚未实机验证**：当前环境没有 DM8 实例。上线前必须在真实 DM8 上跑一遍
+  `TEST_DM_DSN` 集成用例，重点确认：`MERGE` 的 USING 子查询是否接受绑定参数、
+  `LIMIT ?` 是否接受绑定参数、`CREATE TABLE IF NOT EXISTS` 是否可用。
 
 ## 9. 实施顺序
 
@@ -163,12 +169,11 @@ internal/server/migrate/migrations/dm/0001_*.sql ...
 
 **达梦（DM）**
 
-- 代码路径未启用：驱动 `gitee.com/chunanyong/dm` 不在依赖中，当前构建环境无外网，无法拉取。
-- 默认二进制在 `driver: dm` 时明确报错；拿到驱动后需要：
-  1. `go get gitee.com/chunanyong/dm`；
-  2. 在 `internal/server/db` 增加 `//go:build dm` 的驱动注册；
-  3. 补 `migrations/dm/`、`schema_dm.go` 与 `MERGE` upsert；
-  4. 用真实 DM8 实例跑一遍集成用例。
+- 驱动已通过代理拉取并加入依赖（`gitee.com/chunanyong/dm v1.8.23`）。
+- 已落地：`dm` 方言、`MERGE` upsert 改写（含单元测试）、`migrations/dm/` 4 条迁移、
+  `schema_dm.go`（25 表 + 23 索引）、`LastInsertId` 路径。
+- **尚未实机验证**：当前环境没有 DM8 实例。上线前必须用真实实例跑一遍集成用例，
+  重点确认 `MERGE` 的 USING 子查询与 `LIMIT ?` 是否接受绑定参数。
 
 **已知差异**
 

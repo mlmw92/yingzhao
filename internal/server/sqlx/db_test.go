@@ -140,7 +140,7 @@ func TestParseDialect(t *testing.T) {
 			t.Fatalf("Parse(%q) = %v, %v", name, d, err)
 		}
 	}
-	if _, err := Parse("dm"); err == nil {
-		t.Fatal("未包含达梦驱动的构建应明确报错")
+	if d, err := Parse("dm"); err != nil || d.Name() != "dm" {
+		t.Fatalf("Parse(dm) = %v, %v", d, err)
 	}
 }

@@ -30,8 +30,8 @@
 | `logVictoriaLogs.addr` | 集中日志后端地址（VictoriaLogs，**唯一后端且必填**，如 `http://127.0.0.1:9428`）。本地分片落盘已退出生产路径，未配置地址时 Server 拒绝启动 |
 | `logVictoriaLogs.queryTimeout` / `writeTimeout` | 查询 / 写入超时（秒），默认 30 / 10 |
 | `logUploadRateBps` / `logMaxBodyBytes` | 单节点日志上行速率上限（默认 1 MiB/s）与单次上行请求体上限（默认 4 MiB）。日志的保留期与容量由 VictoriaLogs 的 `-retentionPeriod` 负责 |
-| `database.driver` | 状态库类型：`mysql`（默认）/ `postgres` / `highgo` / `kingbase`。瀚高与金仓走 PostgreSQL 协议，使用同一套方言；`dm`（达梦）需要带 `-tags dm` 并引入驱动构建，当前默认二进制会明确报错 |
-| `database.dsn` | 连接串，**必填**：MySQL 形如 `user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4`；PostgreSQL 系形如 `host=127.0.0.1 port=5432 user=yingzhao password=... dbname=yingzhao sslmode=disable`。配置文档已入库，连不上则拒绝启动 |
+| `database.driver` | 状态库类型：`mysql`（默认）/ `postgres` / `highgo` / `kingbase` / `dm`。瀚高与金仓走 PostgreSQL 协议，使用同一套方言；达梦使用 DM8 驱动与 `MERGE` upsert |
+| `database.dsn` | 连接串，**必填**：MySQL 形如 `user:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4`；PostgreSQL 系形如 `host=127.0.0.1 port=5432 user=yingzhao password=... dbname=yingzhao sslmode=disable`；达梦形如 `dm://yingzhao:password@127.0.0.1:5236?schema=YINGZHAO`。配置文档已入库，连不上则拒绝启动 |
 | `database.maxOpenConns` | 连接池上限，默认 20 |
 | `database.maxIdleConns` | 空闲连接上限，默认 5 |
 | `database.connMaxLifetimeSeconds` | 连接最长存活秒数，默认 1800 |

@@ -44,7 +44,7 @@ func (s *SQLStore) Load(ctx context.Context, ns string) ([]byte, int64, error) {
 	if !validNamespace(ns) {
 		return nil, 0, fmt.Errorf("配置命名空间不合法: %q", ns)
 	}
-	var payload []byte
+	var payload string
 	var version int64
 	err := s.db.QueryRowContext(ctx,
 		"SELECT payload, version FROM config_documents WHERE namespace = ?", ns).Scan(&payload, &version)
@@ -54,7 +54,7 @@ func (s *SQLStore) Load(ctx context.Context, ns string) ([]byte, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	return payload, version, nil
+	return []byte(payload), version, nil
 }
 
 func (s *SQLStore) Save(ctx context.Context, ns string, payload []byte, expectedVersion int64) (int64, error) {
@@ -92,11 +92,11 @@ func (s *SQLStore) Save(ctx context.Context, ns string, payload []byte, expected
 	if current == 0 {
 		_, err = tx.ExecContext(ctx,
 			"INSERT INTO config_documents(namespace, version, payload, updated_at) VALUES(?,?,?,?)",
-			ns, next, payload, now)
+			ns, next, string(payload), now)
 	} else {
 		_, err = tx.ExecContext(ctx,
 			"UPDATE config_documents SET version = ?, payload = ?, updated_at = ? WHERE namespace = ?",
-			next, payload, now, ns)
+			next, string(payload), now, ns)
 	}
 	if err != nil {
 		if isConflictError(err) {
