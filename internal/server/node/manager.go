@@ -40,6 +40,12 @@ type Manager struct {
 	offlineTimeout time.Duration
 	upgradeQueue   map[string]*upgradeTask         // 待升级节点集合（内存态，重启丢失）
 	lastPayloads   map[string]*model.ReportPayload // 各节点最近一次上报快照（含 Top 进程）
+
+	// 注册信息落库的串行化与版本（见 persistSnapshot）：
+	// metaVersion 受 mu 保护，metaFlushed 受 persistMu 保护。
+	persistMu   sync.Mutex
+	metaVersion uint64
+	metaFlushed uint64
 }
 
 // New 用文件持久化（测试与迁移源）。
@@ -174,7 +180,14 @@ func (m *Manager) Register(p *model.ReportPayload) {
 	n.Status = "online"
 	n.LastSeen = now
 	m.lastPayloads[p.Node] = p
-	if regChanged || !m.store.CoalesceHeartbeat() {
+	if regChanged {
+		m.metaVersion++
+	}
+	// 文件后端（测试/迁移源）保持每次上报整份写：它的整份写同时承担了心跳落盘，
+	// 调用方与既有测试都依赖"Register 返回即可读回"。
+	// 状态库后端把注册写库留给 FlushHeartbeats（每 30 秒一次）——注册变化是低频事件，
+	// 而 DB 抖动时在写锁里同步做 IO 会把所有节点读请求一起堵住。
+	if !m.store.CoalesceHeartbeat() {
 		m.persistLocked()
 	}
 }
@@ -400,8 +413,20 @@ func (m *Manager) persist() {
 	m.persistLocked()
 }
 
-// persistLocked 必须在持有写锁时调用。
+// persistLocked 立即把注册信息写入持久化层。必须在持有写锁时调用。
+//
+// 只给低频路径用（用户改分组/显示名、删节点、启动建默认分组）：
+// 这些操作调用方期望"保存即可靠"，在写锁内做一次 IO 可以接受。
+// **上报热路径（Register）不走这里**——见它的注释。
 func (m *Manager) persistLocked() {
+	m.metaVersion++
+	if err := m.persistSnapshot(m.snapshotMetaLocked(), m.metaVersion); err != nil {
+		slog.Warn("保存节点 meta 失败", "err", err, "store", m.store.Name())
+	}
+}
+
+// snapshotMetaLocked 复制一份待落库的节点与分组。调用方必须持有锁。
+func (m *Manager) snapshotMetaLocked() metaFile {
 	mf := metaFile{}
 	for _, n := range m.nodes {
 		mf.Nodes = append(mf.Nodes, *n)
@@ -409,17 +434,41 @@ func (m *Manager) persistLocked() {
 	for _, g := range m.groups {
 		mf.Groups = append(mf.Groups, *g)
 	}
-	if err := m.store.SaveMeta(mf); err != nil {
-		slog.Warn("保存节点 meta 失败", "err", err, "store", m.store.Name())
-	}
+	return mf
 }
 
-// FlushHeartbeats 把内存里的心跳与状态批量写入持久化层。
+// persistSnapshot 写入一份快照。
+//
+// 用版本号而不是"写锁内直接写"：快照在锁内取、写在锁外做（避免 DB IO 阻塞读请求），
+// 多个写入者可能乱序完成；版本号保证**旧快照永远不会覆盖新快照**。
+func (m *Manager) persistSnapshot(mf metaFile, version uint64) error {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
+	if version <= m.metaFlushed {
+		return nil
+	}
+	if err := m.store.SaveMeta(mf); err != nil {
+		return err
+	}
+	m.metaFlushed = version
+	return nil
+}
+
+// FlushHeartbeats 把待落库的注册信息与内存里的心跳批量写入持久化层。
 //
 // 为什么单独一条路径：心跳每次上报都变（每节点每 5 秒一次），而注册信息几乎不变；
 // 把心跳混进注册写入，等于在热路径上重写整份节点表（设计件 §5.2.1）。
-// 文件后端是空操作——它的整份写已经把心跳带上了。
+// 文件后端的心跳部分是空操作——它的整份写已经把心跳带上了。
 func (m *Manager) FlushHeartbeats() {
+	// 先补注册信息（如果有变化），再刷心跳：心跳 upsert 只补行，
+	// 注册字段要靠 SaveMeta 才会完整。
+	m.mu.RLock()
+	mf, version := m.snapshotMetaLocked(), m.metaVersion
+	m.mu.RUnlock()
+	if err := m.persistSnapshot(mf, version); err != nil {
+		slog.Warn("保存节点 meta 失败", "err", err, "store", m.store.Name())
+	}
+
 	m.mu.RLock()
 	states := make([]heartbeat, 0, len(m.nodes))
 	for _, n := range m.nodes {

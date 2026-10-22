@@ -121,6 +121,8 @@ type Receiver struct {
 
 	// 资产台账：nil 表示未启用，此时不写台账（行为与引入资产前一致）。
 	assets *asset.Service
+	// 资产写入熔断：数据库不可用时跳过台账，避免拖垮指标上报。
+	assetBreaker assetBreaker
 }
 
 // New 创建 Receiver。auth 为 Agent 接入授权配置（参考哪吒探针密钥机制）；

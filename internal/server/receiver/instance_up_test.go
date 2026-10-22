@@ -34,8 +34,8 @@ func (s *recordingStorage) QueryAllLatest(string, map[string]string) ([]model.Se
 	return nil, nil
 }
 func (s *recordingStorage) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
-func (s *recordingStorage) Close() error    { return nil }
-func (s *recordingStorage) Backend() string { return "test" }
+func (s *recordingStorage) Close() error                               { return nil }
+func (s *recordingStorage) Backend() string                            { return "test" }
 
 // upSeries 找出某个实例的存活序列（返回命中条数与值）。
 func upSeries(metrics []model.Metric, name, instance string) (int, float64) {
@@ -66,8 +66,8 @@ func TestHandleReportSynthesizesInstanceUpForExporterMode(t *testing.T) {
 		PostgresInstances: []model.PostgresInstance{{
 			Instance: "pg:5432", Name: "pg-main", Group: "core", Role: "master", Up: true,
 		}},
-		NginxInstances:  []model.NginxInstance{{Instance: "ng:80", Name: "ng-main", Group: "core", Up: true}},
-		KafkaInstances:  []model.KafkaInstance{{Instance: "kafka:9092", Name: "kafka-main", Group: "core", Role: "broker", Up: false}},
+		NginxInstances: []model.NginxInstance{{Instance: "ng:80", Name: "ng-main", Group: "core", Up: true}},
+		KafkaInstances: []model.KafkaInstance{{Instance: "kafka:9092", Name: "kafka-main", Group: "core", Role: "broker", Up: false}},
 		MongoDBInstances: []model.MongoDBInstance{{
 			Instance: "mongo:27017", Name: "mongo-main", Group: "core", Role: "PRIMARY", Topology: "replicaset", Up: true,
 		}},

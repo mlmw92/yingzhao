@@ -23,6 +23,10 @@ func (r *Receiver) applyAssets(p *model.ReportPayload) {
 	if r.assets == nil || p == nil || strings.TrimSpace(p.Node) == "" {
 		return
 	}
+	// 数据库刚失败过：本轮直接跳过台账，别让次要数据拖住指标上报。
+	if !r.assetBreaker.allow() {
+		return
+	}
 
 	// 主机资产：自然键 = hostname，与 model.Node.Hostname 一致——不造第二套主机标识，
 	// 资源范围（节点分组）才能原样生效。
@@ -44,7 +48,7 @@ func (r *Receiver) applyAssets(p *model.ReportPayload) {
 		hostAttrs["diskMB"] = strconv.FormatUint(p.HostInfo.DiskTotal/(1<<20), 10)
 	}
 	hostRef := asset.Ref{TypeKey: asset.TypeHost, NaturalKey: p.Node}
-	if _, _, err := r.assets.Apply(asset.Observation{
+	if _, _, err := r.applyAsset(asset.Observation{
 		TypeKey: asset.TypeHost, NaturalKey: p.Node, Name: p.Node, Node: p.Node,
 		Source: asset.SourceDiscovery, Actor: "agent", Attrs: hostAttrs,
 	}); err != nil {
@@ -97,7 +101,7 @@ func (r *Receiver) applyAssets(p *model.ReportPayload) {
 			clusterRef = asset.Ref{TypeKey: asset.TypeMiddlewareCluster, NaturalKey: key}
 			clusters[ob.Type+"|"+name] = clusterPlan{ref: clusterRef, kind: ob.Type, name: name}
 		}
-		instance, _, err := r.assets.Apply(asset.Observation{
+		instance, _, err := r.applyAsset(asset.Observation{
 			TypeKey: asset.TypeMiddlewareInst, NaturalKey: ob.Type + ":" + ob.Addr,
 			Name: ob.Name, Node: p.Node, Source: asset.SourceDiscovery, Actor: "agent", Attrs: attrs,
 		})
@@ -116,7 +120,7 @@ func (r *Receiver) applyAssets(p *model.ReportPayload) {
 
 	// 集群资产先落：member_of 要求两端都已存在（与"先工作负载、后 Pod"同一约束）。
 	for _, cp := range clusters {
-		if _, _, err := r.assets.Apply(asset.Observation{
+		if _, _, err := r.applyAsset(asset.Observation{
 			TypeKey: asset.TypeMiddlewareCluster, NaturalKey: cp.ref.NaturalKey,
 			Name: cp.name,
 			// **归属节点落空串**：集群跨主机，没有单一归属节点。取上报主机会在多个 Agent
@@ -342,6 +346,9 @@ func isHostPort(addr string) bool {
 //   - exposes：Service → 后端 Pod。后端是采集侧从 EndpointSlice 的 targetRef 取的
 //     （不是 selector 命中：未就绪的 Pod 不在 Endpoints 里）。这也是 exposes 的**第一个自动来源**。
 func (r *Receiver) applyContainerInventory(p *model.ReportPayload) {
+	if r.assets == nil || !r.assetBreaker.allow() {
+		return
+	}
 	// 主机资产的**规范名**查询（记忆化）：Pod 的范围归属与 runs_on 都以它为前提，
 	// 而成百上千个 Pod 往往只分布在少数几个节点上——每个节点只查一次。
 	//
@@ -382,7 +389,7 @@ func (r *Receiver) applyContainerInventory(p *model.ReportPayload) {
 		attrs["desired"] = strconv.Itoa(w.Desired)
 		attrs["ready"] = strconv.Itoa(w.Ready)
 		key := asset.WorkloadNaturalKey(w.Cluster, w.Namespace, w.Kind, w.Name)
-		if _, _, err := r.assets.Apply(asset.Observation{
+		if _, _, err := r.applyAsset(asset.Observation{
 			TypeKey: asset.TypeWorkload, NaturalKey: key,
 			Name: w.Name,
 			// 工作负载跨节点、没有单一归属节点：范围挂在**集群的上报主机**上，
@@ -426,7 +433,7 @@ func (r *Receiver) applyContainerInventory(p *model.ReportPayload) {
 		// 该节点没有对应主机资产时落空串 → 仅全局范围可见：不假装它属于某个分组。
 		// 大小写由 hostNameOf 折叠，且取的是台账里的规范键（否则资源范围会再一次对不上）。
 		node := hostNameOf(pod.Node)
-		cur, _, err := r.assets.Apply(asset.Observation{
+		cur, _, err := r.applyAsset(asset.Observation{
 			TypeKey:    asset.TypePod,
 			NaturalKey: asset.PodNaturalKey(pod.Cluster, pod.Namespace, pod.Name),
 			Name:       pod.Name, Node: node,
@@ -478,7 +485,7 @@ func (r *Receiver) applyContainerInventory(p *model.ReportPayload) {
 			attrs["backendsTruncated"] = "true"
 		}
 		key := asset.ServiceNaturalKey(svc.Cluster, svc.Namespace, svc.Name)
-		cur, _, err := r.assets.Apply(asset.Observation{
+		cur, _, err := r.applyAsset(asset.Observation{
 			TypeKey: asset.TypeService, NaturalKey: key,
 			Name:   svc.Name,
 			Node:   p.Node,

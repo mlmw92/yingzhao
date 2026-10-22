@@ -35,18 +35,24 @@ func report(node, group, ip string) *model.ReportPayload {
 	return &model.ReportPayload{Node: node, Group: group, IP: ip, Mode: model.ModeCollect}
 }
 
-// 心跳不触发整份写：同一份注册信息重复上报只写一次（首次注册）。
+// 心跳不触发整份写；状态库模式下注册变化由 FlushHeartbeats 合并落库
+// （不在上报热路径的写锁里做 IO）。
 func TestRegisterOnlyPersistsMetaOnRegistrationChange(t *testing.T) {
 	p := &fakePersist{coalesce: true}
 	m := newTestManager(p)
 	p.metaSaves = 0 // 建默认分组那一次是初始化噪音
 
 	m.Register(report("web-01", "g1", "10.0.0.1"))
+	if p.metaSaves != 0 {
+		t.Fatalf("状态库模式下注册写应交给 Flusher，实际同步写了 %d 次", p.metaSaves)
+	}
+	m.FlushHeartbeats()
 	if p.metaSaves != 1 {
-		t.Fatalf("首次注册应写一次 meta，实际 %d", p.metaSaves)
+		t.Fatalf("FlushHeartbeats 应写一次 meta，实际 %d", p.metaSaves)
 	}
 	m.Register(report("web-01", "g1", "10.0.0.1"))
 	m.Register(report("web-01", "g1", "10.0.0.1"))
+	m.FlushHeartbeats()
 	if p.metaSaves != 1 {
 		t.Fatalf("注册信息未变不应再写，实际 %d", p.metaSaves)
 	}
@@ -54,10 +60,11 @@ func TestRegisterOnlyPersistsMetaOnRegistrationChange(t *testing.T) {
 	// 分组由 Server 端管理：Agent 上报的 group 只在节点尚无分组时兜底，
 	// 后续上报不会覆盖用户改过的分组（因此也不该触发写）。
 	m.Register(report("web-01", "g2", "10.0.0.1"))
+	m.FlushHeartbeats()
 	if p.metaSaves != 1 {
 		t.Fatalf("Agent 上报不应覆盖已设分组，实际写 %d 次", p.metaSaves)
 	}
-	// 界面改分组 → 注册信息变化 → 必须写
+	// 界面改分组 → 注册信息变化 → 必须写（用户操作是同步路径）
 	if err := m.SetNodeGroup("web-01", "g2"); err != nil {
 		t.Fatal(err)
 	}
@@ -153,19 +160,22 @@ func TestRegisterIgnoresVolatileHostInfo(t *testing.T) {
 	}
 
 	m.Register(withInfo(40<<30, nil))
+	m.FlushHeartbeats()
 	if p.metaSaves != 1 {
-		t.Fatalf("首次注册应写一次 meta，实际 %d", p.metaSaves)
+		t.Fatalf("首次注册应在 flush 时写一次 meta，实际 %d", p.metaSaves)
 	}
 	// 只有磁盘已用与在线用户变了：不该再写。
 	m.Register(withInfo(41<<30, []model.OnlineUser{{User: "alice", Terminal: "pts/0"}}))
 	m.Register(withInfo(42<<30, []model.OnlineUser{{User: "bob", Terminal: "pts/1"}}))
+	m.FlushHeartbeats()
 	if p.metaSaves != 1 {
 		t.Fatalf("只有磁盘/在线用户变化不应写 meta，实际 %d", p.metaSaves)
 	}
-	// 内存变了：这是注册级信息，必须写。
+	// 内存变了：这是注册级信息，flush 时必须写。
 	r := withInfo(42<<30, nil)
 	r.HostInfo.MemoryTotal = 32 << 30
 	m.Register(r)
+	m.FlushHeartbeats()
 	if p.metaSaves != 2 {
 		t.Fatalf("内存变化应写 meta，实际 %d", p.metaSaves)
 	}

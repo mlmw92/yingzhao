@@ -36,8 +36,8 @@ func (s *assetTestStorage) QueryAllLatest(string, map[string]string) ([]model.Se
 	return nil, nil
 }
 func (s *assetTestStorage) QueryPromQL(string) ([]model.Series, error) { return nil, nil }
-func (s *assetTestStorage) Close() error    { return nil }
-func (s *assetTestStorage) Backend() string { return "test" }
+func (s *assetTestStorage) Close() error                               { return nil }
+func (s *assetTestStorage) Backend() string                            { return "test" }
 
 func postReport(t *testing.T, r *Receiver, payload model.ReportPayload) {
 	t.Helper()
