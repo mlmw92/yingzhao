@@ -91,4 +91,14 @@ func TestAssetStorePostgres(t *testing.T) {
 	if src != string(SourceManual) {
 		t.Fatalf("人工关系不应被采集降级，实际 source=%q", src)
 	}
+
+	// 类型模型保存（`schema` 是保留字，PG 下必须正确引用；重复保存也要成功）。
+	typeKey := BuiltinTypes()[0].Key
+	sch := TypeSchema{FocusFields: []string{"cpuCores"}}
+	if err := st.saveTypeSchema(typeKey, sch); err != nil {
+		t.Fatalf("保存类型模型: %v", err)
+	}
+	if err := st.saveTypeSchema(typeKey, sch); err != nil {
+		t.Fatalf("重复保存同一份类型模型: %v", err)
+	}
 }

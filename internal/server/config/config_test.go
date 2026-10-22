@@ -92,3 +92,44 @@ database:
 		t.Fatalf("解析结果 = %+v", got.Database)
 	}
 }
+
+// 安装脚本生成的 database 段必须能被解析（driver + 两种 DSN 形态）。
+func TestLoadInstallerGeneratedDatabaseConfig(t *testing.T) {
+	cases := []struct {
+		name, body string
+	}{
+		{"mysql", `mode: standalone
+database:
+  driver: "mysql"
+  dsn: "yingzhao:pass@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4"
+  maxOpenConns: 20
+  maxIdleConns: 5
+  connMaxLifetimeSeconds: 1800
+  masterKeyFile: "/etc/monitor-server/master.key"
+`},
+		{"postgres", `mode: standalone
+database:
+  driver: "postgres"
+  dsn: "host=127.0.0.1 port=5432 user=yingzhao password=pass dbname=yingzhao sslmode=disable"
+  masterKeyFile: "/etc/monitor-server/master.key"
+`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfigFile(t, tc.body)
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("加载配置失败: %v", err)
+			}
+			if cfg.Database.Driver != tc.name {
+				t.Fatalf("driver = %q, want %q", cfg.Database.Driver, tc.name)
+			}
+			if cfg.Database.DSN == "" {
+				t.Fatal("dsn 未解析")
+			}
+			if cfg.Database.MaxOpenConns != 20 {
+				t.Fatalf("默认 maxOpenConns = %d", cfg.Database.MaxOpenConns)
+			}
+		})
+	}
+}
