@@ -134,9 +134,30 @@ internal/server/migrate/migrations/dm/0001_*.sql ...
 - schema：`migrations/dm/` 4 条迁移；资产台账 `schema_dm.go`（25 表 + 23 索引，
   索引先查 `USER_INDEXES` 再建）。
 - 自增主键：DM 驱动支持 `LastInsertId`，走 `Exec + LastInsertId`。
-- **尚未实机验证**：当前环境没有 DM8 实例。上线前必须在真实 DM8 上跑一遍
-  `TEST_DM_DSN` 集成用例，重点确认：`MERGE` 的 USING 子查询是否接受绑定参数、
-  `LIMIT ?` 是否接受绑定参数、`CREATE TABLE IF NOT EXISTS` 是否可用。
+- **实机验证（2026-10-22，dev-server 上的 DM8 容器）**：
+  - 镜像 `zjwmkrnwr2x8y72vh2.xuanyuan.run/yssenn/dameng:dm8_20260427_x86_CentOS7`，
+    端口映射 `15236:5236`，`DM_SYSDBA_PWD=Yingzhao123`；
+  - 六组集成用例全部通过：配置文档契约（含并发创建/版本冲突）、资产台账
+    （25 表、MERGE upsert、关系优先级、类型模型）、审计（链初始化/写入/裁剪/校验）、
+    下行任务（回填/序号跨重启）、告警处置回填、节点整份同步与心跳补写；
+  - Server 完整启动通过：`/readyz` 的 `database` 为 ok，资产日志 `db=dm`。
+- 实现中确认的 DM 差异：
+  - `key`/`schema`/`rows` 都按保留字处理，DDL 与 DML 统一加双引号；
+  - `MERGE` 的 SET 里目标表只能用别名 `t`（原 SQL 的 `<table>.col` 需替换）；
+  - 唯一约束冲突码为 `-6602`，迁移锁用控制表行锁（`SELECT ... FOR UPDATE`）。
+
+复现命令（测试实例）：
+
+```bash
+docker run -d --name dm-test -p 15236:5236 \
+  --ulimit nofile=65536:65536 --ulimit nproc=65536:65536 \
+  -e DM_SYSDBA_PWD=Yingzhao123 -e DM_SYSAUDITOR_PWD=Auditor123 \
+  -v /var/lib/dm-test:/dmdata \
+  zjwmkrnwr2x8y72vh2.xuanyuan.run/yssenn/dameng:dm8_20260427_x86_CentOS7
+
+TEST_DM_DSN='dm://SYSDBA:Yingzhao123@127.0.0.1:5236' \
+  go test -p 1 ./internal/server/... -run DM
+```
 
 ## 9. 实施顺序
 
@@ -170,10 +191,11 @@ internal/server/migrate/migrations/dm/0001_*.sql ...
 **达梦（DM）**
 
 - 驱动已通过代理拉取并加入依赖（`gitee.com/chunanyong/dm v1.8.23`）。
-- 已落地：`dm` 方言、`MERGE` upsert 改写（含单元测试）、`migrations/dm/` 4 条迁移、
-  `schema_dm.go`（25 表 + 23 索引）、`LastInsertId` 路径。
-- **尚未实机验证**：当前环境没有 DM8 实例。上线前必须用真实实例跑一遍集成用例，
-  重点确认 `MERGE` 的 USING 子查询与 `LIMIT ?` 是否接受绑定参数。
+- 已落地：`dm` 方言、`MERGE` upsert 改写、`migrations/dm/` 4 条迁移、
+  `schema_dm.go`（25 表 + 23 索引）、`LastInsertId` 路径、控制表行锁迁移锁。
+- **实机验证通过（2026-10-22）**：dev-server 上的 DM8 容器跑通六组集成用例与
+  Server 完整启动（详见 §8）。实现中修正了 `schema` 保留字、MERGE 目标表别名、
+  `-6602` 唯一约束映射三个只有真实实例才会暴露的问题。
 
 **已知差异**
 

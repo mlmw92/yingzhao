@@ -29,7 +29,7 @@ func Apply(ctx context.Context, pool *sql.DB, d sqlx.Dialect, migrations []Migra
 	}
 	defer conn.Close()
 
-	unlock, err := acquireMigrationLock(ctx, conn, d)
+	unlock, err := acquireMigrationLock(ctx, pool, conn, d)
 	if err != nil {
 		return 0, err
 	}
@@ -88,7 +88,7 @@ func Apply(ctx context.Context, pool *sql.DB, d sqlx.Dialect, migrations []Migra
 }
 
 // acquireMigrationLock 取得迁移锁，返回释放函数。
-func acquireMigrationLock(ctx context.Context, conn *sql.Conn, d sqlx.Dialect) (func(), error) {
+func acquireMigrationLock(ctx context.Context, pool *sql.DB, conn *sql.Conn, d sqlx.Dialect) (func(), error) {
 	switch d.Name() {
 	case "postgres":
 		deadline := time.Now().Add(30 * time.Second)
@@ -113,6 +113,42 @@ func acquireMigrationLock(ctx context.Context, conn *sql.Conn, d sqlx.Dialect) (
 			case <-time.After(500 * time.Millisecond):
 			}
 		}
+	case "dm":
+		// 达梦没有 GET_LOCK/advisory lock：用一张控制表的行锁。
+		// 锁必须持在**另一条连接**上（迁移本身要用当前连接执行语句）。
+		lockConn, err := pool.Conn(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("获取迁移锁连接失败: %w", err)
+		}
+		if _, err := lockConn.ExecContext(ctx,
+			`CREATE TABLE IF NOT EXISTS migration_lock(id INT PRIMARY KEY, holder VARCHAR(64))`); err != nil {
+			_ = lockConn.Close()
+			return nil, fmt.Errorf("创建迁移锁表失败: %w", err)
+		}
+		var n int
+		if err := lockConn.QueryRowContext(ctx, `SELECT COUNT(*) FROM migration_lock WHERE id = 1`).Scan(&n); err != nil {
+			_ = lockConn.Close()
+			return nil, fmt.Errorf("读取迁移锁表失败: %w", err)
+		}
+		if n == 0 {
+			// 并发初始化时另一方可能刚插入；主键冲突忽略即可。
+			_, _ = lockConn.ExecContext(ctx, `INSERT INTO migration_lock(id, holder) VALUES(1, '')`)
+		}
+		tx, err := lockConn.BeginTx(ctx, nil)
+		if err != nil {
+			_ = lockConn.Close()
+			return nil, fmt.Errorf("开启迁移锁事务失败: %w", err)
+		}
+		var id int
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM migration_lock WHERE id = 1 FOR UPDATE`).Scan(&id); err != nil {
+			_ = tx.Rollback()
+			_ = lockConn.Close()
+			return nil, fmt.Errorf("获取迁移锁失败: %w", err)
+		}
+		return func() {
+			_ = tx.Rollback()
+			_ = lockConn.Close()
+		}, nil
 	default:
 		var got sql.NullInt64
 		if err := conn.QueryRowContext(ctx,

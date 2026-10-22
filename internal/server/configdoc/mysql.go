@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"gitee.com/chunanyong/dm"
 	"github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
 
@@ -17,7 +19,8 @@ import (
 //
 // MySQL：1062 duplicate key / 1213 deadlock / 1205 lock wait timeout。
 // PostgreSQL：23505 unique_violation / 40P01 deadlock_detected / 55P03 lock_not_available。
-// 三者都表示「另一个写入者先完成了」：调用方应当重读版本后重试，
+// 达梦：-6602 唯一性约束；死锁/锁超时按错误文本兜底。
+// 这些情况都表示「另一个写入者先完成了」：调用方应当重读版本后重试，
 // 而不是看到一个原始驱动错误。
 func isConflictError(err error) bool {
 	var me *mysql.MySQLError
@@ -27,6 +30,13 @@ func isConflictError(err error) bool {
 	var pe *pq.Error
 	if errors.As(err, &pe) {
 		return pe.Code == "23505" || pe.Code == "40P01" || pe.Code == "55P03"
+	}
+	var de *dm.DmError
+	if errors.As(err, &de) {
+		msg := strings.ToLower(de.ErrText)
+		return de.ErrCode == -6602 ||
+			strings.Contains(de.ErrText, "死锁") || strings.Contains(msg, "deadlock") ||
+			strings.Contains(de.ErrText, "锁超时")
 	}
 	return false
 }

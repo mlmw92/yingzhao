@@ -14,48 +14,45 @@ import (
 //   - 占位符仍是 ?，不需要重绑定。
 type dmDialect struct{}
 
-func (dmDialect) Name() string   { return "dm" }
-func (dmDialect) Driver() string { return "dm" }
+func (dmDialect) Name() string         { return "dm" }
+func (dmDialect) Driver() string       { return "dm" }
 func (dmDialect) Bind(q string) string { return q }
 
 func (dmDialect) Rewrite(q string) string {
-	// 显式反引号（少数 SQL 直接写了 `key`）在 DM 下改成裸标识符：
-	// 裸标识符会被统一大写，和 DDL 里未加引号的列名一致。
-	q = strings.ReplaceAll(q, "`", "")
-	q = quoteOnly(q, "rows", `"`)
+	// 显式反引号（少数 SQL 直接写了 `key`）在 DM 下改成双引号；
+	// key/schema/rows 是保留字或与系统对象冲突，统一加引号，且 DDL 里同样加。
+	q = strings.ReplaceAll(q, "`", `"`)
+	q = rewriteReservedIdents(q, `"`)
 	return dmMerge(q)
 }
 
 func (dmDialect) Upsert(cols, sets string) string {
 	out := strings.ReplaceAll(sets, "MAX(", "GREATEST(")
-	return " ON CONFLICT(" + bareIdentList(cols) + ") DO UPDATE SET " + out
+	return " ON CONFLICT(" + dmIdentList(cols) + ") DO UPDATE SET " + out
 }
 
 func (dmDialect) UpsertNothing(col string) string {
-	return " ON CONFLICT(" + bareIdentList(col) + ") DO NOTHING"
+	return " ON CONFLICT(" + dmIdentList(col) + ") DO NOTHING"
 }
 
 func (dmDialect) FromDual() string { return " FROM DUAL" }
 
-// quoteOnly 只给指定标识符加引号（DM 下仅 rows 需要）。
-func quoteOnly(q, ident, quote string) string {
-	re := regexp.MustCompile("(^|[^`\"\\w])" + ident + "([^`\"\\w]|$)")
-	repl := "${1}" + quote + ident + quote + "${2}"
-	for {
-		next := re.ReplaceAllString(q, repl)
-		if next == q {
-			break
-		}
-		q = next
+// dmReserved 是需要加双引号的标识符（DM 下未加引号的会统一大写，
+// 加引号后是小写，两者不能混用，所以 DDL 与 DML 必须一致）。
+var dmReserved = map[string]bool{"key": true, "schema": true, "rows": true}
+
+func dmIdent(col string) string {
+	col = strings.Trim(strings.TrimSpace(col), "`\"")
+	if dmReserved[strings.ToLower(col)] {
+		return `"` + col + `"`
 	}
-	return q
+	return col
 }
 
-// bareIdentList 去掉引号，返回裸标识符列表（DM 会统一大写）。
-func bareIdentList(cols string) string {
+func dmIdentList(cols string) string {
 	parts := strings.Split(cols, ",")
 	for i, p := range parts {
-		parts[i] = strings.Trim(strings.TrimSpace(p), "`\"")
+		parts[i] = dmIdent(p)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -76,7 +73,7 @@ func dmMerge(q string) string {
 	if closeIdx < 0 {
 		return q
 	}
-	conflictCols := bareIdentList(tail[:closeIdx])
+	conflictCols := dmIdentList(tail[:closeIdx])
 	afterConflict := strings.TrimSpace(tail[closeIdx+1:])
 
 	table, cols, values, ok := parseInsert(head)
@@ -115,7 +112,7 @@ func dmMerge(q string) string {
 		sets = strings.TrimPrefix(sets, "DO UPDATE SET ")
 		sets = strings.TrimPrefix(sets, "do update set ")
 		b.WriteString(" WHEN MATCHED THEN UPDATE SET ")
-		b.WriteString(qualifyDMUpdate(sets, cols))
+		b.WriteString(qualifyDMUpdate(sets, cols, table))
 	}
 	b.WriteString(" WHEN NOT MATCHED THEN INSERT (")
 	b.WriteString(strings.Join(cols, ", "))
@@ -162,7 +159,7 @@ func parseInsert(q string) (table string, cols, values []string, ok bool) {
 		return "", nil, nil, false
 	}
 	for i := range cols {
-		cols[i] = strings.Trim(strings.TrimSpace(cols[i]), "`\"")
+		cols[i] = strings.TrimSpace(cols[i])
 	}
 	return table, cols, values, true
 }
@@ -202,8 +199,10 @@ func splitTopLevel(s string) []string {
 }
 
 // qualifyDMUpdate 把 sets 里的 excluded.x 改成 s.x，并给裸目标列加 t. 前缀。
-func qualifyDMUpdate(sets string, cols []string) string {
+func qualifyDMUpdate(sets string, cols []string, table string) string {
 	sets = strings.ReplaceAll(sets, "excluded.", "s.")
+	// MERGE 的目标表在 SET 里只能用别名 t；原 SQL 里的 `<table>.col` 要换掉。
+	sets = strings.ReplaceAll(sets, table+".", "t.")
 	for _, col := range cols {
 		re := regexp.MustCompile("(^|[^.\\w])" + regexp.QuoteMeta(col) + "([^\\w]|$)")
 		sets = re.ReplaceAllString(sets, "${1}t."+col+"${2}")

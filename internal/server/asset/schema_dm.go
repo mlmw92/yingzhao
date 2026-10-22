@@ -7,14 +7,14 @@ package asset
 //   - LONGTEXT/TEXT → CLOB，TINYINT 保留；
 //   - 内联 KEY 索引改成独立的 CREATE INDEX（见 dmIndexStatements）；
 //   - 没有 ENGINE/CHARSET；
-//   - 未加引号的标识符会被统一大写，因此 key/schema 不加引号（DM 中非保留），
-//     只有保留字 rows 加双引号，且所有引用处都由 sqlx 统一加引号。
+//   - key/schema/rows 在 DM 下需要加双引号（DDL 与 DML 必须一致；
+//     未加引号的标识符会被统一大写，混用会导致列名对不上）。
 var dmSchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS asset_types(
-		key     VARCHAR(64) PRIMARY KEY,
+		"key"     VARCHAR(64) PRIMARY KEY,
 		title   VARCHAR(255) NOT NULL DEFAULT '',
 		builtin TINYINT NOT NULL DEFAULT 0,
-		schema  CLOB NOT NULL
+		"schema"  CLOB NOT NULL DEFAULT '{}'
 	)`,
 	`CREATE TABLE IF NOT EXISTS assets(
 		id          BIGINT IDENTITY(1,1) PRIMARY KEY,
@@ -25,16 +25,16 @@ var dmSchemaStatements = []string{
 		created_at  BIGINT NOT NULL,
 		updated_at  BIGINT NOT NULL,
 		CONSTRAINT uk_assets_type_natural UNIQUE(type_key, natural_key),
-		CONSTRAINT fk_assets_type FOREIGN KEY(type_key) REFERENCES asset_types(key)
+		CONSTRAINT fk_assets_type FOREIGN KEY(type_key) REFERENCES asset_types("key")
 	)`,
 	`CREATE TABLE IF NOT EXISTS asset_attrs(
 		asset_id   BIGINT NOT NULL,
-		key        VARCHAR(128) NOT NULL,
+		"key"      VARCHAR(128) NOT NULL,
 		value      CLOB NOT NULL,
 		source     VARCHAR(32) NOT NULL,
 		updated_at BIGINT NOT NULL,
 		updated_by VARCHAR(128) NOT NULL DEFAULT '',
-		PRIMARY KEY(asset_id, key, source),
+		PRIMARY KEY(asset_id, "key", source),
 		CONSTRAINT fk_attrs_asset FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE
 	)`,
 	`CREATE TABLE IF NOT EXISTS asset_links(
@@ -80,9 +80,9 @@ var dmSchemaStatements = []string{
 	)`,
 	`CREATE TABLE IF NOT EXISTS snapshot_fields(
 		snapshot_id BIGINT NOT NULL,
-		key         VARCHAR(128) NOT NULL,
+		"key"       VARCHAR(128) NOT NULL,
 		value       CLOB NOT NULL,
-		PRIMARY KEY(snapshot_id, key),
+		PRIMARY KEY(snapshot_id, "key"),
 		CONSTRAINT fk_sfields_snapshot FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
 	)`,
 	`CREATE TABLE IF NOT EXISTS asset_seen(
@@ -151,11 +151,11 @@ var dmSchemaStatements = []string{
 	)`,
 	`CREATE TABLE IF NOT EXISTS asset_labels(
 		asset_id   BIGINT NOT NULL,
-		key        VARCHAR(128) NOT NULL,
+		"key"      VARCHAR(128) NOT NULL,
 		value      VARCHAR(512) NOT NULL DEFAULT '',
 		updated_at BIGINT NOT NULL,
 		updated_by VARCHAR(128) NOT NULL DEFAULT '',
-		PRIMARY KEY(asset_id, key),
+		PRIMARY KEY(asset_id, "key"),
 		CONSTRAINT fk_labels_asset FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE
 	)`,
 	`CREATE TABLE IF NOT EXISTS audit_events(
@@ -219,7 +219,7 @@ var dmSchemaStatements = []string{
 		task_json  CLOB NOT NULL
 	)`,
 	`CREATE TABLE IF NOT EXISTS ops_meta(
-		key   VARCHAR(64) PRIMARY KEY,
+		"key"   VARCHAR(64) PRIMARY KEY,
 		value CLOB NOT NULL
 	)`,
 	`CREATE TABLE IF NOT EXISTS ops_caps(
@@ -247,7 +247,7 @@ var dmIndexStatements = []struct{ name, ddl string }{
 	{"idx_inspect_runs_at", `CREATE INDEX idx_inspect_runs_at ON inspect_runs(started_at)`},
 	{"idx_inspect_members_asset", `CREATE INDEX idx_inspect_members_asset ON inspect_run_members(asset_id, run_id)`},
 	{"idx_inspect_findings_run", `CREATE INDEX idx_inspect_findings_run ON inspect_findings(run_id, level, kind)`},
-	{"idx_asset_labels_kv", `CREATE INDEX idx_asset_labels_kv ON asset_labels(key, value)`},
+	{"idx_asset_labels_kv", `CREATE INDEX idx_asset_labels_kv ON asset_labels("key", value)`},
 	{"idx_audit_events_time", `CREATE INDEX idx_audit_events_time ON audit_events(time_ms)`},
 	{"idx_audit_events_user", `CREATE INDEX idx_audit_events_user ON audit_events(user_name, time_ms)`},
 	{"idx_audit_events_request", `CREATE INDEX idx_audit_events_request ON audit_events(request_id)`},

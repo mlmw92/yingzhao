@@ -27,7 +27,7 @@ func TestDMSchemaStatements(t *testing.T) {
 	if !strings.Contains(joined, `"rows"`) {
 		t.Fatal("rows 是达梦保留字，建表时应加双引号")
 	}
-	if strings.Contains(joined, `"key"`) || strings.Contains(joined, `"schema"`) {
-		t.Fatal("key/schema 在达梦不是保留字，加引号会造成大小写不一致")
+	if !strings.Contains(joined, `"key"`) || !strings.Contains(joined, `"schema"`) {
+		t.Fatal("key/schema 在达梦下需要加双引号，且 DDL 与 DML 必须一致")
 	}
 }
