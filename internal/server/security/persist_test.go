@@ -112,3 +112,21 @@ func TestSecurityStoreSkipsNoopWrites(t *testing.T) {
 		t.Fatal("状态变化应标脏")
 	}
 }
+
+// 基线只有 CheckedAt 变化时不应标脏（Agent 每轮上报都会刷新检查时间）。
+func TestSecurityStoreIgnoresBaselineCheckedAtOnly(t *testing.T) {
+	dir := t.TempDir()
+	p := configdoc.NewFilePersister(filepath.Join(dir, "db.json"))
+	s := NewWithPersister(p, "")
+	items := []model.SecurityBaselineItem{{Key: "ssh_root_login", Name: "禁止 root 登录", Pass: true, Weight: 10, Score: 10}}
+	s.Ingest("web-01", nil, &model.SecurityBaseline{Node: "web-01", Score: 80, Items: items, CheckedAt: 1})
+	s.Flush()
+	s.Ingest("web-01", nil, &model.SecurityBaseline{Node: "web-01", Score: 80, Items: items, CheckedAt: 2})
+	if s.dirty.Load() {
+		t.Fatal("只有 CheckedAt 变化不应标脏")
+	}
+	s.Ingest("web-01", nil, &model.SecurityBaseline{Node: "web-01", Score: 60, Items: items, CheckedAt: 3})
+	if !s.dirty.Load() {
+		t.Fatal("评分变化应标脏")
+	}
+}

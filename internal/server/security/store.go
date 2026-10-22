@@ -229,10 +229,12 @@ func (s *Store) Ingest(node string, events []model.SecurityEvent, baseline *mode
 		if baseline.Node == "" {
 			baseline.Node = node
 		}
-		if !reflect.DeepEqual(s.baseline[baseline.Node], *baseline) {
-			s.baseline[baseline.Node] = *baseline
+		if !baselineEqual(s.baseline[baseline.Node], *baseline) {
 			changed = true
 		}
+		// 内存里总是换成最新：CheckedAt 是界面上的「最近检查时间」，
+		// 只是不参与「要不要写库」的判断。
+		s.baseline[baseline.Node] = *baseline
 	}
 	s.mu.Unlock()
 	// 只在真的有变化时标脏：Agent 每轮上报都会调 Ingest，但绝大多数轮次
@@ -345,7 +347,8 @@ func (s *Store) SaveDefenseStatus(node string, st *model.DefenseStatus) {
 	prev := s.defenseStatus[node]
 	s.defenseStatus[node] = st
 	s.mu.Unlock()
-	// UpdatedAt 每轮上报都会变，不参与比较：否则文档每 15 秒重写一次。
+	// UpdatedAt 每轮上报都会变，不参与比较（但内存里保留最新值给界面看）：
+	// 否则 1.5MB 文档每 15 秒重写一次。
 	if prev == nil || !defenseStatusEqual(*prev, *st) {
 		s.markDirty()
 	}
@@ -354,6 +357,15 @@ func (s *Store) SaveDefenseStatus(node string, st *model.DefenseStatus) {
 // defenseStatusEqual 比较除采集时间外的全部字段。
 func defenseStatusEqual(a, b model.DefenseStatus) bool {
 	a.UpdatedAt, b.UpdatedAt = 0, 0
+	return reflect.DeepEqual(a, b)
+}
+
+// baselineEqual 比较除检查时间外的全部字段。
+//
+// CheckedAt 每轮上报都会刷新，算进比较的话基线永远「有变化」，
+// 1.5MB 的安全文档就会每 10 秒重写一次——实测 dev-server 上每分钟 6 次。
+func baselineEqual(a, b model.SecurityBaseline) bool {
+	a.CheckedAt, b.CheckedAt = 0, 0
 	return reflect.DeepEqual(a, b)
 }
 
