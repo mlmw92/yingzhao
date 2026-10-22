@@ -7,6 +7,7 @@ import (
 
 	"github.com/mlmw92/yingzhao/internal/server/db"
 	"github.com/mlmw92/yingzhao/internal/server/migrate"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 func TestMySQLStoreContract(t *testing.T) {
@@ -20,11 +21,11 @@ func TestMySQLStoreContract(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Close() })
 
-	ms, err := migrate.Load()
+	ms, err := migrate.Load("mysql")
 	if err != nil {
 		t.Fatalf("Load migrations: %v", err)
 	}
-	if _, err := migrate.Apply(context.Background(), pool, ms); err != nil {
+	if _, err := migrate.Apply(context.Background(), pool, sqlx.MySQL(), ms); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
@@ -53,11 +54,11 @@ func TestDBPersisterRetriesVersionConflict(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { pool.Close() })
-	ms, err := migrate.Load()
+	ms, err := migrate.Load("mysql")
 	if err != nil {
 		t.Fatalf("Load migrations: %v", err)
 	}
-	if _, err := migrate.Apply(ctx, pool, ms); err != nil {
+	if _, err := migrate.Apply(ctx, pool, sqlx.MySQL(), ms); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	if _, err := pool.Exec("DELETE FROM config_documents WHERE namespace=?", "retrytest"); err != nil {

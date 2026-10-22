@@ -8,6 +8,7 @@ import (
 
 	"github.com/mlmw92/yingzhao/internal/server/asset"
 	"github.com/mlmw92/yingzhao/internal/server/db"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 func openAuditMySQL(t *testing.T) (*Store, *ChainKey) {
@@ -35,7 +36,7 @@ func openAuditMySQL(t *testing.T) (*Store, *ChainKey) {
 		t.Fatalf("LoadOrCreateChainKey: %v", err)
 	}
 	st := New("")
-	if err := st.UseSQL(pool, true); err != nil {
+	if err := st.UseSQL(pool, sqlx.MySQL()); err != nil {
 		t.Fatalf("UseSQL: %v", err)
 	}
 	st.SetChainKey(key)

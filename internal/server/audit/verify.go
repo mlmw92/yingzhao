@@ -23,9 +23,9 @@ const MaxVerifyRows = 200000
 
 // 断裂原因。**分开报**：只看"失败"两个字，没法判断该去查什么。
 const (
-	ReasonHashMismatch = "hash-mismatch"       // 这一行被改过
-	ReasonPrevMismatch = "prev-hash-mismatch"  // 这一行的 prev_hash 与上一条对不上（链被搬移/插入）
-	ReasonGap          = "unattributable-gap"  // 缺口不在任何"合法裁剪"记录里——有人删了它
+	ReasonHashMismatch = "hash-mismatch"         // 这一行被改过
+	ReasonPrevMismatch = "prev-hash-mismatch"    // 这一行的 prev_hash 与上一条对不上（链被搬移/插入）
+	ReasonGap          = "unattributable-gap"    // 缺口不在任何"合法裁剪"记录里——有人删了它
 	ReasonPrunedMAC    = "pruned-record-invalid" // 裁剪记录本身签名无效：有人动了裁剪记录
 )
 
@@ -41,7 +41,7 @@ type VerifyReport struct {
 	// Enabled 表示**链是否在起作用**。false 时下面的字段基本没意义，
 	// 且 Note 里会写明原因——**绝不把"没启用"显示成"通过"**。
 	Enabled bool   `json:"enabled"`
-	Mode    string `json:"mode"` // sqlite | json
+	Mode    string `json:"mode"` // sqlite |// Mode 是本次校验的数据源：sqlite | mysql | postgres | json
 	// KeyFingerprint 是当前密钥的指纹（用于区分"被改"与"换了密钥"）。绝不返回密钥本身。
 	KeyFingerprint string `json:"keyFingerprint,omitempty"`
 	// VerifiedFrom/To 是**本次真正验过的 seq 区间**。RowsChecked 是条数。
@@ -84,10 +84,7 @@ func (s *Store) Verify() VerifyReport {
 			"降级模式的写入是整文件重写，与链式追加语义不兼容，因此不启用链。"
 		return rep
 	}
-	rep.Mode = "sqlite"
-	if s.mysql {
-		rep.Mode = "mysql"
-	}
+	rep.Mode = s.d.Name()
 	if key == nil {
 		rep.Note = "审计链**未启用**（密钥不可用）：审计仍在记录，但**没有完整性保护**。"
 		return rep

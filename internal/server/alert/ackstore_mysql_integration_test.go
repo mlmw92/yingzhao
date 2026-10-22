@@ -9,6 +9,7 @@ import (
 
 	"github.com/mlmw92/yingzhao/internal/server/asset"
 	"github.com/mlmw92/yingzhao/internal/server/db"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // MySQL 集成用例：JSON 回填必须走 MySQL 方言。
@@ -47,7 +48,7 @@ func TestAckMySQLBackfill(t *testing.T) {
 	}
 
 	st := NewAckStore(path)
-	if err := st.UseSQL(pool, true); err != nil {
+	if err := st.UseSQL(pool, sqlx.MySQL()); err != nil {
 		t.Fatalf("UseSQL 回填失败: %v", err)
 	}
 	got, ok := st.Get("CPU 高", "web-01", "10.0.0.1:9100", 1700000000000)
@@ -64,7 +65,7 @@ func TestAckMySQLBackfill(t *testing.T) {
 	}
 	// 重开：数据从库读回。
 	st2 := NewAckStore(filepath.Join(dir, "missing.json"))
-	if err := st2.UseSQL(pool, true); err != nil {
+	if err := st2.UseSQL(pool, sqlx.MySQL()); err != nil {
 		t.Fatalf("重开 UseSQL 失败: %v", err)
 	}
 	if got, ok := st2.Get("CPU 高", "web-01", "10.0.0.1:9100", 1700000000000); !ok || got.User != "bob" {

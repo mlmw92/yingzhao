@@ -48,15 +48,15 @@ func TestRedactDSNHidesPassword(t *testing.T) {
 		"u:secret@tcp(127.0.0.1:3306)/yingzhao?charset=utf8mb4",
 		"u:p@ss@tcp(127.0.0.1:3306)/yingzhao",
 	} {
-		got := RedactDSN(in)
+		got := RedactDSN("mysql", in)
 		if strings.Contains(got, "secret") || strings.Contains(got, "p@ss") {
 			t.Fatalf("RedactDSN(%q) = %q，仍含密码", in, got)
 		}
 	}
-	if got := RedactDSN("u@tcp(h:3306)/db"); strings.Contains(got, "***") {
+	if got := RedactDSN("mysql", "u@tcp(h:3306)/db"); strings.Contains(got, "***") {
 		t.Fatalf("无密码时不应加掩码：%q", got)
 	}
-	if got := RedactDSN("not-a-dsn"); strings.Contains(got, "not-a-dsn") {
+	if got := RedactDSN("mysql", "not-a-dsn"); strings.Contains(got, "not-a-dsn") {
 		t.Fatalf("无法解析时不应回显原文：%q", got)
 	}
 }
@@ -81,5 +81,37 @@ func TestNormalizeDSNEnablesClientFoundRows(t *testing.T) {
 	}
 	if !cfg.ClientFoundRows {
 		t.Fatalf("clientFoundRows 未启用（dsn=%s）：UPDATE 值未变时 RowsAffected=0 会被误判为行不存在", got)
+	}
+}
+
+func TestRedactDSNPostgres(t *testing.T) {
+	cases := []struct{ in, secret string }{
+		{"postgres://u:secret@h:5432/db?sslmode=disable", "secret"},
+		{"host=h port=5432 user=u password=secret dbname=db sslmode=disable", "secret"},
+	}
+	for _, tc := range cases {
+		got := RedactDSN("postgres", tc.in)
+		if strings.Contains(got, tc.secret) {
+			t.Fatalf("RedactDSN(%q) = %q，仍含密码", tc.in, got)
+		}
+	}
+}
+
+func TestDriverName(t *testing.T) {
+	for _, in := range []string{"", "mysql"} {
+		if got, err := DriverName(in); err != nil || got != "mysql" {
+			t.Fatalf("DriverName(%q) = %q, %v", in, got, err)
+		}
+	}
+	for _, in := range []string{"postgres", "postgresql", "pg", "highgo", "kingbase"} {
+		if got, err := DriverName(in); err != nil || got != "postgres" {
+			t.Fatalf("DriverName(%q) = %q, %v", in, got, err)
+		}
+	}
+	if _, err := DriverName("dm"); err == nil {
+		t.Fatal("未包含达梦驱动的构建应明确报错")
+	}
+	if _, err := DriverName("oracle"); err == nil {
+		t.Fatal("未知驱动应报错")
 	}
 }

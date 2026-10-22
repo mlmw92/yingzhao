@@ -62,7 +62,7 @@ type Store struct {
 	mu     sync.RWMutex
 	path   string
 	db     *sqlx.DB
-	mysql  bool
+	d      sqlx.Dialect
 	events []Event // 仅降级模式使用
 	// chainKey 是链式 HMAC 的密钥（见 chain.go）。为 nil 表示**未启用链**：
 	// 要么是降级模式，要么密钥没加载成功。两种情况校验都会如实报出来，
@@ -163,10 +163,10 @@ func insertEvents(db *sql.DB, events []Event) error {
 //
 // 回填失败**不阻断启动**：返回错误由调用方记日志，本存储继续按降级模式工作。
 // 宁可丢历史，也不能因为一份坏 JSON 让服务起不来（设计件 §4）。
-func (s *Store) UseSQLite(db *sql.DB) error { return s.UseSQL(db, false) }
+func (s *Store) UseSQLite(db *sql.DB) error { return s.UseSQL(db, sqlx.SQLite()) }
 
-// UseSQL 接入关系库；mysql 决定 upsert 方言。
-func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
+// UseSQL 接入关系库；d 决定方言。
+func (s *Store) UseSQL(db *sql.DB, d sqlx.Dialect) error {
 	if db == nil {
 		return nil
 	}
@@ -191,8 +191,8 @@ func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
 		}
 	}
 	s.mu.Lock()
-	s.db = sqlx.Wrap(db, mysql)
-	s.mysql = mysql
+	s.db = sqlx.Wrap(db, d)
+	s.d = d
 	s.events = nil // 入库模式下不再维护内存副本，读走 SQL
 	s.mu.Unlock()
 
@@ -201,7 +201,7 @@ func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
 	// （丢一条审计），或直接死锁。单实例下进程内锁掩盖了它，但维护脚本、
 	// 从备份恢复、未来重启多实例都会踩到。
 	initSQL := `INSERT INTO audit_chain(id, seq, hash, key_fingerprint, updated_ms)
-		VALUES(1, 0, '', '', 0)` + sqlx.UpsertNothing(mysql, "id")
+		VALUES(1, 0, '', '', 0)` + d.UpsertNothing("id")
 	if _, err := s.db.Exec(initSQL); err != nil {
 		return fmt.Errorf("初始化审计链头失败: %w", err)
 	}
@@ -459,7 +459,7 @@ func (s *Store) PruneRows(max int) (int, error) {
 	if max <= 0 {
 		return 0, nil
 	}
-	return s.pruneWhere(pruneRowsSQL(s.mysql), max)
+	return s.pruneWhere(pruneRowsSQL(s.d.Name() == "mysql"), max)
 }
 
 // pruneRowsSQL 生成「保留最近 max 条、其余删除」的条件。

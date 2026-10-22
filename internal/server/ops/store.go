@@ -98,7 +98,7 @@ type Store struct {
 	// db 非空时走台账库；flushed / capsFlushed / seqFlushed 是**上次落盘时的快照**，
 	// 用于把"整份重写"换成"只写变化的部分"。
 	db          *sqlx.DB
-	mysql       bool
+	d           sqlx.Dialect
 	flushed     map[string]Task
 	capsFlushed map[string]string
 	seqFlushed  int64
@@ -129,26 +129,26 @@ func (s *Store) SetNow(fn func() int64) {
 // opsMigratedSuffix 是回填完成后原 JSON 文件的新后缀（与批次 18 同构）。
 const opsMigratedSuffix = ".bak-migrated"
 
-func (s *Store) upsertOpsTaskSQL() string { return upsertOpsTaskSQLFor(s.mysql) }
+func (s *Store) upsertOpsTaskSQL() string { return upsertOpsTaskSQLFor(s.d) }
 
-func upsertOpsTaskSQLFor(mysql bool) string {
+func upsertOpsTaskSQLFor(d sqlx.Dialect) string {
 	return `INSERT INTO ops_tasks(
 	id, batch_id, node, kind, state, created_at, done_at, task_json
-) VALUES(?,?,?,?,?,?,?,?)` + sqlx.Upsert(mysql, "id",
+) VALUES(?,?,?,?,?,?,?,?)` + d.Upsert("id",
 		"batch_id=excluded.batch_id, node=excluded.node, kind=excluded.kind, state=excluded.state, created_at=excluded.created_at, done_at=excluded.done_at, task_json=excluded.task_json")
 }
 
-func (s *Store) upsertCapsSQL() string { return upsertCapsSQLFor(s.mysql) }
+func (s *Store) upsertCapsSQL() string { return upsertCapsSQLFor(s.d) }
 
-func upsertCapsSQLFor(mysql bool) string {
-	return "INSERT INTO ops_caps(node, kinds) VALUES(?,?)" + sqlx.Upsert(mysql, "node", "kinds=excluded.kinds")
+func upsertCapsSQLFor(d sqlx.Dialect) string {
+	return "INSERT INTO ops_caps(node, kinds) VALUES(?,?)" + d.Upsert("node", "kinds=excluded.kinds")
 }
 
-func (s *Store) upsertMetaSQL() string { return upsertMetaSQLFor(s.mysql) }
+func (s *Store) upsertMetaSQL() string { return upsertMetaSQLFor(s.d) }
 
-func upsertMetaSQLFor(mysql bool) string {
+func upsertMetaSQLFor(d sqlx.Dialect) string {
 	return "INSERT INTO ops_meta(" + "`key`" + ", value) VALUES('seq', ?)" +
-		sqlx.Upsert(mysql, "`key`", "value=excluded.value")
+		d.Upsert("key", "value=excluded.value")
 }
 
 // capsSignature 把能力集合压成可比对的字符串（排序后逗号连接）：既用于落盘，
@@ -173,10 +173,10 @@ func opsTaskArgs(t Task) ([]any, error) {
 //
 // 回填失败**不阻断启动**：返回错误由调用方记日志，本存储继续按降级模式工作——
 // 操作任务是"不能丢"的东西，但为了它让服务起不来更糟。
-func (s *Store) UseSQLite(db *sql.DB) error { return s.UseSQL(db, false) }
+func (s *Store) UseSQLite(db *sql.DB) error { return s.UseSQL(db, sqlx.SQLite()) }
 
-// UseSQL 接入关系库；mysql 决定 upsert 方言。
-func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
+// UseSQL 接入关系库；d 决定方言。
+func (s *Store) UseSQL(db *sql.DB, d sqlx.Dialect) error {
 	if db == nil {
 		return nil
 	}
@@ -187,7 +187,7 @@ func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
 	if count == 0 && s.path != "" {
 		if _, statErr := os.Stat(s.path); statErr == nil {
 			// load() 已把 JSON 读进内存，这里整份写进库（单事务，保持"要么整批成立"）。
-			if err := s.backfill(db, mysql); err != nil {
+			if err := s.backfill(db, d); err != nil {
 				return err
 			}
 			if err := os.Rename(s.path, s.path+opsMigratedSuffix); err != nil {
@@ -197,7 +197,7 @@ func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
 	}
 	// 无论走没走回填，都**以库为准**重建内存：能力与序号在另外两张表里，
 	// 「任务表为空」不等于「库里什么都没有」——只判任务表会让 caps 在重启后凭空消失。
-	tasks, caps, seq, err := loadOpsFromDB(db)
+	tasks, caps, seq, err := loadOpsFromDB(db, d)
 	if err != nil {
 		return err
 	}
@@ -205,8 +205,8 @@ func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
 	s.tasks, s.caps, s.seq = tasks, caps, seq
 	s.mu.Unlock()
 	s.persistMu.Lock()
-	s.db = sqlx.Wrap(db, mysql)
-	s.mysql = mysql
+	s.db = sqlx.Wrap(db, d)
+	s.d = d
 	s.snapshotLocked() // 切入库模式时不该产生"待写差集"
 	s.persistMu.Unlock()
 	slog.Info("操作任务已改用数据库", "tasks", len(s.tasks), "nodes", len(s.caps))
@@ -214,13 +214,13 @@ func (s *Store) UseSQL(db *sql.DB, mysql bool) error {
 }
 
 // backfill 把内存里（刚从 JSON 读进来的）任务、caps 与 seq 整份写进库。
-func (s *Store) backfill(db *sql.DB, mysql bool) error {
-	tx, err := db.Begin()
+func (s *Store) backfill(db *sql.DB, d sqlx.Dialect) error {
+	tx, err := sqlx.Wrap(db, d).Begin()
 	if err != nil {
 		return fmt.Errorf("回填操作任务失败: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.Prepare(upsertOpsTaskSQLFor(mysql))
+	stmt, err := tx.Prepare(upsertOpsTaskSQLFor(d))
 	if err != nil {
 		return fmt.Errorf("回填操作任务失败: %w", err)
 	}
@@ -246,17 +246,17 @@ func (s *Store) backfill(db *sql.DB, mysql bool) error {
 		}
 	}
 	for node, set := range caps {
-		if _, err := tx.Exec(upsertCapsSQLFor(mysql), node, capsSignature(set)); err != nil {
+		if _, err := tx.Exec(upsertCapsSQLFor(d), node, capsSignature(set)); err != nil {
 			return fmt.Errorf("回填操作能力失败: %w", err)
 		}
 	}
-	if _, err := tx.Exec(upsertMetaSQLFor(mysql), strconv.FormatInt(seq, 10)); err != nil {
+	if _, err := tx.Exec(upsertMetaSQLFor(d), strconv.FormatInt(seq, 10)); err != nil {
 		return fmt.Errorf("回填操作任务序号失败: %w", err)
 	}
 	return tx.Commit()
 }
 
-func loadOpsFromDB(db *sql.DB) (map[string]*Task, map[string]map[string]bool, int64, error) {
+func loadOpsFromDB(db *sql.DB, d sqlx.Dialect) (map[string]*Task, map[string]map[string]bool, int64, error) {
 	tasks := map[string]*Task{}
 	rows, err := db.Query("SELECT task_json FROM ops_tasks")
 	if err != nil {
@@ -306,7 +306,7 @@ func loadOpsFromDB(db *sql.DB) (map[string]*Task, map[string]map[string]bool, in
 	var seqRaw string
 	// `key` 是 MySQL 保留字，必须加反引号；SQLite 同样接受反引号。
 	// 这条查询走的是裸 *sql.DB（不经过 sqlx 改写），所以反引号写在 SQL 文本里。
-	err = db.QueryRow("SELECT value FROM ops_meta WHERE `key`='seq'").Scan(&seqRaw)
+	err = db.QueryRow(d.Bind(d.Rewrite("SELECT value FROM ops_meta WHERE key='seq'"))).Scan(&seqRaw)
 	switch {
 	case err == nil:
 		if n, convErr := strconv.ParseInt(seqRaw, 10, 64); convErr == nil {

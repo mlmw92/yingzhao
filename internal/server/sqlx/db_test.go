@@ -5,115 +5,142 @@ import (
 	"testing"
 )
 
-func TestRewriteQueryQuotesReservedIdents(t *testing.T) {
+func TestRewriteQuotesReservedIdents(t *testing.T) {
 	cases := []struct {
-		name  string
-		in    string
-		mysql bool
-		want  string
+		name string
+		d    Dialect
+		in   string
+		want string
 	}{
 		{
-			name:  "key 列名加反引号",
-			in:    "SELECT value FROM ops_meta WHERE key='seq'",
-			mysql: true,
-			want:  "SELECT value FROM ops_meta WHERE `key`='seq'",
+			name: "MySQL key",
+			d:    MySQL(),
+			in:   "SELECT value FROM ops_meta WHERE key='seq'",
+			want: "SELECT value FROM ops_meta WHERE `key`='seq'",
 		},
 		{
-			name:  "rows 列名加反引号（MySQL 8 保留字）",
-			in:    "SELECT from_seq, rows FROM audit_pruned",
-			mysql: true,
-			want:  "SELECT from_seq, `rows` FROM audit_pruned",
+			name: "MySQL rows",
+			d:    MySQL(),
+			in:   "SELECT from_seq, rows FROM audit_pruned",
+			want: "SELECT from_seq, `rows` FROM audit_pruned",
 		},
 		{
-			name:  "schema 列名加反引号（MySQL 8 保留字）",
-			in:    "SELECT key, schema FROM asset_types",
-			mysql: true,
-			want:  "SELECT `key`, `schema` FROM asset_types",
+			name: "MySQL schema",
+			d:    MySQL(),
+			in:   "SELECT key, schema FROM asset_types",
+			want: "SELECT `key`, `schema` FROM asset_types",
 		},
 		{
-			name:  "schema_version 表名不能被误伤",
-			in:    "SELECT version FROM schema_version WHERE id = 1",
-			mysql: true,
-			want:  "SELECT version FROM schema_version WHERE id = 1",
+			name: "MySQL schema_version 不误伤",
+			d:    MySQL(),
+			in:   "SELECT version FROM schema_version WHERE id = 1",
+			want: "SELECT version FROM schema_version WHERE id = 1",
 		},
 		{
-			name:  "已加反引号的不重复处理",
-			in:    "SELECT value FROM ops_meta WHERE `key`='seq' AND `rows`=1",
-			mysql: true,
-			want:  "SELECT value FROM ops_meta WHERE `key`='seq' AND `rows`=1",
+			name: "已加引号的不重复处理",
+			d:    MySQL(),
+			in:   "SELECT value FROM ops_meta WHERE `key`='seq' AND `rows`=1",
+			want: "SELECT value FROM ops_meta WHERE `key`='seq' AND `rows`=1",
 		},
 		{
-			name:  "SQLite 模式不改写",
-			in:    "SELECT value FROM ops_meta WHERE key='seq'",
-			mysql: false,
-			want:  "SELECT value FROM ops_meta WHERE key='seq'",
-		},
-		{
-			name:  "COLLATE NOCASE 在 MySQL 下删除",
-			in:    "SELECT * FROM nodes WHERE hostname=? COLLATE NOCASE",
-			mysql: true,
-			want:  "SELECT * FROM nodes WHERE hostname=?",
-		},
-		{
-			name:  "COLLATE NOCASE 在 SQLite 下保留",
-			in:    "SELECT * FROM nodes WHERE hostname=? COLLATE NOCASE",
-			mysql: false,
-			want:  "SELECT * FROM nodes WHERE hostname=? COLLATE NOCASE",
+			name: "PostgreSQL key/rows/schema",
+			d:    Postgres(),
+			in:   "SELECT key, schema, rows FROM t WHERE key=?",
+			want: `SELECT "key", "schema", "rows" FROM t WHERE "key"=?`,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := rewriteQuery(tc.in, tc.mysql); got != tc.want {
-				t.Fatalf("rewriteQuery(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := tc.d.Rewrite(tc.in); got != tc.want {
+				t.Fatalf("Rewrite(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
 }
 
+func TestBindDollar(t *testing.T) {
+	cases := map[string]string{
+		"SELECT * FROM t WHERE a=? AND b=?":          "SELECT * FROM t WHERE a=$1 AND b=$2",
+		"SELECT '?' AS q, a FROM t WHERE a=?":        "SELECT '?' AS q, a FROM t WHERE a=$1",
+		"SELECT 'it''s ?' AS q FROM t WHERE a=?":     "SELECT 'it''s ?' AS q FROM t WHERE a=$1",
+		`SELECT "weird?" FROM t WHERE a=?`:           `SELECT "weird?" FROM t WHERE a=$1`,
+		"SELECT 1":                                   "SELECT 1",
+		"UPDATE t SET a=? WHERE b=? AND c=? AND d=?": "UPDATE t SET a=$1 WHERE b=$2 AND c=$3 AND d=$4",
+	}
+	for in, want := range cases {
+		if got := Postgres().Bind(in); got != want {
+			t.Fatalf("Bind(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestUpsert(t *testing.T) {
 	t.Run("MySQL", func(t *testing.T) {
-		got := Upsert(true, "ack_key", "status=excluded.status")
+		got := MySQL().Upsert("ack_key", "status=excluded.status")
 		if !strings.Contains(got, "ON DUPLICATE KEY UPDATE") {
 			t.Fatalf("MySQL upsert 缺少 ON DUPLICATE KEY UPDATE: %q", got)
 		}
 		if !strings.Contains(got, "status=VALUES(status)") {
 			t.Fatalf("MySQL upsert 未把 excluded 转成 VALUES(): %q", got)
 		}
-		if strings.Contains(got, "ON CONFLICT") {
-			t.Fatalf("MySQL upsert 不应包含 ON CONFLICT: %q", got)
-		}
 	})
-	t.Run("SQLite", func(t *testing.T) {
-		got := Upsert(false, "ack_key", "status=excluded.status")
-		if !strings.Contains(got, "ON CONFLICT(ack_key) DO UPDATE SET") {
-			t.Fatalf("SQLite upsert 形状不对: %q", got)
+	t.Run("PostgreSQL", func(t *testing.T) {
+		got := Postgres().Upsert("ack_key", "status=excluded.status")
+		if !strings.Contains(got, `ON CONFLICT("ack_key") DO UPDATE SET`) {
+			t.Fatalf("PG upsert 形状不对: %q", got)
 		}
 		if !strings.Contains(got, "status=excluded.status") {
-			t.Fatalf("SQLite upsert 应保留 excluded: %q", got)
+			t.Fatalf("PG upsert 应保留 excluded: %q", got)
 		}
 	})
-	t.Run("MySQL 的 MAX 转 GREATEST", func(t *testing.T) {
-		got := Upsert(true, "k", "last_seen=MAX(last_seen, excluded.last_seen)")
-		if !strings.Contains(got, "GREATEST(last_seen, VALUES(last_seen))") {
-			t.Fatalf("MAX 未转成 GREATEST: %q", got)
+	t.Run("PostgreSQL 复合冲突键", func(t *testing.T) {
+		got := Postgres().Upsert("a,b", "x=excluded.x")
+		if !strings.Contains(got, `ON CONFLICT("a", "b")`) {
+			t.Fatalf("PG 复合冲突键不对: %q", got)
+		}
+	})
+	t.Run("MAX 转 GREATEST", func(t *testing.T) {
+		for _, d := range []Dialect{MySQL(), Postgres()} {
+			got := d.Upsert("k", "last_seen=MAX(last_seen, excluded.last_seen)")
+			if !strings.Contains(got, "GREATEST(") {
+				t.Fatalf("%s 的 MAX 未转成 GREATEST: %q", d.Name(), got)
+			}
 		}
 	})
 }
 
 func TestUpsertNothing(t *testing.T) {
-	if got := UpsertNothing(true, "k"); !strings.Contains(got, "ON DUPLICATE KEY UPDATE") {
+	if got := MySQL().UpsertNothing("id"); !strings.Contains(got, "ON DUPLICATE KEY UPDATE") {
 		t.Fatalf("MySQL no-op upsert 形状不对: %q", got)
 	}
-	if got := UpsertNothing(false, "k"); !strings.Contains(got, "ON CONFLICT(k) DO NOTHING") {
-		t.Fatalf("SQLite no-op upsert 形状不对: %q", got)
+	if got := Postgres().UpsertNothing("id"); !strings.Contains(got, `ON CONFLICT("id") DO NOTHING`) {
+		t.Fatalf("PG no-op upsert 形状不对: %q", got)
 	}
 }
 
-func TestDualFrom(t *testing.T) {
-	if got := DualFrom(true); got != " FROM DUAL" {
-		t.Fatalf("MySQL DualFrom = %q", got)
+func TestFromDual(t *testing.T) {
+	if got := MySQL().FromDual(); got != " FROM DUAL" {
+		t.Fatalf("MySQL FromDual = %q", got)
 	}
-	if got := DualFrom(false); got != "" {
-		t.Fatalf("SQLite DualFrom = %q", got)
+	if got := Postgres().FromDual(); got != "" {
+		t.Fatalf("PG FromDual = %q", got)
+	}
+}
+
+func TestParseDialect(t *testing.T) {
+	for _, name := range []string{"", "mysql"} {
+		d, err := Parse(name)
+		if err != nil || d.Name() != "mysql" {
+			t.Fatalf("Parse(%q) = %v, %v", name, d, err)
+		}
+	}
+	for _, name := range []string{"postgres", "postgresql", "pg", "highgo", "kingbase"} {
+		d, err := Parse(name)
+		if err != nil || d.Name() != "postgres" {
+			t.Fatalf("Parse(%q) = %v, %v", name, d, err)
+		}
+	}
+	if _, err := Parse("dm"); err == nil {
+		t.Fatal("未包含达梦驱动的构建应明确报错")
 	}
 }

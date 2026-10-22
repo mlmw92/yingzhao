@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // metaFile 持久化结构。
@@ -55,7 +56,12 @@ func New(metaPath string, offlineTimeout time.Duration) *Manager {
 // NewWithDB 用 MySQL 状态库（生产）。读库失败直接返回错误：节点表是启动的必要状态，
 // 读不到就启动会让所有节点被当作「新注册」，覆盖掉分组与自定义显示名。
 func NewWithDB(db *sql.DB, offlineTimeout time.Duration) (*Manager, error) {
-	m := newManager(NewMySQLPersist(db), offlineTimeout)
+	return NewWithSQLDB(db, sqlx.MySQL(), offlineTimeout)
+}
+
+// NewWithSQLDB 用指定方言接入节点表（MySQL / PostgreSQL 系）。
+func NewWithSQLDB(db *sql.DB, d sqlx.Dialect, offlineTimeout time.Duration) (*Manager, error) {
+	m := newManager(NewSQLPersist(db, d), offlineTimeout)
 	if err := m.load(); err != nil {
 		return nil, err
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/mlmw92/yingzhao/internal/model"
 	"github.com/mlmw92/yingzhao/internal/server/asset"
 	"github.com/mlmw92/yingzhao/internal/server/db"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // MySQL 集成用例：JSON 回填必须走 MySQL 方言，序号必须从库里读回。
@@ -53,7 +54,7 @@ func TestOpsMySQLBackfillAndSeq(t *testing.T) {
 	}
 
 	st := NewStore(path)
-	if err := st.UseSQL(pool, true); err != nil {
+	if err := st.UseSQL(pool, sqlx.MySQL()); err != nil {
 		t.Fatalf("UseSQL 回填失败: %v", err)
 	}
 	if _, ok := st.Get("ops-5"); !ok {
@@ -68,7 +69,7 @@ func TestOpsMySQLBackfillAndSeq(t *testing.T) {
 
 	// 重开一次：模拟重启，seq 仍应连续，旧任务不能被覆盖。
 	st2 := NewStore(filepath.Join(dir, "missing.json"))
-	if err := st2.UseSQL(pool, true); err != nil {
+	if err := st2.UseSQL(pool, sqlx.MySQL()); err != nil {
 		t.Fatalf("重开 UseSQL 失败: %v", err)
 	}
 	if _, ok := st2.Get("ops-5"); !ok {

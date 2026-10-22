@@ -86,7 +86,7 @@ func main() {
 	defer cancelRun()
 
 	// 状态库：配置文档入库后它是硬依赖，连不上就启动失败（不退回文件）。
-	stateDB, applied, err := openStateDB(runCtx, *cfg)
+	stateDB, stateDialect, applied, err := openStateDB(runCtx, *cfg)
 	if err != nil {
 		slog.Error("初始化状态库失败", "err", err)
 		os.Exit(1)
@@ -97,7 +97,7 @@ func main() {
 		slog.Error("加载配置主密钥失败", "err", err, "path", cfg.Database.MasterKeyFile)
 		os.Exit(1)
 	}
-	docs := persisterFactory{store: configdoc.NewMySQLStore(stateDB), key: masterKey}
+	docs := persisterFactory{store: configdoc.NewSQLStore(stateDB, stateDialect), key: masterKey}
 	slog.Info("状态库已就绪", "migrationsApplied", applied)
 
 	// 存储层
@@ -113,7 +113,7 @@ func main() {
 	store = selfmon.NewStorage(rawStore, mon)
 
 	// 节点管理：注册信息存状态库；心跳按固定间隔合并落库（见下方后台任务）。
-	nodeMgr, err := node.NewWithDB(stateDB, time.Duration(cfg.OfflineTimeout)*time.Second)
+	nodeMgr, err := node.NewWithSQLDB(stateDB, stateDialect, time.Duration(cfg.OfflineTimeout)*time.Second)
 	if err != nil {
 		slog.Error("加载节点表失败", "err", err)
 		os.Exit(1)
@@ -272,7 +272,7 @@ func main() {
 	// 数据库是硬依赖（设计件 §1.4）：初始化失败就退出，不静默退回本地文件。
 	// 退回文件等于「以为在用 DB，实际写本地」——换机就丢，而且没人会发现。
 	var assetStore *asset.Store
-	s, err := asset.OpenMySQL(stateDB)
+	s, err := asset.OpenSQL(stateDB, stateDialect)
 	if err != nil {
 		slog.Error("资产台账初始化失败，拒绝启动（处置/下行任务/审计与它共用同一套表）", "err", err)
 		os.Exit(1)
@@ -280,17 +280,17 @@ func main() {
 	assetStore = s
 	assetSvc = asset.NewService(assetStore)
 	recv.SetAssetService(assetSvc)
-	slog.Info("资产台账已启用", "db", "mysql")
+	slog.Info("资产台账已启用", "db", stateDialect.Name())
 	// 告警处置与台账**共用同一个库**（设计件批次 18）：写入频率是人工操作级
 	// （每分钟几条到几十条），单连接下这点增量可忽略，换来一个备份文件、一套迁移机制。
 	// 首次启动会把既有 alert_acks.json 回填进库并改名 .bak-migrated。
-	if err := ackStore.UseSQL(stateDB, true); err != nil {
+	if err := ackStore.UseSQL(stateDB, stateDialect); err != nil {
 		slog.Error("告警处置改用数据库失败，拒绝启动（不允许退回本地 JSON）", "err", err)
 		os.Exit(1)
 	}
 	// 操作任务同理（设计件批次 19）。首次启动会把既有 ops_tasks.json 回填进库并改名
 	// .bak-migrated。
-	if err := opsStore.UseSQL(stateDB, true); err != nil {
+	if err := opsStore.UseSQL(stateDB, stateDialect); err != nil {
 		slog.Error("操作任务改用数据库失败，拒绝启动（不允许退回本地 JSON）", "err", err)
 		os.Exit(1)
 	}
@@ -393,7 +393,7 @@ func main() {
 	// 审计与台账**共用同一个库**（设计件批次 18）。这里才注入是因为审计存储在本行才创建。
 	// 首次启动会把既有 audit_events.json 回填进库并改名 .bak-migrated（幂等：判据是表为空）。
 	// 失败即退出：退回 JSON 文件会让审计失去链式保护，且换机即丢——与设计件 §4.4.5 冲突。
-	if err := auditStore.UseSQL(stateDB, true); err != nil {
+	if err := auditStore.UseSQL(stateDB, stateDialect); err != nil {
 		slog.Error("审计事件改用数据库失败，拒绝启动（不允许退回本地 JSON）", "err", err)
 		os.Exit(1)
 	}

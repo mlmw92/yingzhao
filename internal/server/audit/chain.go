@@ -14,8 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // 链式 HMAC：让"改过 / 删过审计"变成**可检测**。
@@ -137,7 +135,7 @@ func chainDigest(key []byte, seq int64, prev string, e Event) string {
 
 const (
 	selectChainHeadSQL = `SELECT seq, hash, key_fingerprint FROM audit_chain WHERE id = 1`
-	insertChainedSQL = `INSERT INTO audit_events(
+	insertChainedSQL   = `INSERT INTO audit_events(
 		time_ms, user_name, method, path, status, remote_ip, source_loc, succeeded,
 		category, action, detail, request_id, seq, prev_hash, hash, key_fp
 	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
@@ -192,7 +190,7 @@ func (s *Store) ChainHead() (seq int64, hash, keyFP string, ok bool) {
 // selectChainHeadSQL 读取链头；MySQL 多实例下必须 FOR UPDATE 锁住这一行，
 // 否则两个实例会读到同一个 seq 并写出分叉的链。
 func (s *Store) selectChainHeadSQL() string {
-	if s.mysql {
+	if s.d.Name() != "sqlite" {
 		return selectChainHeadSQL + " FOR UPDATE"
 	}
 	return selectChainHeadSQL
@@ -200,6 +198,6 @@ func (s *Store) selectChainHeadSQL() string {
 
 func (s *Store) upsertChainHeadSQL() string {
 	return `INSERT INTO audit_chain(id, seq, hash, key_fingerprint, updated_ms) VALUES(1, ?, ?, ?, ?)` +
-		sqlx.Upsert(s.mysql, "id",
+		s.d.Upsert("id",
 			"seq=excluded.seq, hash=excluded.hash, key_fingerprint=excluded.key_fingerprint, updated_ms=excluded.updated_ms")
 }

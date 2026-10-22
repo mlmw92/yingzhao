@@ -10,6 +10,7 @@ import (
 	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 	"github.com/mlmw92/yingzhao/internal/server/db"
 	"github.com/mlmw92/yingzhao/internal/server/migrate"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // 配置文档的命名空间。**改名等于换存储**：迁移脚本按这些名字写入，
@@ -38,34 +39,39 @@ const (
 	nsUsers          = "users"
 )
 
-// openStateDB 打开 MySQL 状态库并执行 Schema 迁移。
-// 阶段 1 起数据库是硬依赖：连不上就启动失败，不退回文件。
-func openStateDB(ctx context.Context, cfg config.Config) (*sql.DB, int, error) {
+// openStateDB 打开状态库并执行 Schema 迁移，返回连接与方言。
+// 数据库是硬依赖：连不上就启动失败，不退回文件。
+func openStateDB(ctx context.Context, cfg config.Config) (*sql.DB, sqlx.Dialect, int, error) {
+	d, err := sqlx.Parse(cfg.Database.Driver)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	pool, err := db.Open(ctx, db.Config{
+		Driver:          cfg.Database.Driver,
 		DSN:             cfg.Database.DSN,
 		MaxOpenConns:    cfg.Database.MaxOpenConns,
 		MaxIdleConns:    cfg.Database.MaxIdleConns,
 		ConnMaxLifetime: time.Duration(cfg.Database.ConnMaxLifetime) * time.Second,
 	})
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
-	migrations, err := migrate.Load()
+	migrations, err := migrate.Load(d.Name())
 	if err != nil {
 		_ = pool.Close()
-		return nil, 0, fmt.Errorf("加载迁移失败: %w", err)
+		return nil, nil, 0, fmt.Errorf("加载迁移失败: %w", err)
 	}
-	applied, err := migrate.Apply(ctx, pool, migrations)
+	applied, err := migrate.Apply(ctx, pool, d, migrations)
 	if err != nil {
 		_ = pool.Close()
-		return nil, 0, fmt.Errorf("执行迁移失败: %w", err)
+		return nil, nil, 0, fmt.Errorf("执行迁移失败: %w", err)
 	}
-	return pool, applied, nil
+	return pool, d, applied, nil
 }
 
 // persisterFactory 按命名空间构造配置文档的后端。
 type persisterFactory struct {
-	store *configdoc.MySQLStore
+	store *configdoc.SQLStore
 	key   []byte
 }
 

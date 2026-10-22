@@ -22,7 +22,7 @@ func TestParseFilename(t *testing.T) {
 }
 
 func TestLoadReturnsOrderedMigrations(t *testing.T) {
-	ms, err := Load()
+	ms, err := Load("mysql")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

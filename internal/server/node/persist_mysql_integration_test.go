@@ -9,6 +9,7 @@ import (
 	"github.com/mlmw92/yingzhao/internal/model"
 	"github.com/mlmw92/yingzhao/internal/server/db"
 	"github.com/mlmw92/yingzhao/internal/server/migrate"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // MySQL 后端集成用例：整份同步（upsert + 删除缺失）与心跳节流落库。
@@ -24,11 +25,11 @@ func TestMySQLPersist(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Close() })
 
-	ms, err := migrate.Load()
+	ms, err := migrate.Load("mysql")
 	if err != nil {
 		t.Fatalf("Load migrations: %v", err)
 	}
-	if _, err := migrate.Apply(ctx, pool, ms); err != nil {
+	if _, err := migrate.Apply(ctx, pool, sqlx.MySQL(), ms); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	for _, tbl := range []string{"nodes", "node_groups"} {
@@ -119,7 +120,7 @@ func TestMySQLFlushHeartbeatUpsertsMissingNode(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { pool.Close() })
-	if _, err := migrate.Apply(ctx, pool, mustLoadMigrations(t)); err != nil {
+	if _, err := migrate.Apply(ctx, pool, sqlx.MySQL(), mustLoadMigrations(t)); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	if _, err := pool.Exec("DELETE FROM nodes WHERE hostname=?", "ghost-01"); err != nil {
@@ -144,7 +145,7 @@ func TestMySQLFlushHeartbeatUpsertsMissingNode(t *testing.T) {
 
 func mustLoadMigrations(t *testing.T) []migrate.Migration {
 	t.Helper()
-	ms, err := migrate.Load()
+	ms, err := migrate.Load("mysql")
 	if err != nil {
 		t.Fatalf("Load migrations: %v", err)
 	}

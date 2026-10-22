@@ -59,13 +59,16 @@ type Config struct {
 	// **addr 必填**：本地分片实现已退出生产路径（它把日志状态留在 Server 本机，
 	// 与「Server 无状态」冲突），只剩测试在用。
 	LogVictoriaLogs VictoriaLogsConfig `yaml:"logVictoriaLogs"`
-	Database        DatabaseConfig     `yaml:"database"` // 关系型数据库（MySQL 8+）；必填
+	Database        DatabaseConfig     `yaml:"database"` // 关系型数据库（MySQL 8+ / PostgreSQL 系）；必填
 }
 
-// DatabaseConfig 是 MySQL 连接配置。
+// DatabaseConfig 是关系型数据库连接配置。
 //
-// 阶段 0 只解析、不连接：Server 启动路径不变。阶段 1 起 DSN 为空将拒绝启动。
+// 数据库是硬依赖：DSN 为空或连不上，Server 直接拒绝启动。
 type DatabaseConfig struct {
+	// Driver 是目标库类型：mysql（默认）/ postgres / highgo / kingbase。
+	// 瀚高与金仓走 PostgreSQL 协议，使用同一套方言。
+	Driver          string `yaml:"driver"`
 	DSN             string `yaml:"dsn"`
 	MaxOpenConns    int    `yaml:"maxOpenConns"`
 	MaxIdleConns    int    `yaml:"maxIdleConns"`
@@ -468,7 +471,7 @@ func Default() *Config {
 		// 日志后端只有一个：VictoriaLogs（地址必须由部署时给出）。
 		LogVictoriaLogs: VictoriaLogsConfig{QueryTimeout: 30, WriteTimeout: 10},
 		// 数据库连接池默认值；阶段 0 只解析，阶段 1 起 DSN 必填。
-		Database:          DatabaseConfig{MaxOpenConns: 20, MaxIdleConns: 5, ConnMaxLifetime: 1800, MasterKeyFile: "/etc/monitor-server/master.key"},
+		Database:          DatabaseConfig{Driver: "mysql", MaxOpenConns: 20, MaxIdleConns: 5, ConnMaxLifetime: 1800, MasterKeyFile: "/etc/monitor-server/master.key"},
 		GeoIPFile:         "/var/lib/monitor-server/geoip/ip2region_v4.xdb",
 		MiddlewareViewFile: "/etc/monitor-server/middleware_view.yaml",
 		Auth:              AuthConfig{Enabled: false, Username: "admin", Password: "admin", Secret: "", UsersFile: "/var/lib/monitor-server/users.yaml", MigrateSingleAdmin: true},

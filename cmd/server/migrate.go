@@ -10,6 +10,7 @@ import (
 	"github.com/mlmw92/yingzhao/internal/server/config"
 	"github.com/mlmw92/yingzhao/internal/server/db"
 	"github.com/mlmw92/yingzhao/internal/server/migrate"
+	"github.com/mlmw92/yingzhao/internal/server/sqlx"
 )
 
 // runMigrate 执行 Schema 迁移后退出，不启动 HTTP 服务。
@@ -27,11 +28,17 @@ func runMigrate(args []string, stdout io.Writer) int {
 		return 1
 	}
 	if cfg.Database.DSN == "" {
-		fmt.Fprintln(stdout, "database.dsn 未配置：迁移需要 MySQL 8+")
+		fmt.Fprintln(stdout, "database.dsn 未配置：迁移需要 MySQL 8+ 或 PostgreSQL")
+		return 1
+	}
+	dialect, err := sqlx.Parse(cfg.Database.Driver)
+	if err != nil {
+		fmt.Fprintf(stdout, "数据库驱动不可用: %v\n", err)
 		return 1
 	}
 	ctx := context.Background()
 	pool, err := db.Open(ctx, db.Config{
+		Driver:          cfg.Database.Driver,
 		DSN:             cfg.Database.DSN,
 		MaxOpenConns:    cfg.Database.MaxOpenConns,
 		MaxIdleConns:    cfg.Database.MaxIdleConns,
@@ -43,12 +50,12 @@ func runMigrate(args []string, stdout io.Writer) int {
 	}
 	defer pool.Close()
 
-	migrations, err := migrate.Load()
+	migrations, err := migrate.Load(dialect.Name())
 	if err != nil {
 		fmt.Fprintf(stdout, "加载迁移失败: %v\n", err)
 		return 1
 	}
-	n, err := migrate.Apply(ctx, pool, migrations)
+	n, err := migrate.Apply(ctx, pool, dialect, migrations)
 	if err != nil {
 		fmt.Fprintf(stdout, "执行迁移失败: %v\n", err)
 		return 1

@@ -72,17 +72,19 @@ func (p *filePersist) SaveMeta(mf metaFile) error {
 	return os.WriteFile(p.path, data, 0o644)
 }
 
-// ---- MySQL 后端（生产）----
+// ---- 关系库后端（生产）----
 
-// mysqlPersist 只面向 MySQL，因此直接写 MySQL 方言，不需要方言层。
-type mysqlPersist struct{ db *sql.DB }
+type sqlPersist struct{ db *sqlx.DB }
 
-func NewMySQLPersist(db *sql.DB) Persist { return &mysqlPersist{db: db} }
+func NewMySQLPersist(db *sql.DB) Persist { return NewSQLPersist(db, sqlx.MySQL()) }
 
-func (p *mysqlPersist) Name() string            { return "mysql:nodes" }
-func (p *mysqlPersist) CoalesceHeartbeat() bool { return true }
+// NewSQLPersist 用指定方言接入节点表。
+func NewSQLPersist(db *sql.DB, d sqlx.Dialect) Persist { return &sqlPersist{db: sqlx.Wrap(db, d)} }
 
-func (p *mysqlPersist) Load() (metaFile, error) {
+func (p *sqlPersist) Name() string            { return p.db.Dialect().Name() + ":nodes" }
+func (p *sqlPersist) CoalesceHeartbeat() bool { return true }
+
+func (p *sqlPersist) Load() (metaFile, error) {
 	var mf metaFile
 
 	rows, err := p.db.Query(`SELECT hostname, mode, display_name, ip, os, arch, group_name,
@@ -136,7 +138,7 @@ func (p *mysqlPersist) Load() (metaFile, error) {
 //
 // 为什么不做增量：注册信息的变化（新增节点、改分组、改标签）是低频人工/首次上报事件，
 // 一次全量同步的代价可以忽略；而增量需要一套「哪些字段变了」的簿记，反而容易漏。
-func (p *mysqlPersist) SaveMeta(mf metaFile) error {
+func (p *sqlPersist) SaveMeta(mf metaFile) error {
 	tx, err := p.db.Begin()
 	if err != nil {
 		return err
@@ -145,8 +147,8 @@ func (p *mysqlPersist) SaveMeta(mf metaFile) error {
 	now := time.Now().UnixMilli()
 
 	for _, g := range mf.Groups {
-		if _, err := tx.Exec(`INSERT INTO node_groups(name, description, created_at) VALUES(?,?,?)
-			ON DUPLICATE KEY UPDATE description=VALUES(description)`,
+		if _, err := tx.Exec(`INSERT INTO node_groups(name, description, created_at) VALUES(?,?,?)`+
+			p.db.Dialect().Upsert("name", "description=excluded.description"),
 			g.Name, g.Description, g.CreatedAt); err != nil {
 			return fmt.Errorf("写入分组 %s 失败: %w", g.Name, err)
 		}
@@ -171,12 +173,8 @@ func (p *mysqlPersist) SaveMeta(mf metaFile) error {
 		// last_seen 取较大值：多实例下别让一个刚启动、内存还空着的实例把心跳写回旧值。
 		if _, err := tx.Exec(`INSERT INTO nodes(hostname, mode, display_name, ip, os, arch, group_name,
 				labels, version, host_info, log_sources, status, last_seen, created_at, updated_at)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-			ON DUPLICATE KEY UPDATE mode=VALUES(mode), display_name=VALUES(display_name),
-				ip=VALUES(ip), os=VALUES(os), arch=VALUES(arch), group_name=VALUES(group_name),
-				labels=VALUES(labels), version=VALUES(version), host_info=VALUES(host_info),
-				log_sources=VALUES(log_sources), status=VALUES(status),
-				last_seen=GREATEST(last_seen, VALUES(last_seen)), updated_at=VALUES(updated_at)`,
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`+p.db.Dialect().Upsert("hostname",
+			"mode=excluded.mode, display_name=excluded.display_name, ip=excluded.ip, os=excluded.os, arch=excluded.arch, group_name=excluded.group_name, labels=excluded.labels, version=excluded.version, host_info=excluded.host_info, log_sources=excluded.log_sources, status=excluded.status, last_seen="+p.lastSeenExpr()+", updated_at=excluded.updated_at"),
 			n.Hostname, n.Mode, n.DisplayName, n.IP, n.OS, n.Arch, n.Group,
 			labels, n.Version, hostInfo, logSources, n.Status, n.LastSeen, n.CreatedAt, now); err != nil {
 			return fmt.Errorf("写入节点 %s 失败: %w", n.Hostname, err)
@@ -194,7 +192,7 @@ func (p *mysqlPersist) SaveMeta(mf metaFile) error {
 // 库里没有行，之后 regChanged 一直为 false、不会重试 SaveMeta；只 UPDATE 的话
 // 这个节点会永久缺席（影响 0 行且不报错）。upsert 先把行补出来，注册字段留默认值，
 // 下一次注册变化时 SaveMeta 会补全。
-func (p *mysqlPersist) FlushHeartbeat(states []heartbeat) error {
+func (p *sqlPersist) FlushHeartbeat(states []heartbeat) error {
 	if len(states) == 0 {
 		return nil
 	}
@@ -205,8 +203,8 @@ func (p *mysqlPersist) FlushHeartbeat(states []heartbeat) error {
 	defer func() { _ = tx.Rollback() }()
 	now := time.Now().UnixMilli()
 	stmt := `INSERT INTO nodes(hostname, status, last_seen, created_at, updated_at)
-		VALUES(?,?,?,?,?)` + sqlx.Upsert(true, "hostname",
-		"last_seen=MAX(last_seen, excluded.last_seen), status=excluded.status, updated_at=excluded.updated_at")
+		VALUES(?,?,?,?,?)` + p.db.Dialect().Upsert("hostname",
+		"last_seen="+p.lastSeenExpr()+", status=excluded.status, updated_at=excluded.updated_at")
 	for _, s := range states {
 		if _, err := tx.Exec(stmt, s.Hostname, s.Status, s.LastSeen, now, now); err != nil {
 			return fmt.Errorf("刷新节点 %s 心跳失败: %w", s.Hostname, err)
@@ -215,7 +213,7 @@ func (p *mysqlPersist) FlushHeartbeat(states []heartbeat) error {
 	return tx.Commit()
 }
 
-func deleteMissing(tx *sql.Tx, table, column string, keep []string) error {
+func deleteMissing(tx *sqlx.Tx, table, column string, keep []string) error {
 	if len(keep) == 0 {
 		_, err := tx.Exec("DELETE FROM " + table)
 		return err
@@ -263,4 +261,15 @@ func marshalOrNil(v any) ([]byte, error) {
 // 它负责维护内存与持久化层的一致性。
 func ImportMeta(p Persist, nodes []model.Node, groups []model.Group) error {
 	return p.SaveMeta(metaFile{Nodes: nodes, Groups: groups})
+}
+
+// lastSeenExpr 生成「心跳不回退」的表达式。
+//
+// PostgreSQL 的 ON CONFLICT DO UPDATE 里目标表与 excluded 同时在作用域内，
+// 未限定的 last_seen 会被判为 ambiguous，必须写成 nodes.last_seen。
+func (p *sqlPersist) lastSeenExpr() string {
+	if p.db.Dialect().Name() == "postgres" {
+		return "GREATEST(nodes.last_seen, excluded.last_seen)"
+	}
+	return "MAX(last_seen, excluded.last_seen)"
 }

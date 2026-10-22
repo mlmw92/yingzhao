@@ -2,21 +2,31 @@ package asset
 
 import "github.com/mlmw92/yingzhao/internal/server/sqlx"
 
-// dialect 区分 SQLite 与 MySQL 的少量语法差异（实现见 internal/server/sqlx）。
-type dialect int
+// dialect 是本包对 SQL 方言的依赖点（实现见 internal/server/sqlx）。
+// SQLite 只用于测试与旧库迁移；生产是 MySQL 或 PostgreSQL 系。
 
-const (
-	dialectSQLite dialect = iota
-	dialectMySQL
-)
+// tableSuffix 是建表语句末尾的引擎/字符集声明（只有 MySQL 需要）。
+func tableSuffix(d sqlx.Dialect) string {
+	if d.Name() == "mysql" {
+		return " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+	}
+	return ""
+}
 
-func (s *Store) mysql() bool { return s.d == dialectMySQL }
+// quote 按方言引用一个标识符（用于需要拼接进 SQL 的列名）。
+func (s *Store) quote(ident string) string {
+	if s.d.Name() == "mysql" {
+		return "`" + ident + "`"
+	}
+	return `"` + ident + `"`
+}
+func (s *Store) mysql() bool { return s.d.Name() == "mysql" }
 
 // onConflict 生成 upsert 子句（sets 用 SQLite 写法）。
-func (s *Store) onConflict(cols, sets string) string { return sqlx.Upsert(s.mysql(), cols, sets) }
+func (s *Store) onConflict(cols, sets string) string { return s.d.Upsert(cols, sets) }
 
 // onConflictNothing 生成「冲突时保持原样」子句。
-func (s *Store) onConflictNothing(col string) string { return sqlx.UpsertNothing(s.mysql(), col) }
+func (s *Store) onConflictNothing(col string) string { return s.d.UpsertNothing(col) }
 
-// dualFrom 让不带 FROM 的 SELECT 在 MySQL 下成立。
-func (s *Store) dualFrom() string { return sqlx.DualFrom(s.mysql()) }
+// dualFrom 让不带 FROM 的 SELECT 成立。
+func (s *Store) dualFrom() string { return s.d.FromDual() }

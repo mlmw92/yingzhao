@@ -328,7 +328,7 @@ func (s *Store) DB() *sql.DB { return s.db.Raw() }
 // 它是 Service 的实现细节，不直接对外暴露（模块对外的接口只有 Service）。
 type Store struct {
 	db *sqlx.DB
-	d  dialect
+	d  sqlx.Dialect
 }
 
 // Open 打开（必要时创建）资产库并执行幂等迁移。
@@ -346,7 +346,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("打开资产库失败: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	store := &Store{db: sqlx.Wrap(db, false), d: dialectSQLite}
+	store := &Store{db: sqlx.Wrap(db, sqlx.SQLite()), d: sqlx.SQLite()}
 	if err := store.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -355,11 +355,17 @@ func Open(path string) (*Store, error) {
 }
 
 // OpenMySQL 用共享的 MySQL 连接初始化资产库（连接归调用方管理，Close 不会关闭它）。
-func OpenMySQL(db *sql.DB) (*Store, error) {
+func OpenMySQL(db *sql.DB) (*Store, error) { return OpenSQL(db, sqlx.MySQL()) }
+
+// OpenSQL 用共享连接与指定方言初始化资产库。
+func OpenSQL(db *sql.DB, d sqlx.Dialect) (*Store, error) {
 	if db == nil {
 		return nil, errors.New("数据库连接不能为空")
 	}
-	store := &Store{db: sqlx.Wrap(db, true), d: dialectMySQL}
+	if d == nil {
+		return nil, errors.New("数据库方言不能为空")
+	}
+	store := &Store{db: sqlx.Wrap(db, d), d: d}
 	if err := store.migrate(); err != nil {
 		return nil, err
 	}
@@ -368,7 +374,7 @@ func OpenMySQL(db *sql.DB) (*Store, error) {
 
 // Close 释放数据库句柄（MySQL 模式下连接由调用方持有，不在此关闭）。
 func (s *Store) Close() error {
-	if s.d == dialectMySQL {
+	if s.d.Name() != "sqlite" {
 		return nil
 	}
 	return s.db.Raw().Close()
@@ -376,8 +382,8 @@ func (s *Store) Close() error {
 
 // migrate 建表并播种内置类型。
 func (s *Store) migrate() error {
-	if s.d == dialectMySQL {
-		return s.migrateMySQL()
+	if s.d.Name() != "sqlite" {
+		return s.migrateSQL()
 	}
 	var version int
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
@@ -436,8 +442,8 @@ func (s *Store) migrate() error {
 		// 内置类型每次启动对齐标题：类型行被手工删除后也能自愈，
 		// 否则会出现「资产引用不存在的类型」这种外键报错。
 		if _, err := s.db.Exec(
-			`INSERT INTO asset_types(`+"`key`"+`,title,builtin) VALUES(?,?,1)`+
-				s.onConflict("`key`", "title=excluded.title"),
+			`INSERT INTO asset_types(`+s.quote("key")+`,title,builtin) VALUES(?,?,1)`+
+				s.onConflict("key", "title=excluded.title"),
 			t.Key, t.Title,
 		); err != nil {
 			return fmt.Errorf("播种内置资产类型失败: %w", err)
@@ -451,15 +457,19 @@ func (s *Store) migrate() error {
 	return nil
 }
 
-// migrateMySQL 是 MySQL 版的结构初始化。
+// migrateSQL 是 MySQL / PostgreSQL 系的结构初始化。
 //
-// 与 SQLite 版的差异：版本记在 schema_version 表（MySQL 没有 PRAGMA）、
-// 不需要 ensureColumn（MySQL 库由本程序的建表语句创建，不存在旧版本缺列的存量库）、
+// 与 SQLite 版的差异：版本记在 schema_version 表（这些库没有 PRAGMA）、
+// 不需要 ensureColumn（表由本程序的建表语句创建，不存在旧版本缺列的存量库）、
 // 索引直接写在建表语句里（MySQL 不支持部分索引，改为普通索引）。
-func (s *Store) migrateMySQL() error {
+func (s *Store) migrateSQL() error {
+	stmts := mySQLSchemaStatements
+	if s.d.Name() == "postgres" {
+		stmts = postgresSchemaStatements
+	}
 	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version(
 		id INT PRIMARY KEY, version INT NOT NULL
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`); err != nil {
+	)` + tableSuffix(s.d)); err != nil {
 		return fmt.Errorf("创建 schema_version 失败: %w", err)
 	}
 	var version int
@@ -471,23 +481,22 @@ func (s *Store) migrateMySQL() error {
 		return fmt.Errorf("资产库版本 %d 高于本程序支持的 %d，请先升级服务端", version, schemaVersion)
 	}
 
-	for _, stmt := range mySQLSchemaStatements {
+	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return fmt.Errorf("资产库建表失败: %w", err)
 		}
 	}
 	for _, t := range BuiltinTypes() {
 		if _, err := s.db.Exec(
-			`INSERT INTO asset_types(`+"`key`"+`,title,builtin) VALUES(?,?,1)`+
-				s.onConflict("`key`", "title=excluded.title"),
+			`INSERT INTO asset_types(`+s.quote("key")+`,title,builtin) VALUES(?,?,1)`+
+				s.onConflict("key", "title=excluded.title"),
 			t.Key, t.Title,
 		); err != nil {
 			return fmt.Errorf("播种内置资产类型失败: %w", err)
 		}
 	}
 	if version != schemaVersion {
-		if _, err := s.db.Exec(`INSERT INTO schema_version(id, version) VALUES(1, ?)
-			ON DUPLICATE KEY UPDATE version=VALUES(version)`, schemaVersion); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO schema_version(id, version) VALUES(1, ?)`+s.onConflict("id", "version=excluded.version"), schemaVersion); err != nil {
 			return fmt.Errorf("写入资产库版本失败: %w", err)
 		}
 	}
@@ -735,10 +744,9 @@ func (s *Store) assetByNaturalClause(typeKey, naturalKey string, fold bool) (Ass
 		// 折叠时可能命中多条（台账里真的并存两种大小写），取 id 最小的那条让结果稳定：
 		// 否则同一份数据在两次查询之间可能给出不同的资产。
 		//
-		// MySQL 下不用 `COLLATE NOCASE`（它会被 sqlx 剥掉、转而依赖库的默认排序规则）：
-		// 默认规则由 DBA 建库时决定，如果是 `_bin`，这里就会静默变成大小写敏感——
-		// 同一台机器被判成两台，且不报错。显式 LOWER() 不依赖任何排序规则。
-		if s.mysql() {
+		// MySQL / PostgreSQL 下不用 `COLLATE NOCASE`（MySQL 的会被 sqlx 剥掉、转而依赖
+		// 库的默认排序规则；PG 根本没有这个排序规则）：显式 LOWER() 不依赖任何排序规则。
+		if s.d.Name() != "sqlite" {
 			cond = "LOWER(natural_key)=LOWER(?) ORDER BY id LIMIT 1"
 		} else {
 			cond = "natural_key=? COLLATE NOCASE ORDER BY id LIMIT 1"
@@ -788,8 +796,14 @@ func (s *Store) seenOf(assetID int64, a *Asset) error {
 // 用 MAX 取较大值而不是直接覆盖：乱序到达的上报（多 Agent、网络重试）不应把"最近见到"
 // 往回拨，否则台账会凭空出现一批失联资产。
 func (s *Store) markSeen(assetID int64, at int64) error {
+	sets := "last_seen_at=MAX(last_seen_at, excluded.last_seen_at)"
+	if s.d.Name() == "postgres" {
+		// PostgreSQL 的 ON CONFLICT DO UPDATE 里，目标表与 excluded 同时在作用域内，
+		// 未限定的列名会被判为 ambiguous；必须写成 asset_seen.last_seen_at。
+		sets = "last_seen_at=GREATEST(asset_seen.last_seen_at, excluded.last_seen_at)"
+	}
 	if _, err := s.db.Exec(
-		`INSERT INTO asset_seen(asset_id,last_seen_at) VALUES(?,?)`+s.onConflict("asset_id", "last_seen_at=MAX(last_seen_at, excluded.last_seen_at)"),
+		`INSERT INTO asset_seen(asset_id,last_seen_at) VALUES(?,?)`+s.onConflict("asset_id", sets),
 		assetID, at,
 	); err != nil {
 		return fmt.Errorf("记录资产最近上报时间失败: %w", err)
@@ -833,15 +847,11 @@ func (s *Store) attrsOf(assetID int64) (map[string]Attr, error) {
 
 // insertAsset 新建资产，返回自增主键。
 func (s *Store) insertAsset(a Asset) (int64, error) {
-	res, err := s.db.Exec(
+	id, err := s.db.InsertID(
 		`INSERT INTO assets(type_key,natural_key,name,node,created_at,updated_at) VALUES(?,?,?,?,?,?)`,
 		a.TypeKey, a.NaturalKey, a.Name, a.Node, a.CreatedAt, a.UpdatedAt)
 	if err != nil {
 		return 0, fmt.Errorf("新建资产失败: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("读取资产主键失败: %w", err)
 	}
 	return id, nil
 }
@@ -2001,13 +2011,9 @@ func (s *Store) recordSnapshot(assetID, takenAt int64, fields map[string]string)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	res, err := tx.Exec(`INSERT INTO snapshots(asset_id,taken_at) VALUES(?,?)`, assetID, takenAt)
+	id, err := tx.InsertID(`INSERT INTO snapshots(asset_id,taken_at) VALUES(?,?)`, assetID, takenAt)
 	if err != nil {
 		return 0, fmt.Errorf("写入配置快照失败: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("读取配置快照主键失败: %w", err)
 	}
 	for key, value := range fields {
 		if _, err := tx.Exec(`INSERT INTO snapshot_fields(snapshot_id,`+"`key`"+`,value) VALUES(?,?,?)`+
@@ -2097,15 +2103,11 @@ func (s *Store) recordInspectRun(r InspectRun, members []InspectRunMember, findi
 	if r.Truncated {
 		truncated = 1
 	}
-	res, err := tx.Exec(
+	runID, err := tx.InsertID(
 		`INSERT INTO inspect_runs(scope,actor,started_at,assets,baselined,findings,truncated) VALUES(?,?,?,?,?,?,?)`,
 		r.Scope, r.Actor, r.StartedAt, r.Assets, r.Baselined, r.Findings, truncated)
 	if err != nil {
 		return 0, fmt.Errorf("写入巡检记录失败: %w", err)
-	}
-	runID, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("读取巡检记录主键失败: %w", err)
 	}
 	if _, err := tx.Exec(`INSERT INTO inspect_run_manifest(run_id) VALUES(?)`, runID); err != nil {
 		return 0, fmt.Errorf("写入巡检资产清单标记失败: %w", err)
@@ -2122,7 +2124,7 @@ func (s *Store) recordInspectRun(r InspectRun, members []InspectRunMember, findi
 	}
 	for i := range findings {
 		f := &findings[i]
-		result, err := tx.Exec(
+		findingID, err := tx.InsertID(
 			`INSERT INTO inspect_findings(run_id,asset_id,asset_type,asset_key,asset_name,node,field,kind,level,expected,actual,at)
 			 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
 			runID, f.AssetID, f.AssetType, f.AssetKey, f.AssetName, f.Node,
@@ -2132,10 +2134,6 @@ func (s *Store) recordInspectRun(r InspectRun, members []InspectRunMember, findi
 			return 0, fmt.Errorf("写入差异项失败: %w", err)
 		}
 		if f.BaselineAssetID != 0 {
-			findingID, err := result.LastInsertId()
-			if err != nil {
-				return 0, fmt.Errorf("读取差异项主键失败: %w", err)
-			}
 			if _, err := tx.Exec(`INSERT INTO inspect_finding_baselines(finding_id,asset_id) VALUES(?,?)`, findingID, f.BaselineAssetID); err != nil {
 				return 0, fmt.Errorf("写入差异项标杆来源失败: %w", err)
 			}

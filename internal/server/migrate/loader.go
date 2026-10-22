@@ -9,12 +9,22 @@ import (
 	"strings"
 )
 
-//go:embed migrations/*.sql
+//go:embed migrations/*/*.sql
 var migrationsFS embed.FS
 
-// Load 读取内嵌迁移，按文件名版本号排序。
-func Load() ([]Migration, error) {
-	entries, err := fs.ReadDir(migrationsFS, "migrations")
+// Load 读取指定方言的内嵌迁移，按文件名版本号排序。
+//
+// 目录按方言拆分（mysql / postgres）：同一版本号在不同方言下是各自独立的 SQL，
+// 校验和也各算各的。现有 MySQL 文件只移动了目录、内容未变，已部署实例不受影响。
+func Load(dialect string) ([]Migration, error) {
+	dialect = strings.ToLower(strings.TrimSpace(dialect))
+	switch dialect {
+	case "mysql", "postgres":
+	default:
+		return nil, fmt.Errorf("不支持的迁移方言: %q（可选: mysql|postgres）", dialect)
+	}
+	dir := "migrations/" + dialect
+	entries, err := fs.ReadDir(migrationsFS, dir)
 	if err != nil {
 		return nil, fmt.Errorf("读取迁移目录失败: %w", err)
 	}
@@ -27,7 +37,7 @@ func Load() ([]Migration, error) {
 		if !ok {
 			return nil, fmt.Errorf("迁移文件名不合法: %s（应为 0001_name.sql）", e.Name())
 		}
-		data, err := fs.ReadFile(migrationsFS, "migrations/"+e.Name())
+		data, err := fs.ReadFile(migrationsFS, dir+"/"+e.Name())
 		if err != nil {
 			return nil, err
 		}
