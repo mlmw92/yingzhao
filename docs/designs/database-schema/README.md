@@ -1,9 +1,14 @@
-# 状态库表结构（三种方言）
+# 状态库最终表结构（三种方言）
 
-本目录是 **生成产物**，来源：
+本目录描述**新系统初始化后的最终表结构**，不是迁移过程记录；不包含
+`schema_migrations`、`migration_lock` 这类运行时/过程表。
 
-- `internal/server/migrate/migrations/<dialect>/*.sql`（`config_documents`、`nodes`、`node_groups`）
-- `internal/server/asset/schema_<dialect>.go`（资产台账、巡检、审计、告警处置、下行任务）
+生成来源：
+
+- 核心表（`config_documents`、`nodes`、`node_groups`）的 DDL 维护在
+  `internal/server/migrate/migrations/<dialect>/`，文档里只呈现最终形态；
+- 其余表（资产台账、巡检、审计、告警处置、下行任务）在
+  `internal/server/asset/schema_<dialect>.go`。
 
 | 文件 | 目标库 |
 |---|---|
@@ -40,6 +45,7 @@ go test -tags schemadoc ./internal/server/asset -run TestDumpSchemaScripts
 | `asset_seen` / `asset_ignored` / `asset_labels` | 最近上报、忽略、标签 |
 | `inspect_runs` / `inspect_run_manifest` / `inspect_run_members` | 巡检批次 |
 | `inspect_findings` / `inspect_finding_baselines` / `inspect_baselines` | 巡检差异与标杆 |
+| `schema_version` | 资产库结构版本（运行时校验，不是迁移记录） |
 
 **审计**
 
@@ -55,8 +61,6 @@ go test -tags schemadoc ./internal/server/asset -run TestDumpSchemaScripts
 |---|---|
 | `alert_acks` | 告警认领/指派/关闭与评论 |
 | `ops_tasks` / `ops_meta` / `ops_caps` | 下行任务、序号、节点能力 |
-| `schema_migrations` | 迁移版本与校验和（迁移执行器创建） |
-| `migration_lock` | 达梦的迁移锁控制表（其余方言用 advisory lock） |
 
 ## 通用约定
 

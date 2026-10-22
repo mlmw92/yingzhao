@@ -1,8 +1,7 @@
--- yingzhao 状态库表结构（mysql）
--- 由 internal/server 的迁移与 schema_*.go 生成；改表结构请改源码后重新导出：
+-- yingzhao 状态库最终表结构（mysql）—— 新系统初始化脚本
+-- 由 internal/server 的 schema 定义生成；改表结构请改源码后重新导出：
 --   go test -tags schemadoc ./internal/server/asset -run TestDumpSchemaScripts
 
--- ===== 迁移 0001 config_documents =====
 -- config_documents：整份读写的配置文档（JSON 信封；敏感内容 AES-GCM 加密）
 CREATE TABLE IF NOT EXISTS config_documents (
   namespace   VARCHAR(64)  NOT NULL,  -- 配置命名空间（notify / ui / alert_rules …）
@@ -13,7 +12,6 @@ CREATE TABLE IF NOT EXISTS config_documents (
   PRIMARY KEY (namespace)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ===== 迁移 0002 nodes =====
 -- nodes：节点注册信息与最近心跳
 CREATE TABLE IF NOT EXISTS nodes(
   hostname     VARCHAR(255) NOT NULL,  -- 主机名（主键，Agent 上报原样）
@@ -35,7 +33,6 @@ CREATE TABLE IF NOT EXISTS nodes(
   KEY idx_nodes_group(group_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ===== 迁移 0003 node_groups =====
 -- node_groups：节点分组
 CREATE TABLE IF NOT EXISTS node_groups(
   name        VARCHAR(128) NOT NULL,  -- 分组名（主键）
@@ -337,11 +334,3 @@ CREATE TABLE IF NOT EXISTS schema_version(
 		version INT NOT NULL  -- 资产库结构版本
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ===== 迁移执行器创建 =====
--- schema_migrations：迁移版本与校验和
-CREATE TABLE IF NOT EXISTS schema_migrations(
-  version    INT PRIMARY KEY,   -- 迁移版本号
-  name       VARCHAR(128) NOT NULL, -- 迁移名
-  checksum   VARCHAR(64) NOT NULL,  -- 迁移 SQL 的校验和
-  applied_at BIGINT NOT NULL        -- 应用时间（epoch ms）
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

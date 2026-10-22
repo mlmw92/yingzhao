@@ -49,8 +49,6 @@ var tableComments = map[string]string{
 	"ops_meta":                  "下行任务元数据（序号等）",
 	"ops_caps":                  "节点声明的可执行动作",
 	"schema_version":            "资产库结构版本",
-	"schema_migrations":         "迁移版本与校验和",
-	"migration_lock":            "达梦迁移锁控制表",
 }
 
 var columnComments = map[string]map[string]string{
@@ -279,16 +277,6 @@ var columnComments = map[string]map[string]string{
 		"id":      "固定为 1",
 		"version": "资产库结构版本",
 	},
-	"schema_migrations": {
-		"version":    "迁移版本号（主键）",
-		"name":       "迁移名",
-		"checksum":   "迁移 SQL 的校验和",
-		"applied_at": "应用时间（epoch ms）",
-	},
-	"migration_lock": {
-		"id":     "固定为 1",
-		"holder": "持锁实例标识（预留）",
-	},
 }
 
 var createTableRE = regexp.MustCompile(`(?i)CREATE TABLE IF NOT EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)`)
@@ -317,17 +305,18 @@ func TestDumpSchemaScripts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Fprintf(f, "-- yingzhao 状态库表结构（%s）\n", d.name)
-		fmt.Fprintln(f, "-- 由 internal/server 的迁移与 schema_*.go 生成；改表结构请改源码后重新导出：")
+		fmt.Fprintf(f, "-- yingzhao 状态库最终表结构（%s）—— 新系统初始化脚本\n", d.name)
+		fmt.Fprintln(f, "-- 由 internal/server 的 schema 定义生成；改表结构请改源码后重新导出：")
 		fmt.Fprintln(f, "--   go test -tags schemadoc ./internal/server/asset -run TestDumpSchemaScripts")
 		fmt.Fprintln(f)
 
+		// 核心表（config_documents / nodes / node_groups）的 DDL 仍在迁移文件里维护，
+		// 这里只取它们的最终形态；不输出迁移版本号、schema_migrations 等过程表。
 		ms, err := migrate.Load(d.dialect)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, m := range ms {
-			fmt.Fprintf(f, "-- ===== 迁移 %04d %s =====\n", m.Version, m.Name)
 			writeDDL(f, m.SQL)
 			fmt.Fprintln(f)
 		}
@@ -336,19 +325,12 @@ func TestDumpSchemaScripts(t *testing.T) {
 			fmt.Fprintln(f)
 		}
 		if d.name == "dm" {
-			fmt.Fprintln(f, "-- ===== 索引（启动时先查 USER_INDEXES 再建）=====")
+			fmt.Fprintln(f, "-- ===== 索引 =====")
 			for _, idx := range dmIndexStatements {
 				fmt.Fprintf(f, "-- %s\n%s;\n", idx.name, idx.ddl)
 			}
 			fmt.Fprintln(f)
-			fmt.Fprintln(f, "-- ===== 迁移锁控制表（由迁移执行器创建）=====")
-			fmt.Fprintln(f, "-- migration_lock：达梦迁移锁控制表")
-			fmt.Fprintln(f, "CREATE TABLE IF NOT EXISTS migration_lock(")
-			fmt.Fprintln(f, "  id     INT PRIMARY KEY,        -- 固定为 1")
-			fmt.Fprintln(f, "  holder VARCHAR(64)             -- 持锁实例标识（预留）")
-			fmt.Fprintln(f, ");")
 		}
-		writeSchemaMigrations(f, d.name)
 		if err := f.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -386,21 +368,5 @@ func writeDDL(f *os.File, stmt string) {
 		} else {
 			fmt.Fprintln(f, line)
 		}
-	}
-}
-
-// writeSchemaMigrations 补上迁移执行器创建的表（不在迁移文件里）。
-func writeSchemaMigrations(f *os.File, dialect string) {
-	fmt.Fprintln(f, "-- ===== 迁移执行器创建 =====")
-	fmt.Fprintln(f, "-- schema_migrations：迁移版本与校验和")
-	fmt.Fprintln(f, "CREATE TABLE IF NOT EXISTS schema_migrations(")
-	fmt.Fprintln(f, "  version    INT PRIMARY KEY,   -- 迁移版本号")
-	fmt.Fprintln(f, "  name       VARCHAR(128) NOT NULL, -- 迁移名")
-	fmt.Fprintln(f, "  checksum   VARCHAR(64) NOT NULL,  -- 迁移 SQL 的校验和")
-	fmt.Fprintln(f, "  applied_at BIGINT NOT NULL        -- 应用时间（epoch ms）")
-	if dialect == "mysql" {
-		fmt.Fprintln(f, ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;")
-	} else {
-		fmt.Fprintln(f, ");")
 	}
 }
