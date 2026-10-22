@@ -136,7 +136,7 @@ internal/server/migrate/migrations/dm/0001_*.sql ...
 - 自增主键：DM 驱动支持 `LastInsertId`，走 `Exec + LastInsertId`。
 - **实机验证（2026-10-22，dev-server 上的 DM8 容器）**：
   - 镜像 `zjwmkrnwr2x8y72vh2.xuanyuan.run/yssenn/dameng:dm8_20260427_x86_CentOS7`，
-    端口映射 `15236:5236`，`DM_SYSDBA_PWD=Yingzhao123`；
+    端口映射 `15236:5236`，`DM_SYSDBA_PWD=<password>`；
   - 六组集成用例全部通过：配置文档契约（含并发创建/版本冲突）、资产台账
     （25 表、MERGE upsert、关系优先级、类型模型）、审计（链初始化/写入/裁剪/校验）、
     下行任务（回填/序号跨重启）、告警处置回填、节点整份同步与心跳补写；
@@ -151,11 +151,11 @@ internal/server/migrate/migrations/dm/0001_*.sql ...
 ```bash
 docker run -d --name dm-test -p 15236:5236 \
   --ulimit nofile=65536:65536 --ulimit nproc=65536:65536 \
-  -e DM_SYSDBA_PWD=Yingzhao123 -e DM_SYSAUDITOR_PWD=Auditor123 \
+  -e DM_SYSDBA_PWD=<password> -e DM_SYSAUDITOR_PWD=<auditor-password> \
   -v /var/lib/dm-test:/dmdata \
   zjwmkrnwr2x8y72vh2.xuanyuan.run/yssenn/dameng:dm8_20260427_x86_CentOS7
 
-TEST_DM_DSN='dm://SYSDBA:Yingzhao123@127.0.0.1:5236' \
+TEST_DM_DSN='dm://SYSDBA:<password>@127.0.0.1:5236' \
   go test -p 1 ./internal/server/... -run DM
 ```
 
