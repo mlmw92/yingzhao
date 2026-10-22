@@ -3,7 +3,7 @@
 > 本文件由仓库根目录 `README.md` 的「配置说明」章节下沉而来（2026-10-16）：逐字段的配置参考属于
 > **查阅型**内容，放在 `guides/` 与既有约定一致（该目录专放现役的横切文档：权限矩阵、RBAC、配置手册）。
 > 上手流程与部署步骤见 [README](../../README.md)；可直接套用的模板见 [配置模板手册](configuration-cookbook.md)；
-> 权限点含义见 [权限矩阵](permission-matrix.md)。
+> 权限点含义见 [权限矩阵](permission-matrix.md)；建库/账号/备份/各库差异见 [数据库部署指南](database-deployment.md)。
 
 
 ## Server（`server.yaml`）
