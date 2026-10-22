@@ -1,6 +1,4 @@
--- yingzhao 状态库最终表结构（postgres）—— 新系统初始化脚本
--- 由 internal/server 的 schema 定义生成；改表结构请改源码后重新导出：
---   go test -tags schemadoc ./internal/server/asset -run TestDumpSchemaScripts
+-- yingzhao 状态库最终表结构（postgres）
 
 -- config_documents：整份读写的配置文档（JSON 信封；敏感内容 AES-GCM 加密）
 CREATE TABLE IF NOT EXISTS config_documents (

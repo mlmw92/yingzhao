@@ -305,10 +305,7 @@ func TestDumpSchemaScripts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Fprintf(f, "-- yingzhao 状态库最终表结构（%s）—— 新系统初始化脚本\n", d.name)
-		fmt.Fprintln(f, "-- 由 internal/server 的 schema 定义生成；改表结构请改源码后重新导出：")
-		fmt.Fprintln(f, "--   go test -tags schemadoc ./internal/server/asset -run TestDumpSchemaScripts")
-		fmt.Fprintln(f)
+		fmt.Fprintf(f, "-- yingzhao 状态库最终表结构（%s）\n\n", d.name)
 
 		// 核心表（config_documents / nodes / node_groups）的 DDL 仍在迁移文件里维护，
 		// 这里只取它们的最终形态；不输出迁移版本号、schema_migrations 等过程表。
