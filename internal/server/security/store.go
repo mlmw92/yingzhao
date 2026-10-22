@@ -1,14 +1,19 @@
 package security
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // 安全事件与基线的服务端存储：内存索引 + JSON 文件持久化。
@@ -29,28 +34,50 @@ type Store struct {
 	baseline      map[string]model.SecurityBaseline // node -> 最新基线
 	defenseStatus map[string]*model.DefenseStatus   // node -> 最新入侵防护状态
 	guardRisks    map[string]GuardRiskState         // node -> 最新护栏组合风险清单（含是否上报过）
-	path          string                            // 持久化文件路径
+	p             configdoc.Persister               // 持久化后端（文件仅测试用）
+	// coalesce 表示写入由 RunFlusher 合并（状态库模式）。文件模式保持同步写，
+	// 既有测试依赖「Ingest 后立即能读回」。
+	coalesce bool
+	dirty    atomic.Bool
+	loadErr  error
 }
 
-// New 创建安全存储；若 file 为空使用默认文件名。加载已持久化数据（若存在）。
+// New 用文件持久化（测试与迁移源）。
 func New(file string) *Store {
 	if file == "" {
 		file = defaultStoreFile
 	}
+	return NewWithPersister(configdoc.NewFilePersister(file), "")
+}
+
+// NewWithPersister 用状态库文档保存安全事件/基线/防护状态。
+// legacyPath 存在且文档不存在时一次性导入，然后改名 .bak-migrated。
+func NewWithPersister(p configdoc.Persister, legacyPath string) *Store {
 	s := &Store{
 		baseline:      map[string]model.SecurityBaseline{},
 		defenseStatus: map[string]*model.DefenseStatus{},
 		guardRisks:    map[string]GuardRiskState{},
-		path:          file,
+		p:             p,
+		coalesce:      true,
 	}
-	s.load()
+	s.load(legacyPath)
 	return s
 }
 
-// load 从磁盘载入既有事件与基线。
-func (s *Store) load() {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
+// LoadError 返回构造时读取文档的错误（nil 表示正常；文档不存在不算错误）。
+func (s *Store) LoadError() error { return s.loadErr }
+
+// load 从持久化后端载入既有事件与基线。
+func (s *Store) load(legacyPath string) {
+	data, err := s.p.Load()
+	if errors.Is(err, configdoc.ErrNotFound) {
+		data = s.importLegacy(legacyPath)
+		if data == nil {
+			return
+		}
+	} else if err != nil {
+		s.loadErr = fmt.Errorf("读取安全存储失败: %w", err)
+		slog.Error("读取安全存储失败，拒绝启动（避免用空集合覆盖原数据）", "doc", s.p.Name(), "err", err)
 		return
 	}
 	var snap struct {
@@ -60,7 +87,8 @@ func (s *Store) load() {
 		GuardRisks    map[string]GuardRiskState         `json:"guardRisks"`
 	}
 	if err := json.Unmarshal(data, &snap); err != nil {
-		slog.Warn("安全存储加载失败，忽略旧数据", "path", s.path, "err", err)
+		s.loadErr = fmt.Errorf("解析安全存储失败: %w", err)
+		slog.Error("解析安全存储失败，拒绝启动（避免用空集合覆盖原数据）", "doc", s.p.Name(), "err", err)
 		return
 	}
 	if snap.Events != nil {
@@ -72,14 +100,61 @@ func (s *Store) load() {
 	if snap.DefenseStatus != nil {
 		s.defenseStatus = snap.DefenseStatus
 	}
-	// 护栏风险状态也要读回来：漏了这一句的话，重启后卡片会**静默变空**——
-	// 界面显示"未发现风险"，而实际上该节点上次报的风险还在（这正是本文件第一版的样子，
-	// 被 TestGuardRisks_SurviveReload 当场抓到）。
 	if snap.GuardRisks != nil {
 		s.guardRisks = snap.GuardRisks
 	}
 	slog.Info("已加载安全存储", "events", len(s.events), "baselines", len(s.baseline),
 		"defense", len(s.defenseStatus), "guardRisks", len(s.guardRisks))
+}
+
+// importLegacy 把旧版 JSON 文件导入状态库（只发生一次）。
+func (s *Store) importLegacy(path string) []byte {
+	if path == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	if err := s.p.Save(raw); err != nil {
+		slog.Error("导入安全存储到状态库失败", "path", path, "err", err)
+		return nil
+	}
+	_ = os.Rename(path, path+".bak-migrated")
+	slog.Info("安全存储已导入状态库", "from", path)
+	return raw
+}
+
+// markDirty 标记有变更。文件模式立即写；状态库模式由 RunFlusher 合并写入，
+// 避免每次 Agent 上报都重写约 1.5MB 的文档。
+func (s *Store) markDirty() {
+	if !s.coalesce {
+		s.save()
+		return
+	}
+	s.dirty.Store(true)
+}
+
+// RunFlusher 周期把合并的变更写入状态库；ctx 取消时再补一次。
+func (s *Store) RunFlusher(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			s.Flush()
+			return
+		case <-ticker.C:
+			s.Flush()
+		}
+	}
+}
+
+// Flush 立即写入待落盘的变更（没有变更时是 no-op）。
+func (s *Store) Flush() {
+	if s.dirty.Swap(false) {
+		s.save()
+	}
 }
 
 // save 持久化事件与基线到磁盘。失败时仅记日志，不阻塞上报链路。
@@ -102,14 +177,8 @@ func (s *Store) save() {
 		slog.Warn("安全存储序列化失败", "err", err)
 		return
 	}
-	// 原子写入：先写临时文件再 rename
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		slog.Warn("安全存储写入失败", "err", err)
-		return
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		slog.Warn("安全存储落盘失败", "err", err)
+	if err := s.p.Save(data); err != nil {
+		slog.Warn("安全存储写入失败", "err", err, "doc", s.p.Name())
 	}
 }
 
@@ -159,7 +228,7 @@ func (s *Store) Ingest(node string, events []model.SecurityEvent, baseline *mode
 		s.baseline[baseline.Node] = *baseline
 	}
 	s.mu.Unlock()
-	s.save()
+	s.markDirty()
 }
 
 // Count 返回当前保留的安全事件条数。
@@ -264,7 +333,7 @@ func (s *Store) SaveDefenseStatus(node string, st *model.DefenseStatus) {
 	s.mu.Lock()
 	s.defenseStatus[node] = st
 	s.mu.Unlock()
-	s.save()
+	s.markDirty()
 }
 
 // GetDefenseStatus 返回某节点最新入侵防护状态（无则 nil）。

@@ -221,8 +221,17 @@ func main() {
 	// 上报接收（Nginx access log 地理聚合窗口：TTL 1h，实时大屏场景）
 	ngxWin := nginxaccess.NewWindow(nginxaccess.NewGeo(), time.Hour)
 	// 安全事件/基线存储（JSON 持久化，默认安全能力启用）
-	securityStore := security.New(cfg.SecurityStoreFile)
-	defenseStore := security.NewDefenseStore(filepath.Join(filepath.Dir(cfg.SecurityStoreFile), "defense_tasks.json"))
+	securityStore := security.NewWithPersister(docs.plainJSON(nsSecurity), cfg.SecurityStoreFile)
+	if err := securityStore.LoadError(); err != nil {
+		slog.Error("读取安全存储失败，拒绝启动", "err", err)
+		os.Exit(1)
+	}
+	defenseStore := security.NewDefenseStoreWithPersister(
+		docs.plainJSON(nsDefense), filepath.Join(filepath.Dir(cfg.SecurityStoreFile), "defense_tasks.json"))
+	if err := defenseStore.LoadError(); err != nil {
+		slog.Error("读取防护任务失败，拒绝启动", "err", err)
+		os.Exit(1)
+	}
 	recv := receiver.New(store, nodeMgr, cfg.AgentAuth, ngxWin, securityStore, engine, defenseStore)
 
 	// 统一下行操作通道：任务落盘在数据目录（与防护任务同处），receiver 用它领取/回执/回收，
@@ -450,18 +459,21 @@ func main() {
 	rest.SetK8sLive(k8sLiveMgr)
 	// 下行操作通道：与 receiver 共用同一个 service 实例（见上面 opsSvc 的说明）
 	rest.SetOpsService(opsSvc)
-	// 高风险操作双人复核：审批单与配置都与下行操作同处一个数据目录（同为"要能人工查看、
-	// 且不能丢"的小体量状态）。配置**默认关闭**——单管理员部署下开启会让任何动作都执行不了，
+	// 高风险操作双人复核：审批单与配置都进状态库。
+	// 配置**默认关闭**——单管理员部署下开启会让任何动作都执行不了，
 	// 开启必须是管理员在界面上显式做的决定。
 	approvalStore := approval.NewStoreWithPersister(docs.plainJSON(nsApprovals))
 	if err := approvalStore.LoadError(); err != nil {
 		slog.Error("读取审批单失败，拒绝启动（继续跑会在下次保存时覆盖库里的审批单）", "err", err)
 		os.Exit(1)
 	}
-	rest.SetApproval(
-		approvalStore,
-		approval.NewConfigStore(filepath.Join(opsDataDir, "approval.json")),
-	)
+	approvalCfg := approval.NewConfigStoreWithPersister(
+		docs.plainJSON(nsApprovalConfig), filepath.Join(opsDataDir, "approval.json"))
+	if err := approvalCfg.LoadError(); err != nil {
+		slog.Error("读取审批配置失败，拒绝启动（避免审批开关静默回到默认关闭）", "err", err)
+		os.Exit(1)
+	}
+	rest.SetApproval(approvalStore, approvalCfg)
 	rest.SetAnalyzer(analyzer)
 	rest.SetPipelineStore(pipelineStore)
 	rest.SetSelfMon(mon)
@@ -537,6 +549,13 @@ func main() {
 		defer flusherWG.Done()
 		nodeMgr.RunHeartbeatFlusher(runCtx, 30*time.Second)
 	}()
+	// 安全事件/基线约 1.5MB，不能每次 Agent 上报都整份写库；10 秒合并一次。
+	var securityWG sync.WaitGroup
+	securityWG.Add(1)
+	go func() {
+		defer securityWG.Done()
+		securityStore.RunFlusher(runCtx, 10*time.Second)
+	}()
 	// 自监控指标周期写入时序库（走未包装的原始存储）：self_* 指标因此可查询、可画趋势，
 	// 也能直接复用现有告警规则来监控 Server 自身。
 	go selfmon.NewReporter(rawStore, mon, selfmon.DefaultReportInterval).Run(runCtx)
@@ -577,6 +596,7 @@ func main() {
 		slog.Error("HTTP 监听失败", "addr", cfg.Listen, "err", err)
 		cancelRun()
 		flusherWG.Wait()
+		securityWG.Wait()
 		_ = store.Close()
 		os.Exit(1)
 	}
@@ -602,11 +622,13 @@ func main() {
 		slog.Error("HTTP 服务异常退出", "err", err)
 		cancelRun()
 		flusherWG.Wait()
+		securityWG.Wait()
 		_ = store.Close()
 		os.Exit(1)
 	}
 	cancelRun()
 	flusherWG.Wait()
+	securityWG.Wait()
 	_ = store.Close()
 	slog.Info("Server 已停止")
 }

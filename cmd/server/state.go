@@ -37,6 +37,10 @@ const (
 	nsApprovals      = "approvals"
 	nsInvestigations = "ai_investigations"
 	nsUsers          = "users"
+	// 安全与审批配置（原先都是本地 JSON 文件）
+	nsSecurity       = "security"
+	nsDefense        = "defense_tasks"
+	nsApprovalConfig = "approval_config"
 )
 
 // openStateDB 打开状态库并执行 Schema 迁移，返回连接与方言。

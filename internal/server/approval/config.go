@@ -2,12 +2,16 @@ package approval
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // 受管入口的标识（配置里 requireFor 的取值）。
@@ -186,38 +190,77 @@ func (c Config) RequiresApproval(kind string, readOnly bool) bool {
 	return false
 }
 
-// ConfigStore 持有审批配置（内存 + 文件），保存即热生效。
-//
-// 沿用保留策略那套（`retention`）：Web 可改、保存即生效、文件是唯一持久化。
+// ConfigStore 持有审批配置（内存 + 状态库文档），保存即热生效。
 type ConfigStore struct {
-	mu   sync.RWMutex
-	path string
-	cfg  Config
+	mu      sync.RWMutex
+	p       configdoc.Persister
+	cfg     Config
+	loadErr error
 }
 
-// NewConfigStore 加载配置（文件不存在时用默认值并**不**立即落盘：
-// 一个从没配过的部署不该因为启动就多出一个文件）。
+// NewConfigStore 用文件持久化（测试与迁移源）。
 func NewConfigStore(file string) *ConfigStore {
-	s := &ConfigStore{path: file, cfg: DefaultConfig()}
 	if file == "" {
+		return &ConfigStore{cfg: DefaultConfig()}
+	}
+	return NewConfigStoreWithPersister(configdoc.NewFilePersister(file), "")
+}
+
+// NewConfigStoreWithPersister 用状态库文档保存审批配置。
+//
+// legacyPath 是旧版本的文件位置：文档不存在且文件存在时一次性导入，
+// 然后把文件改名 .bak-migrated。文件不存在时用默认配置，且**不**立即写库。
+func NewConfigStoreWithPersister(p configdoc.Persister, legacyPath string) *ConfigStore {
+	s := &ConfigStore{p: p, cfg: DefaultConfig()}
+	if p == nil {
 		return s
 	}
-	data, err := os.ReadFile(file)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			slog.Warn("读取审批配置失败（用默认值）", "err", err, "path", file)
-		}
+	data, err := p.Load()
+	if errors.Is(err, configdoc.ErrNotFound) {
+		s.importLegacy(legacyPath)
 		return s
+	}
+	if err != nil {
+		s.loadErr = fmt.Errorf("读取审批配置失败: %w", err)
+		slog.Error("读取审批配置失败，拒绝启动（避免审批开关静默回到默认关闭）", "err", err, "doc", p.Name())
+		return s
+	}
+	if err := json.Unmarshal(data, &s.cfg); err != nil {
+		s.loadErr = fmt.Errorf("解析审批配置失败: %w", err)
+		slog.Error("解析审批配置失败，拒绝启动（避免审批开关静默回到默认关闭）", "err", err, "doc", p.Name())
+		return s
+	}
+	s.cfg.normalize()
+	return s
+}
+
+// importLegacy 把旧版 JSON 文件导入状态库（只发生一次）。
+func (s *ConfigStore) importLegacy(path string) {
+	if path == "" {
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
 	}
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		slog.Warn("审批配置解析失败（用默认值）", "err", err, "path", file)
-		return s
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		s.loadErr = fmt.Errorf("解析旧审批配置失败: %w", err)
+		slog.Error("解析旧审批配置失败，拒绝启动", "path", path, "err", err)
+		return
 	}
 	cfg.normalize()
 	s.cfg = cfg
-	return s
+	if err := s.p.Save(raw); err != nil {
+		slog.Error("导入审批配置到状态库失败", "path", path, "err", err)
+		return
+	}
+	_ = os.Rename(path, path+".bak-migrated")
+	slog.Info("审批配置已导入状态库", "from", path)
 }
+
+// LoadError 返回构造时读取文档的错误（nil 表示正常；文档不存在不算错误）。
+func (s *ConfigStore) LoadError() error { return s.loadErr }
 
 // Get 返回当前配置（副本）。
 func (s *ConfigStore) Get() Config {
@@ -228,22 +271,18 @@ func (s *ConfigStore) Get() Config {
 	return c
 }
 
-// Set 保存配置（归一化后落盘并立即生效）。
+// Set 保存配置（归一化后写入状态库并立即生效）。
 func (s *ConfigStore) Set(cfg Config) error {
 	cfg.normalize()
 	s.mu.Lock()
 	s.cfg = cfg
 	s.mu.Unlock()
-	if s.path == "" {
+	if s.p == nil {
 		return nil
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return s.p.Save(data)
 }

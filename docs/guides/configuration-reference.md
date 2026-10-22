@@ -24,7 +24,7 @@
 | `auth.password` | Web 登录密码。存储为**国密 SM3 加盐哈希**（形如 `sm3:<salt>:<hash>`）；旧明文配置在 Server 启动时自动迁移为哈希并写回，无需手动处理。可在 Web 端「系统设置 → 修改密码」更改。 |
 | `reportDir` | 报告存储目录（默认 `/var/lib/monitor-server/reports`） |
 | `assetStoreFile` | 旧版资产台账 SQLite 文件路径，仅作为一次性迁移源；运行期资产、审计、告警处置、下行任务都在 `database` 里 |
-| `securityStoreFile` | 安全事件 / 基线持久化文件（默认 `/var/lib/monitor-server/security_store.json`） |
+| `securityStoreFile` | 旧版安全事件 / 基线持久化文件（默认 `/var/lib/monitor-server/security_store.json`），仅作为一次性迁移源；运行期保存在状态库的 `security` 文档 |
 | `retentionFile` | 旧版保留策略文件路径，仅作为一次性迁移源；运行期保存在状态库，Web 端可改、保存即热生效 |
 | `auditKeyFile` | **审计防篡改链的 HMAC 密钥文件**（默认 `/etc/monitor-server/audit.key`，0600，首次启动自动生成）。**必须纳入备份**：丢了它，历史审计全部无法校验。**不要把它放进 `server.yaml`**，也不通过任何接口取（接口只返回指纹） |
 | `logVictoriaLogs.addr` | 集中日志后端地址（VictoriaLogs，**唯一后端且必填**，如 `http://127.0.0.1:9428`）。本地分片落盘已退出生产路径，未配置地址时 Server 拒绝启动 |

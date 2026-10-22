@@ -2,6 +2,8 @@ package security
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sort"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // 受控 fail2ban 入侵防御任务持久化。
@@ -44,29 +47,46 @@ type DefenseTask struct {
 
 // DefenseStore 持久化并管理防护任务。
 type DefenseStore struct {
-	mu    sync.RWMutex
-	tasks map[string]*DefenseTask
-	caps  map[string]bool // node -> 是否支持结构化防御指令（由 Agent 上报）
-	path  string
+	mu      sync.RWMutex
+	tasks   map[string]*DefenseTask
+	caps    map[string]bool // node -> 是否支持结构化防御指令（由 Agent 上报）
+	p       configdoc.Persister
+	loadErr error
 }
 
-// NewDefenseStore 创建防护任务存储并加载既有数据。
+// NewDefenseStore 用文件持久化（测试与迁移源）。
 func NewDefenseStore(file string) *DefenseStore {
 	if file == "" {
 		file = defaultDefenseStoreFile
 	}
+	return NewDefenseStoreWithPersister(configdoc.NewFilePersister(file), "")
+}
+
+// NewDefenseStoreWithPersister 用状态库文档保存防护任务。
+// legacyPath 存在且文档不存在时一次性导入，然后改名 .bak-migrated。
+func NewDefenseStoreWithPersister(p configdoc.Persister, legacyPath string) *DefenseStore {
 	s := &DefenseStore{
 		tasks: map[string]*DefenseTask{},
 		caps:  map[string]bool{},
-		path:  file,
+		p:     p,
 	}
-	s.load()
+	s.load(legacyPath)
 	return s
 }
 
-func (s *DefenseStore) load() {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
+// LoadError 返回构造时读取文档的错误（nil 表示正常；文档不存在不算错误）。
+func (s *DefenseStore) LoadError() error { return s.loadErr }
+
+func (s *DefenseStore) load(legacyPath string) {
+	data, err := s.p.Load()
+	if errors.Is(err, configdoc.ErrNotFound) {
+		data = s.importLegacy(legacyPath)
+		if data == nil {
+			return
+		}
+	} else if err != nil {
+		s.loadErr = fmt.Errorf("读取防护任务失败: %w", err)
+		slog.Error("读取防护任务失败，拒绝启动（避免用空集合覆盖原数据）", "doc", s.p.Name(), "err", err)
 		return
 	}
 	var snap struct {
@@ -74,7 +94,8 @@ func (s *DefenseStore) load() {
 		Caps  map[string]bool `json:"caps"`
 	}
 	if err := json.Unmarshal(data, &snap); err != nil {
-		slog.Warn("防护任务存储加载失败，忽略旧数据", "path", s.path, "err", err)
+		s.loadErr = fmt.Errorf("解析防护任务失败: %w", err)
+		slog.Error("解析防护任务失败，拒绝启动（避免用空集合覆盖原数据）", "doc", s.p.Name(), "err", err)
 		return
 	}
 	for _, t := range snap.Tasks {
@@ -89,15 +110,30 @@ func (s *DefenseStore) load() {
 	slog.Info("已加载防护任务存储", "tasks", len(s.tasks), "caps", len(s.caps))
 
 	// 加载时顺手自愈：回收超时未结束的、裁掉超量的已结束任务。
-	//
-	// 必须在**加载时**就做，而不是等下一次防护动作：老版本没有上限，存量文件可能已经很大，
-	// 而这份文件要整个读进内存；不在这里修，它就得等到下一次有人点"封禁"才缩回去。
 	expired := s.expireOverdue(time.Now().UnixMilli())
 	dropped := s.prune()
 	if expired || dropped > 0 {
 		slog.Warn("防护任务存储已自动裁剪", "expired", expired, "dropped", dropped, "kept", len(s.tasks))
 		s.save()
 	}
+}
+
+// importLegacy 把旧版 JSON 文件导入状态库（只发生一次）。
+func (s *DefenseStore) importLegacy(path string) []byte {
+	if path == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	if err := s.p.Save(raw); err != nil {
+		slog.Error("导入防护任务到状态库失败", "path", path, "err", err)
+		return nil
+	}
+	_ = os.Rename(path, path+".bak-migrated")
+	slog.Info("防护任务已导入状态库", "from", path)
+	return raw
 }
 
 // expireOverdue 是"超时未完成的任务回收为 expired"的**唯一实现**（返回是否有改动，
@@ -178,13 +214,8 @@ func (s *DefenseStore) save() {
 		slog.Warn("防护任务存储序列化失败", "err", err)
 		return
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		slog.Warn("防护任务存储写入失败", "err", err)
-		return
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		slog.Warn("防护任务存储落盘失败", "err", err)
+	if err := s.p.Save(data); err != nil {
+		slog.Warn("防护任务存储写入失败", "err", err, "doc", s.p.Name())
 	}
 }
 

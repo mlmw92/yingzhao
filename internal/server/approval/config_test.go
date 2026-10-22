@@ -1,8 +1,11 @@
 package approval
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mlmw92/yingzhao/internal/server/configdoc"
 )
 
 // 默认必须**关闭**：单管理员部署下若默认开启，升级后任何动作都将永远无法执行。
@@ -72,8 +75,8 @@ func TestConfigNormalize(t *testing.T) {
 	c := Config{
 		Enabled:     true,
 		RequireFor:  []string{" ops:write ", "", "defense", "defense", "  "},
-		TTLMinutes:  0,     // 0 会退化成"立即过期"，必须夹到下限
-		MaxRequests: -5,    // 同上
+		TTLMinutes:  0,  // 0 会退化成"立即过期"，必须夹到下限
+		MaxRequests: -5, // 同上
 	}
 	c.normalize()
 	if len(c.RequireFor) != 2 || c.RequireFor[0] != EntryDefense || c.RequireFor[1] != EntryOpsWrite {
@@ -157,5 +160,38 @@ func TestEntryLabel(t *testing.T) {
 	}
 	if len(KnownEntries()) != 4 {
 		t.Fatalf("内置入口应为 4 个，实际 %v", KnownEntries())
+	}
+}
+
+// 旧版 approval.json 一次性导入状态库，之后只认库。
+func TestConfigStoreMigratesLegacyFile(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "approval.json")
+	if err := os.WriteFile(legacy, []byte(`{"enabled":true,"requireFor":["ops:write"],"ttlMinutes":5,"maxRequests":100}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := configdoc.NewFilePersister(filepath.Join(dir, "db.json"))
+	s := NewConfigStoreWithPersister(p, legacy)
+	if s.LoadError() != nil {
+		t.Fatalf("LoadError: %v", s.LoadError())
+	}
+	if !s.Get().Enabled {
+		t.Fatal("旧文件里的 enabled=true 未导入")
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatal("导入后旧文件应改名")
+	}
+	if _, err := os.Stat(legacy + ".bak-migrated"); err != nil {
+		t.Fatalf("旧文件应改名为 .bak-migrated: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.RequireFor = []string{EntryDefense}
+	if err := s.Set(cfg); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	s2 := NewConfigStoreWithPersister(p, "")
+	if s2.Get().Enabled || len(s2.Get().RequireFor) != 1 || s2.Get().RequireFor[0] != EntryDefense {
+		t.Fatalf("重新加载配置不对: %+v", s2.Get())
 	}
 }
