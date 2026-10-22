@@ -11,7 +11,13 @@
 | `postgres.sql` | PostgreSQL 12+ / 瀚高 / 金仓 |
 | `dm.sql` | 达梦 DM8 |
 
-修改表结构时改源码，再重新导出；**不要直接改本目录的 SQL**。
+修改表结构时改源码，再重新导出；**不要直接改本目录的 SQL**：
+
+```bash
+go test -tags schemadoc ./internal/server/asset -run TestDumpSchemaScripts
+```
+
+脚本带表/列注释（`--`），可直接按表评审字段含义与类型。
 
 ## 表清单
 
