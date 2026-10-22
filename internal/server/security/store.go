@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -189,6 +190,7 @@ func (s *Store) Ingest(node string, events []model.SecurityEvent, baseline *mode
 		return
 	}
 	s.mu.Lock()
+	changed := false
 	// 事件去重：已存在的 ID 跳过
 	seen := make(map[string]struct{}, len(s.events))
 	for _, e := range s.events {
@@ -203,6 +205,7 @@ func (s *Store) Ingest(node string, events []model.SecurityEvent, baseline *mode
 		}
 		seen[e.ID] = struct{}{}
 		s.events = append(s.events, e)
+		changed = true
 
 		// 落点②：从 sudo 命令文本里**事后发现**高危命令（派生成 high_risk_cmd 事件）。
 		//
@@ -215,6 +218,7 @@ func (s *Store) Ingest(node string, events []model.SecurityEvent, baseline *mode
 			}
 			seen[d.ID] = struct{}{}
 			s.events = append(s.events, d)
+			changed = true
 		}
 	}
 	// 裁剪到最大容量（保留最新）
@@ -225,10 +229,17 @@ func (s *Store) Ingest(node string, events []model.SecurityEvent, baseline *mode
 		if baseline.Node == "" {
 			baseline.Node = node
 		}
-		s.baseline[baseline.Node] = *baseline
+		if !reflect.DeepEqual(s.baseline[baseline.Node], *baseline) {
+			s.baseline[baseline.Node] = *baseline
+			changed = true
+		}
 	}
 	s.mu.Unlock()
-	s.markDirty()
+	// 只在真的有变化时标脏：Agent 每轮上报都会调 Ingest，但绝大多数轮次
+	// 没有新事件、基线也没变——无条件标脏会让 1.5MB 文档每 10 秒重写一次。
+	if changed {
+		s.markDirty()
+	}
 }
 
 // Count 返回当前保留的安全事件条数。
@@ -331,9 +342,19 @@ func (s *Store) SaveDefenseStatus(node string, st *model.DefenseStatus) {
 		st.Node = node
 	}
 	s.mu.Lock()
+	prev := s.defenseStatus[node]
 	s.defenseStatus[node] = st
 	s.mu.Unlock()
-	s.markDirty()
+	// UpdatedAt 每轮上报都会变，不参与比较：否则文档每 15 秒重写一次。
+	if prev == nil || !defenseStatusEqual(*prev, *st) {
+		s.markDirty()
+	}
+}
+
+// defenseStatusEqual 比较除采集时间外的全部字段。
+func defenseStatusEqual(a, b model.DefenseStatus) bool {
+	a.UpdatedAt, b.UpdatedAt = 0, 0
+	return reflect.DeepEqual(a, b)
 }
 
 // GetDefenseStatus 返回某节点最新入侵防护状态（无则 nil）。
