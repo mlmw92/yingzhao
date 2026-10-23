@@ -252,12 +252,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Refresh, Grid, Monitor, Bell } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../../api/http'
-import { createOpsTask, getOpsTask } from '../../api/ops'
 import { lookupAsset } from '../../api/asset'
 import useAuth from '../../composables/useAuth'
 import PageHeader from '../common/PageHeader.vue'
@@ -480,89 +479,44 @@ async function confirmWrite(text, title) {
   }
 }
 
-// ---- 写操作的轮询（**只有写操作还走异步下行**）----
+// ---- 写操作（Server 直连 apiserver）----
 //
-// 读已经全部改成 Server 直连（见文件头的说明），但写操作仍走统一下行通道：
-// 它们要的是逐机护栏（这台机器同不同意被改）与 Agent 本地的集群凭据，两者都搬不到 Server 上。
-// 因此"提交 → 轮询 → 回执"这套机制保留下来，但只为写操作服务——
-// 别把它当成"这一页还是异步的"的证据，读那几条路径已经不经过它了。
+// 2026-10-23 起 K8s 写操作也改成 Server 直连（与 Docker 管理面同一形态）：
+// Agent 只负责采集，不再执行任何容器写动作。因此这里是**同步**的——
+// 一次请求就是一次真实改动，失败当场可见，不再有"提交 → 轮询"。
+// 开启高风险审批时接口返回 202 + pending，此时动作**尚未执行**。
 
-const WRITE_POLL_INTERVAL = 3000
-const WRITE_POLL_TIMEOUT = 60000
-
-// writeTimers 只登记写操作的轮询定时器：组件卸载时要清掉，
-// 否则一次未完成的写操作会在页面已经离开后继续打接口。
-const writeTimers = new Set()
-
-function waitTask(id, onTick, done) {
-  return new Promise((resolve) => {
-    let waited = 0
-    const tick = async () => {
-      let task = null
-      try {
-        const res = await getOpsTask(id)
-        task = res && res.task
-      } catch (e) {
-        done(null, e.message || '查询任务失败')
-        resolve()
-        return
-      }
-      if (task) {
-        onTick(task)
-        if (['succeeded', 'failed', 'expired', 'cancelled'].includes(task.state)) {
-          done(task)
-          resolve()
-          return
-        }
-      }
-      waited += WRITE_POLL_INTERVAL
-      if (waited >= WRITE_POLL_TIMEOUT) {
-        done(null, '等待超过 60 秒仍未返回。确认目标节点在线，且已升级到支持容器写操作的 Agent 版本')
-        resolve()
-        return
-      }
-      const h = setTimeout(() => {
-        writeTimers.delete(h)
-        tick()
-      }, WRITE_POLL_INTERVAL)
-      writeTimers.add(h)
-    }
-    tick()
-  })
-}
-
-function taskFailureText(t) {
-  if (t.state === 'expired') return '任务已过期：Agent 未在有效期内领取，通常意味着目标节点离线或未声明支持该动作'
-  if (t.state === 'cancelled') return '任务已被撤回'
-  return t.message || '任务未成功'
-}
-
-// submitWrite 下发一次写操作：提交 → 轮询 → 提示 → 重新拉列表。
-// 写操作是异步的，因此成功后必须重拉列表，否则界面还显示着旧的对象状态。
+// submitWrite 执行一次 K8s 写操作：请求 → 提示 → 重新拉列表。
+// 成功后必须重拉列表，否则界面还显示着旧的对象状态。
 async function submitWrite(kind, params, label) {
   if (writeBusy.value) return
   const cluster = currentCluster.value
   if (!cluster) return
   writeBusy.value = true
   try {
-    const res = await createOpsTask({ node: cluster.node, kind, params, reason: `容器排障：${label}` })
-    // 平台若开启了高风险操作审批，写动作会返回 202 + pending：**尚未下发**。
-    // 把它说成"已下发"会让操作者以为改动已经生效。
+    const q = new URLSearchParams({
+      namespace: params.namespace,
+      name: params.name,
+      reason: `容器排障：${label}`,
+    })
+    if (params.kind) q.set('kind', params.kind)
+    if (kind === 'container.scale') q.set('replicas', String(params.replicas))
+    const base = `/api/v1/container/k8s/live/${encodeURIComponent(clusterParam())}`
+    let res
+    if (kind === 'container.delete') {
+      res = await http.del(`${base}/pod?${q}`)
+    } else if (kind === 'container.scale') {
+      res = await http.post(`${base}/scale?${q}`)
+    } else {
+      res = await http.post(`${base}/restart?${q}`)
+    }
+    // 平台若开启了高风险操作审批，写动作会返回 202 + pending：**尚未执行**。
+    // 把它说成"已完成"会让操作者以为改动已经生效。
     if (res && res.pending) {
-      ElMessage.warning(res.message || '已提交审批：本动作尚未下发，需另一位同事批准后才会执行')
+      ElMessage.warning(res.message || '已提交审批：本动作尚未执行，需另一位同事批准后才会执行')
       return
     }
-    const task = res && res.task
-    if (!task || !task.id) throw new Error('服务端未返回任务 ID')
-    await waitTask(
-      task.id,
-      () => {},
-      (t, err) => {
-        if (err) ElMessage.error(err)
-        else if (t.state !== 'succeeded') ElMessage.error(taskFailureText(t))
-        else ElMessage.success(`${label}：已下发`)
-      },
-    )
+    ElMessage.success(`${label}：已完成`)
     await run(activeTab.value)
   } catch (e) {
     ElMessage.error(e.message || `${label}失败`)
@@ -994,11 +948,6 @@ onMounted(async () => {
 // 切 Tab 直接查：直连查询是即时的，缓存旧结果的唯一价值是刷新期间不白屏。
 watch(activeTab, (tab) => {
   nextTick(() => run(tab))
-})
-
-onBeforeUnmount(() => {
-  for (const h of writeTimers) clearTimeout(h)
-  writeTimers.clear()
 })
 </script>
 

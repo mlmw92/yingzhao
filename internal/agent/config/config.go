@@ -105,18 +105,6 @@ type OpsGuards struct {
 	// 为空时即使 write=true 也不放行任何写操作。
 	Units []string `yaml:"units"`
 
-	// ContainerWrite 是否允许容器/K8s 的**写**动作（重启工作负载 / 扩缩容 / 删除 Pod）。默认 false。
-	//
-	// 为什么不复用 Write/Units：那是"允许重启哪些 systemd 单元"，units 清单对 K8s 没有意义。
-	// 与 File 单设开关同一个理由：写动作越强，越该有一次单独的同意。
-	//
-	// 为什么这里**没有**对应的只读开关（原先有 `container`）：2026-10-10 重规划（ADR-0006）后，
-	// 容器只读查询不再由 Agent 执行——K8s 走 Server 侧 k8sproxy、Docker 走 dockerproxy。
-	// 那两条通路各自的"同意"落在 Server 侧（k8s-live.yaml 里逐集群配置、Docker 端点由
-	// 目标机器自己在 dockerInstances 里声明），因此本机再留一个只读开关只会是**空开关**——
-	// 它看起来像个能用的控制，实际什么都不挡。存量配置里的 `container:` 键会被忽略。
-	ContainerWrite bool `yaml:"containerWrite"`
-
 	// File 是文件分发（file.push）的本机护栏，默认**不放行**。
 	//
 	// 为什么不复用上面的 Write/Units：那是"允许重启哪些服务"的同意，而文件分发是

@@ -584,3 +584,37 @@ Docker 的权限点**不走这条通道**（它现在是直连接口），由路
   子资源，需要 `deployments/scale`（`statefulsets/scale`）的 `get/patch/update`。
   该要求已写入 [容器管理部署指南](../../guides/container-management.md) §2.2；
 - 验证后已恢复 Agent 配置（`containerWrite` 移除、kubeconfig 换回只读）并删除测试命名空间。
+
+---
+
+## 决策变更（2026-10-23）：K8s 写操作改为 Server 直连
+
+**决定**：`container.restart` / `container.scale` / `container.delete` 不再经 Agent
+下行通道执行，改为 **Server 直连 apiserver**（与 Docker 管理面同一形态）。
+Agent 只负责采集与只读诊断，不再执行任何容器写操作。
+
+**理由**：用户明确要求「Agent 只负责采集，不要做写操作」。上一版把 K8s 写留在
+Agent 的理由（集群凭据只存 Agent、逐机护栏）与这条边界冲突；而 Server 侧本来就有
+集群凭据（只读查询用的 `k8s-live.yaml`），加写权限即可。
+
+**取舍（如实记录）**：
+
+- 集群写凭据现在在 Server 上：Server 被攻破即可改所有纳管集群（此前只能读）；
+- 「这台机器同不同意被改」的逐机护栏消失；剩下的闸门是权限点
+  `container:write`（仅超管）、界面二次确认、审计，以及开启审批时的双人复核；
+- 收益：即时反馈（不再等一个上报周期）、Agent 权限面收窄、与 Docker 一致。
+
+**落地**：
+
+- `internal/server/k8sproxy/write.go`：三个写操作（restart 打注解 / scale 走 `/scale`
+  子资源 / delete Pod），`application/merge-patch+json`，错误原样带回；
+- `internal/server/api/k8s_write_api.go`：`POST .../live/{cluster}/restart|scale`、
+  `DELETE .../live/{cluster}/pod`，参数走 model 白名单；
+- 审批：`executeApproved` 增加容器分支，批准后由 Server 执行，不再创建下行任务；
+- Agent：删除 `ops/container.go`、`collector/k8s_write.go`、`guards.ops.containerWrite`
+  与能力声明；旧配置里的 `containerWrite` 被忽略；
+- 下行动作目录移除这三个动作（留在目录里会创建一条没人执行的任务）；
+- 前端 `ContainerView` 的写操作改为同步调用新接口，不再轮询任务。
+
+**验证**：k8sproxy 与 API 层单测覆盖请求形状、参数白名单、权限与 501；
+前端 26 项容器页用例通过；dev-server 实机（k3s v1.36）验证三个动作。

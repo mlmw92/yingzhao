@@ -48,15 +48,10 @@ const (
 	// KindSvcRestart 重启 systemd 单元（**写**，默认被本机护栏挡下）。
 	KindSvcRestart = model.OpsKindSvcRestart
 
-	// K8s 排障写动作（**写**，默认被本机护栏挡下；权限点是超管专属的 container:write）。
-	//
-	// 只读查询**不在这里**：2026-10-10 重规划（ADR-0006）之后，K8s 对象级查询与整套
-	// Docker 管理面都改为 Server 直连（k8sproxy / dockerproxy），不再经过下行通道——
-	// 「异步下发的延迟等于一个上报周期，不满足管理面的要求」（ADR-0004）。
-	// 写操作仍走下行通道：它们要的是 Agent 本地的集群凭据与逐机护栏。
-	KindContainerRestart = model.OpsKindContainerRestart
-	KindContainerScale   = model.OpsKindContainerScale
-	KindContainerDelete  = model.OpsKindContainerDelete
+	// K8s 排障写动作（container.restart / scale / delete）**不在下行通道上**：
+	// 2026-10-23 起它们由 Server 直连 apiserver 执行（Agent 只负责采集）。
+	// 动作常量仍在 model 里（结果类型与审批单用它标识动作），但这里不登记——
+	// 登记了就能创建一条没人执行的下行任务。
 
 	// KindFilePush 向目标机器分发文件（**写**，默认被本机护栏挡下）。
 	// 它不复用 guards.ops.write/units，而是有自己的 guards.ops.file（见 model.OpsKindFilePush）。
@@ -73,9 +68,9 @@ var (
 	replicasPattern     = model.OpsReplicasPattern
 	workloadKindPattern = model.OpsWorkloadKindPattern
 	scalableKindPattern = model.OpsScalableKindPattern
-	filePathPattern   = model.OpsFilePathPattern
-	fileRefPattern    = model.OpsFileRefPattern
-	fileModePattern   = model.OpsFileModePattern
+	filePathPattern     = model.OpsFilePathPattern
+	fileRefPattern      = model.OpsFileRefPattern
+	fileModePattern     = model.OpsFileModePattern
 )
 
 // Param 是一个动作参数的规格。
@@ -134,46 +129,11 @@ var catalog = []Action{
 				Example: "nginx.service", Desc: "systemd 单元名，需以 .service 结尾，且必须在目标机器的允许清单里"},
 		},
 	},
-	// ---- K8s 排障写操作（批次 C）----
+	// ---- K8s 排障写操作已移出下行通道 ----
 	//
-	// 与 Docker 写动作同一取向：另开分组（「容器」分组被既有守卫断言为只读）、
-	// 权限点是超管专属、默认被本机护栏挡下。
-	{
-		Kind: KindContainerRestart, Title: "重启工作负载", Group: "容器操作", ReadOnly: false, Perm: PermContainerWrite,
-		Desc: "滚动重启一个工作负载（等价 kubectl rollout restart）：给 Pod 模板打一个重启时间戳，控制器逐个替换 Pod，服务不中断。默认不可用：需要目标机器在 agent.yaml 的 guards.ops 里显式开启容器写操作",
-		Params: []Param{
-			{Name: "cluster", Title: "集群", Required: true, Pattern: clusterPattern.String(),
-				Example: "prod-k8s", Desc: "目标机器 agent.yaml 里 k8sInstances[].name 的取值"},
-			{Name: "namespace", Title: "命名空间", Required: true, Pattern: namespacePattern.String(), Example: "default"},
-			{Name: "kind", Title: "类型", Required: true, Pattern: workloadKindPattern.String(),
-				Example: "Deployment", Desc: "Deployment / StatefulSet / DaemonSet"},
-			{Name: "name", Title: "名称", Required: true, Pattern: objectNamePattern.String(), Example: "web"},
-		},
-	},
-	{
-		Kind: KindContainerScale, Title: "调整副本数", Group: "容器操作", ReadOnly: false, Perm: PermContainerWrite,
-		Desc: fmt.Sprintf("调整一个工作负载的副本数（0 到 %d）。注意：0 副本等于让这项服务下线。默认不可用：需要目标机器显式开启容器写操作", model.OpsMaxReplicas),
-		Params: []Param{
-			{Name: "cluster", Title: "集群", Required: true, Pattern: clusterPattern.String(), Example: "prod-k8s"},
-			{Name: "namespace", Title: "命名空间", Required: true, Pattern: namespacePattern.String(), Example: "default"},
-			{Name: "kind", Title: "类型", Required: true, Pattern: scalableKindPattern.String(),
-				Example: "Deployment", Desc: "Deployment / StatefulSet（DaemonSet 的副本数由节点数决定，不支持）"},
-			{Name: "name", Title: "名称", Required: true, Pattern: objectNamePattern.String(), Example: "web"},
-			{Name: "replicas", Title: "副本数", Required: true, Pattern: replicasPattern.String(),
-				Example: "3", Desc: fmt.Sprintf("0-%d；填 0 等于让这项服务下线", model.OpsMaxReplicas)},
-		},
-	},
-	{
-		Kind: KindContainerDelete, Title: "删除 Pod", Group: "容器操作", ReadOnly: false, Perm: PermContainerWrite,
-		Desc: "删除一个 Pod。控制器（Deployment / StatefulSet）会重建它，因此对无状态服务通常无感；但裸 Pod 与单副本有状态负载上就是一次真实中断。默认不可用：需要目标机器显式开启容器写操作",
-		Params: []Param{
-			{Name: "cluster", Title: "集群", Required: true, Pattern: clusterPattern.String(), Example: "prod-k8s"},
-			{Name: "namespace", Title: "命名空间", Required: true, Pattern: namespacePattern.String(),
-				Example: "default", Desc: "Pod 名只在命名空间内唯一，必须指定"},
-			{Name: "name", Title: "Pod 名", Required: true, Pattern: objectNamePattern.String(),
-				Example: "web-7d9f8c6b5-x2k4p"},
-		},
-	},
+	// container.restart / container.scale / container.delete 自 2026-10-23 起由
+	// Server 直连 apiserver 执行（接口见 api/k8s_write_api.go），不再登记在这里：
+	// 登记了就能创建一条 Agent 永远不会执行的下行任务。
 	{
 		// 标题只写动作名：「是不是写操作」由 ReadOnly 字段表达，界面按它渲染标记。
 		// 标题里再写一遍会在动作列与下拉里与标记重复（审批单标题另在 api 侧补上标记）。

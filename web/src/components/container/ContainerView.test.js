@@ -8,13 +8,14 @@
 //  1. **读不经过下行动作通道**（createOpsTask 一次都不该被调用）——这是本次改动最核心的一条，
 //     退化成"又走回上报"不会报错、只会让页面莫名其妙地慢十几秒；
 //  2. 切集群 / 切 Tab / 点查询都是**一次同步 GET**，不再有"有缓存就不查"那套；
-//  3. 写操作（K8s 的 restart/scale/delete）**仍然**走下行通道，且成功后必须重拉列表；
+//  3. 写操作（K8s 的 restart/scale/delete）同样是**直连 apiserver**（2026-10-23 起 Agent
+//     只负责采集），成功后必须重拉列表；
 //  4. Docker 侧同样是直连（含写操作）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import http from '../../api/http'
-import { createOpsTask, getOpsTask } from '../../api/ops'
+import { createOpsTask } from '../../api/ops'
 import { lookupAsset } from '../../api/asset'
 import ContainerView from './ContainerView.vue'
 import { resetContainerQueryCache } from './queryCache'
@@ -24,7 +25,6 @@ vi.mock('../../api/http', () => ({
 }))
 vi.mock('../../api/ops', () => ({
   createOpsTask: vi.fn(),
-  getOpsTask: vi.fn(),
 }))
 vi.mock('../../api/asset', () => ({
   lookupAsset: vi.fn(),
@@ -166,9 +166,6 @@ beforeEach(() => {
   payloadByCap = {}
   authState.perms = ['logs:read']
   mockHttp()
-  // K8s 写操作仍走下行通道：默认立即成功。
-  createOpsTask.mockImplementation(async () => ({ task: { id: 't1', state: 'queued' } }))
-  getOpsTask.mockResolvedValue({ task: { id: 't1', state: 'succeeded', json: '{}' } })
 })
 
 afterEach(() => {
@@ -194,7 +191,6 @@ function confirmBox(label) {
   btn.click()
 }
 
-const lastCallOf = (kind) => createOpsTask.mock.calls.map((c) => c[0]).find((c) => c.kind === kind)
 
 async function clickTab(w, index) {
   await w.findAll('.el-tabs__item')[index].trigger('click')
@@ -392,7 +388,7 @@ describe('ContainerView · 跨页联动与权限门', () => {
   })
 })
 
-describe('ContainerView · K8s 排障写操作（仍走下行通道）', () => {
+describe('ContainerView · K8s 排障写操作（Server 直连 apiserver）', () => {
   it('没有 container:write 时不出现写按钮，只读入口仍在', async () => {
     const w = mountView()
     await settle()
@@ -403,7 +399,7 @@ describe('ContainerView · K8s 排障写操作（仍走下行通道）', () => {
     expect(labels.has('详情')).toBe(true)
   })
 
-  it('超管点「重启」：先确认再下发 container.restart，并在成功后重拉列表', async () => {
+  it('超管点「重启」：先确认再直连 restart，成功后重拉列表', async () => {
     authState.perms = ['logs:read', 'container:write']
     const w = mountView()
     await settle()
@@ -414,17 +410,19 @@ describe('ContainerView · K8s 排障写操作（仍走下行通道）', () => {
     await btn.trigger('click')
     await settle()
 
-    // 二次确认：此刻还没有下发
-    expect(lastCallOf('container.restart')).toBeFalsy()
+    // 二次确认：此刻还没有发出请求
+    expect(http.post.mock.calls.some((c) => String(c[0]).includes('/restart'))).toBe(false)
     confirmBox('执行')
     await settle()
 
-    const call = lastCallOf('container.restart')
-    expect(call).toBeTruthy()
-    expect(call.node).toBe(CLUSTER_A.node)
-    expect(call.params).toMatchObject({
-      cluster: CLUSTER_A.name, namespace: 'default', kind: 'Deployment', name: 'web',
-    })
+    const url = http.post.mock.calls.map((c) => String(c[0])).find((u) => u.includes('/restart'))
+    expect(url).toBeTruthy()
+    expect(url).toContain('/api/v1/container/k8s/live/k3s-dev/restart')
+    expect(url).toContain('namespace=default')
+    expect(url).toContain('kind=Deployment')
+    expect(url).toContain('name=web')
+    // Agent 不再参与写操作：不该再创建下行任务
+    expect(createOpsTask).not.toHaveBeenCalled()
     // 写操作改变了集群状态 → 必须重新拉一次列表（读仍然是直连）
     expect(liveCalls.length).toBeGreaterThan(before)
   })
@@ -461,7 +459,7 @@ describe('ContainerView · K8s 排障写操作（仍走下行通道）', () => {
     expect(labels.has('扩缩容')).toBe(false)
   })
 
-  it('Pod Tab 的「删除」下发 container.delete', async () => {
+  it('Pod Tab 的「删除」直连 DELETE pod', async () => {
     authState.perms = ['logs:read', 'container:write']
     const w = mountView()
     await settle()
@@ -474,9 +472,12 @@ describe('ContainerView · K8s 排障写操作（仍走下行通道）', () => {
     confirmBox('执行')
     await settle()
 
-    const call = lastCallOf('container.delete')
-    expect(call).toBeTruthy()
-    expect(call.params).toMatchObject({ cluster: CLUSTER_A.name, namespace: 'default', name: 'web-1' })
+    const url = http.del.mock.calls.map((c) => String(c[0])).find((u) => u.includes('/pod'))
+    expect(url).toBeTruthy()
+    expect(url).toContain('/api/v1/container/k8s/live/k3s-dev/pod')
+    expect(url).toContain('namespace=default')
+    expect(url).toContain('name=web-1')
+    expect(createOpsTask).not.toHaveBeenCalled()
   })
 })
 

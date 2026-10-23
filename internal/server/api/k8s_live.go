@@ -9,8 +9,8 @@ package api
 // 那 5 个下行动作已删除，本文件是它们唯一的替代。
 //
 // 查询与投影都在 k8sproxy 里（投影是**安全边界**，见其注释）；本文件只做参数校验与错误映射。
-// 权限点仍是 container:read。写操作（重启工作负载 / 扩缩容 / 删除 Pod）**不走这里**：
-// 它们要的是逐机护栏与 Agent 本地的集群凭据，仍在统一下行通道上。
+// 权限点仍是 container:read。写操作（重启工作负载 / 扩缩容 / 删除 Pod）在
+// k8s_write_api.go：2026-10-23 起同样由 Server 直连 apiserver 执行（Agent 只负责采集）。
 
 import (
 	"net/http"

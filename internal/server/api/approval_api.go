@@ -573,19 +573,40 @@ func (a *API) executeApproved(r *http.Request, req *approval.Request) (string, e
 		return a.executeApprovedSystemUpgrade(req)
 	case approval.EntryAgentUpgrade:
 		return a.executeApprovedAgentUpgrade(req)
+	case approval.EntryOpsWrite:
+		// 容器写动作由 Server 直连 apiserver 执行（2026-10-23 起 Agent 不再参与写操作），
+		// 不再创建下行任务。
+		if isContainerWriteKind(req.OpsKind) {
+			return a.executeApprovedContainer(req)
+		}
+		return a.executeApprovedOps(req)
 	default:
-		if a.ops == nil {
-			return "", errors.New("下行操作通道未启用")
-		}
-		if req.Node == "" {
-			return "", errors.New("审批单缺少目标节点")
-		}
-		task, err := a.ops.Create(req.Node, req.OpsKind, req.Params, req.Requester, req.RequesterIP, req.Reason)
-		if err != nil {
-			return "", err
-		}
-		return task.ID, nil
+		return a.executeApprovedOps(req)
 	}
+}
+
+// executeApprovedOps 把审批单转成一条下行任务（Agent 执行）。
+func (a *API) executeApprovedOps(req *approval.Request) (string, error) {
+	if a.ops == nil {
+		return "", errors.New("下行操作通道未启用")
+	}
+	if req.Node == "" {
+		return "", errors.New("审批单缺少目标节点")
+	}
+	task, err := a.ops.Create(req.Node, req.OpsKind, req.Params, req.Requester, req.RequesterIP, req.Reason)
+	if err != nil {
+		return "", err
+	}
+	return task.ID, nil
+}
+
+// isContainerWriteKind 判断是否是需要 Server 直连执行的容器写动作。
+func isContainerWriteKind(kind string) bool {
+	switch kind {
+	case model.OpsKindContainerRestart, model.OpsKindContainerScale, model.OpsKindContainerDelete:
+		return true
+	}
+	return false
 }
 
 // executeApprovedDefense 执行一条已批准的处置下发。

@@ -188,18 +188,10 @@ func main() {
 	if len(cfg.LogSources) > 0 {
 		coll.SetLogSink(logship.New(cfg.ServerURL, cfg.Secret, coll.NodeName(), cfg.Group).Sink())
 	}
-	// 容器只读查询：把本机 K8s 采集器（已持有 k8sInstances 与凭据解析）接到下行通道上。
-	// 未配集群时 coll.K8s() 为 nil，容器类动作因此不进能力清单——
-	// 界面上显示"该节点不支持"，好过下发一条注定失败的任务。
-	if k := coll.K8s(); k != nil {
-		opsExec.SetK8sQuerier(k)
-	}
-	// 注：Docker **没有**对应的注入点。2026-10-10 重规划（ADR-0006）之后，整套 Docker 管理面
-	// 改由 Server 侧直连 daemon（internal/server/dockerproxy），不再经过下行通道；
-	// K8s 的**只读**查询同理（改走 ADR-0004 的实时代理）。留在下行通道上的只有 K8s 的
-	// 三个写操作——它们需要本机的集群凭据与逐机护栏。
-	// 到这一行能力清单才完整：Node/服务类动作来自本机护栏，容器类动作取决于上面这次注入。
-	// 单独一条而不是并进上面那句，是为了让代理模式（在注入之前就 return）保持原有日志行为。
+	// 注：容器与 K8s 的**写操作**也不在下行通道上。2026-10-23 起 K8s 的三个写动作
+	// （重启工作负载 / 扩缩容 / 删除 Pod）改由 Server 直连 apiserver 执行，
+	// 与 Docker 管理面同一形态（ADR-0006）——Agent 只负责采集与只读诊断。
+	// 留在下行通道上的写动作只有 systemd 重启与文件分发，两者都有本机护栏。
 	slog.Info("下行操作能力清单已就绪", "supported", opsExec.Supported())
 	rep := reporter.New(cfg.ServerURL, cfg.Node, cfg.Group, cfg.Secret, cfg.Labels)
 

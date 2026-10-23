@@ -404,6 +404,10 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	// 能查什么由白名单钉死，换一个资源名试不出来。
 	mux.HandleFunc("GET /api/v1/container/k8s/live-configs", a.permit(a.handleK8sLiveConfigs, "container:read"))
 	mux.HandleFunc("GET /api/v1/container/k8s/live/{cluster}/{cap}", a.permit(a.handleK8sLiveQuery, "container:read"))
+	// K8s 写操作：Server 直连 apiserver（2026-10-23，Agent 只负责采集）。
+	mux.HandleFunc("POST /api/v1/container/k8s/live/{cluster}/restart", a.permit(a.handleK8sRestartWorkload, "container:write"))
+	mux.HandleFunc("POST /api/v1/container/k8s/live/{cluster}/scale", a.permit(a.handleK8sScaleWorkload, "container:write"))
+	mux.HandleFunc("DELETE /api/v1/container/k8s/live/{cluster}/pod", a.permit(a.handleK8sDeletePod, "container:write"))
 	// Docker 管理面（ADR-0006）：**全部同步直连 daemon**，端点清单来自 Agent 上报
 	// （运维不必在 Server 上另配一份，与 k8s-live.yaml 的取向不同）。
 	// 权限点刻意用 docker:read 而不是 container:read：读的是本机容器运行时，不是集群内部对象。
