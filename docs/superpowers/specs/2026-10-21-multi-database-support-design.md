@@ -241,3 +241,24 @@ docker run -d --name kingbase-test -p 15433:54321 -e SYSTEM_PWD=<password> \
 TEST_POSTGRES_DSN='host=127.0.0.1 port=15433 user=SYSTEM password=<password> dbname=yingzhao_test sslmode=disable' \
   go test -p 1 ./internal/server/... -run Postgres
 ```
+
+---
+
+## 24. 瀚高实机验证（2026-10-23）
+
+**环境**：瀚高安全版数据库系统 V4.5.7（CentOS7 x86_64，端口 5866），lib/pq 直连，
+专用空库 `yingzhao`。
+
+**结果**：六组集成用例全部通过，并用同一二进制在该库上完整启动 Server
+（`/readyz` 的 `database` 为 ok，资产台账 `db=postgres`，审计链正常推进）。
+
+**与金仓的差异（无需任何配置调整）**：
+
+- 空串语义正确（`SELECT ('' IS NULL)` 为 false），不需要 `ora_input_emptystr_isnull`；
+- `ON CONFLICT`、`CREATE INDEX IF NOT EXISTS` 均可用；
+- 迁移锁正常（advisory lock 可用；不可用时也会自动回退控制表行锁）；
+- `level` 加引号后无副作用。
+
+**已知小差异（不影响平台）**：瀚高 V4.5 的 `information_schema.tables` 会返回重复行
+（`public` 下 29 张表返回 198 行）。平台代码不查询 `information_schema`，
+仅人工排查时需要注意。

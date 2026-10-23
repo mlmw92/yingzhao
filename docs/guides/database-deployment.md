@@ -255,3 +255,8 @@ Server 启动时会探测 `SELECT ('' IS NULL)`，命中 Oracle 语义会直接�
 
 **结论**：按 §5 的清单备份（数据库 + `master.key` + `audit.key`）即可完整恢复；
 恢复时两个密钥文件必须与数据库同时还原，否则加密配置无法解密、审计链无法校验。
+
+**瀚高已实测（2026-10-23）**：瀚高安全版 V4.5.7 上六组集成用例与完整启动全部通过，
+**不需要额外配置**（空串语义、upsert、advisory lock 均正常）。
+注意其 `information_schema.tables` 会返回重复行，人工核对表数量时用
+`SELECT COUNT(DISTINCT table_name)`。
