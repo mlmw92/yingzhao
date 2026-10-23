@@ -260,7 +260,7 @@ CREATE TABLE IF NOT EXISTS inspect_findings(
 		node       VARCHAR(255) NOT NULL DEFAULT '',
 		field      VARCHAR(128) NOT NULL DEFAULT '',
 		kind       VARCHAR(64) NOT NULL,
-		level      VARCHAR(32) NOT NULL DEFAULT '',
+		"level"    VARCHAR(32) NOT NULL DEFAULT '',
 		expected   TEXT NOT NULL,
 		actual     TEXT NOT NULL,
 		at         BIGINT NOT NULL,
@@ -500,7 +500,7 @@ CREATE INDEX IF NOT EXISTS idx_inspect_runs_at ON inspect_runs(started_at);
 
 CREATE INDEX IF NOT EXISTS idx_inspect_members_asset ON inspect_run_members(asset_id, run_id);
 
-CREATE INDEX IF NOT EXISTS idx_inspect_findings_run ON inspect_findings(run_id, level, kind);
+CREATE INDEX IF NOT EXISTS idx_inspect_findings_run ON inspect_findings(run_id, "level", kind);
 
 CREATE INDEX IF NOT EXISTS idx_asset_labels_kv ON asset_labels("key", value);
 
