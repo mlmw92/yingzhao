@@ -110,11 +110,22 @@ sudo bash deploy/install-server.sh --yes \
 # 1. 备份（见 §5）
 # 2. 先用新二进制把库升到最新结构（不启动服务）
 sudo /usr/local/bin/monitor-server.new migrate -config /etc/monitor-server/server.yaml
-# 3. 停服、替换二进制、启动
+# 3. 停服、替换二进制
 sudo systemctl stop monitor-server
 sudo install -m 0755 /usr/local/bin/monitor-server.new /usr/local/bin/monitor-server
+# 4. 部署前端产物（前端不在二进制里！）
+#    web/dist 由 build/release.sh 或 `cd web && npm run build` 生成
+sudo rm -rf /etc/monitor-server/web.new
+sudo cp -a web/dist /etc/monitor-server/web.new
+sudo mv /etc/monitor-server/web /etc/monitor-server/web.bak-$(date +%F)
+sudo mv /etc/monitor-server/web.new /etc/monitor-server/web
+# 5. 启动
 sudo systemctl start monitor-server
 ```
+
+> **前端与后端是分开部署的**：`install-server.sh` 会一起部署，手工升级时容易漏掉第 4 步。
+> Server 启动时会比对前端产物版本与二进制版本，不一致会在日志里打
+> `前端产物与后端版本不一致，请重新部署 web`。
 
 - 迁移由数据库侧命名锁保护（MySQL `GET_LOCK`、PostgreSQL advisory lock、达梦控制表行锁），
   重复执行是幂等的；已应用迁移的 SQL 被改动会直接报错。

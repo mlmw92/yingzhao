@@ -77,6 +77,9 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
+	// 前端产物不在二进制里：只换后端、不换 web 会造成静默错配，启动时比一次。
+	warnOnWebVersionMismatch(cfg.WebDir, version.Version)
+
 	// signalCtx 只负责通知「该退出了」；后台任务用独立的 runCtx，
 	// 这样信号一到不会立刻掐断仍由 Shutdown 宽限期服务的在途请求。
 	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
