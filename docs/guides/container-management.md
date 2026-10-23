@@ -101,3 +101,28 @@ Agent 的 kubeconfig 可以保持只读（它只用于采集集群清单）。
 - 首次扩容失败（403）暴露了 `/scale` 子资源权限要求，补上后通过；
 - 以上验证后架构调整为 Server 直连，Agent 侧写实现已删除；
   接口层用例覆盖权限、参数白名单与请求形状。
+
+### 2.4 长期 token（推荐）
+
+`kubectl create token` 生成的 token 有有效期（默认 1 小时，最长 1 年）。生产建议用
+ServiceAccount token Secret（不随重启失效，由集群维护）：
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: yingzhao-ops-token
+  namespace: yingzhao-ops
+  annotations: {kubernetes.io/service-account.name: yingzhao-ops}
+type: kubernetes.io/service-account-token
+```
+
+```bash
+kubectl -n yingzhao-ops get secret yingzhao-ops-token -o jsonpath='{.data.token}' | base64 -d
+```
+
+把输出写进 `k8s-live.yaml` 的 `token:` 字段即可（Server 每次请求都重新读取该文件，
+改完立即生效，无需重启）。
+
+> **权限边界提醒**：这个 token 让 Server 具备集群写权限。请按 §2.1 的最小集授权，
+> 不要把 `cluster-admin` 直接给它；`k8s-live.yaml` 本身应保持 `0600` 并纳入备份。
