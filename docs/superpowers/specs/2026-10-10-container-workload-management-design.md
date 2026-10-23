@@ -582,5 +582,5 @@ Docker 的权限点**不走这条通道**（它现在是直连接口），由路
   全部成功，任务状态与结构化结果回执正常；
 - **第一次扩容失败并暴露部署前提**：只授权 `deployments` 不够，扩缩容走 `/scale`
   子资源，需要 `deployments/scale`（`statefulsets/scale`）的 `get/patch/update`。
-  该要求已写入部署指南 §10；
+  该要求已写入 [容器管理部署指南](../../guides/container-management.md) §2.2；
 - 验证后已恢复 Agent 配置（`containerWrite` 移除、kubeconfig 换回只读）并删除测试命名空间。
