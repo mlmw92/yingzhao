@@ -112,6 +112,10 @@ func client(addr string, timeout time.Duration) (*http.Client, string, error) {
 		return &http.Client{Transport: tr, Timeout: timeout}, "http://docker", nil
 	}
 	base := addr
+	// `tcp://` 是 agent.yaml 里的推荐写法（见 model.DockerInstanceConfig.Addr），
+	// 但 Docker daemon 讲的是 HTTP：去掉这个前缀再补 http://，否则会拼成
+	// "http://tcp://host:port" 这种永远连不上的地址。
+	base = strings.TrimPrefix(base, "tcp://")
 	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
 		base = "http://" + base
 	}

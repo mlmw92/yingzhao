@@ -31,6 +31,12 @@ const (
 	EntrySystemUpgrade = "system:upgrade"
 	// EntryAgentUpgrade Agent 升级下发。
 	EntryAgentUpgrade = "agent:upgrade"
+	// EntryDockerWrite Docker 写操作（启动 / 停止 / 重启 / 删除容器、删除镜像）。
+	//
+	// 单列一个入口而不是并进 EntryOpsWrite：Docker 写操作**不在下行动作目录里**
+	// （2026-10-23 起由 Server 直连 daemon 执行），批准它需要的是 docker:write
+	// 而不是 ops:exec。并进 ops:write 会让"只会批 ops 的人"顺带放行一批容器改动。
+	EntryDockerWrite = "docker:write"
 )
 
 // 权限点：看 / 批 / 改配置分开。
@@ -59,6 +65,8 @@ func UnderlyingPerm(entry string) string {
 		return "system:upgrade"
 	case entry == EntryAgentUpgrade:
 		return "agent:upgrade"
+	case entry == EntryDockerWrite:
+		return "docker:write"
 	case entry == EntryOpsWrite || strings.HasPrefix(entry, "ops:"):
 		return "ops:exec"
 	}
@@ -71,6 +79,7 @@ var entryLabels = map[string]string{
 	EntryDefense:       "入侵防御处置下发（封禁/解封）",
 	EntrySystemUpgrade: "Server 自身升级与回滚",
 	EntryAgentUpgrade:  "Agent 升级下发",
+	EntryDockerWrite:   "Docker 写操作（启停 / 重启 / 删除容器、删除镜像）",
 }
 
 // EntryLabel 返回入口的中文名（未知入口原样返回，便于配置里手写的 ops:<动作> 也能显示）。
@@ -121,7 +130,7 @@ const (
 func DefaultConfig() Config {
 	return Config{
 		Enabled:     false,
-		RequireFor:  []string{EntryOpsWrite, EntryDefense, EntrySystemUpgrade, EntryAgentUpgrade},
+		RequireFor:  []string{EntryOpsWrite, EntryDefense, EntrySystemUpgrade, EntryAgentUpgrade, EntryDockerWrite},
 		TTLMinutes:  DefaultTTLMinutes,
 		MaxRequests: maxRequests,
 	}

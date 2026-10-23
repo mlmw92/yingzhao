@@ -558,6 +558,33 @@ describe('ContainerView · Docker 平台（同样是直连）', () => {
     expect(dockerCalls.length).toBeGreaterThan(before)
   })
 
+  it('开启审批时：写操作返回 202 + pending，提示已提交审批且不刷新列表', async () => {
+    authState.perms = ['logs:read', 'docker:read', 'docker:write']
+    http.post.mockResolvedValue({
+      pending: true,
+      message: '已提交审批：本动作尚未下发，需另一位具备相应权限的同事批准后才会执行',
+    })
+
+    const w = mountView()
+    await settle()
+    await enterDocker(w)
+    await clickTab(w, 1) // 容器
+
+    const before = dockerCalls.length
+    const btn = rowButtons(w).find((b) => b.text() === '停止')
+    expect(btn).toBeTruthy()
+    await btn.trigger('click')
+    await settle()
+    confirmBox('停止')
+    await settle()
+
+    expect(dockerWrites().posts.length).toBe(1)
+    // "进了审批"不等于"已经停了"：界面必须说清动作尚未执行
+    expect(document.body.textContent).toContain('尚未')
+    // 运行态没有变化，列表不必重拉
+    expect(dockerCalls.length).toBe(before)
+  })
+
   it('运行中的容器只给「停止 / 重启」，不给「启动」', async () => {
     authState.perms = ['logs:read', 'docker:read', 'docker:write']
     const w = mountView()

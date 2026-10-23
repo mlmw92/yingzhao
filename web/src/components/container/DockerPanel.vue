@@ -392,8 +392,15 @@ async function runWrite(action, row) {
     const path = isImage
       ? '/images/' + encodeURIComponent(id)
       : '/containers/' + encodeURIComponent(id) + spec.tail
-    if (spec.method === 'DELETE') await http.del(epURL(path))
-    else await http.post(epURL(path), {})
+    const res = spec.method === 'DELETE'
+      ? await http.del(epURL(path))
+      : await http.post(epURL(path), {})
+    // 平台若开启了高风险操作审批，写动作会返回 202 + pending：**尚未执行**。
+    // 把它说成"成功"会让操作者以为容器已经停了。
+    if (res && res.pending) {
+      ElMessage.warning(res.message || '已提交审批：本动作尚未执行，需另一位同事批准后才会执行')
+      return
+    }
     ElMessage.success(`${spec.label}成功：${what}`)
     // 写操作改变了运行态：列表必须重新拉一次，否则界面还显示着旧的状态。
     await run(activeTab.value)

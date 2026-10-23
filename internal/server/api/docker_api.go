@@ -17,12 +17,16 @@ package api
 // 剩下的三道是：权限点、界面二次确认、审计。
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mlmw92/yingzhao/internal/model"
+	"github.com/mlmw92/yingzhao/internal/server/approval"
 	"github.com/mlmw92/yingzhao/internal/server/audit"
 	"github.com/mlmw92/yingzhao/internal/server/dockerproxy"
 )
@@ -286,6 +290,26 @@ func dockerIntParam(w http.ResponseWriter, r *http.Request, key string, def, min
 
 // ---- 写操作（docker:write，仅超管）----
 
+// dockerWriteApproval 判定一次 Docker 写操作是否需要双人复核；需要时已写出 202。
+//
+// 与 K8s 写操作同一形态：审批单里记下「端点 + 对象 + 动作 + 参数」，批准后由 Server
+// 按原样直连 daemon 执行（Agent 不参与）。目标节点写进 Node，审批人的资源范围因此照样生效。
+//
+// readOnly 传 true 是**有意**的：Docker 写操作不在下行动作目录里，传 false 会让
+// `ops:write` 这条配置顺带把它们拦下——那会把两个不同授权面的开关绑在一起。
+func (a *API) dockerWriteApproval(w http.ResponseWriter, r *http.Request, ep dockerproxy.Endpoint, action, label, id string, params map[string]string) bool {
+	params["action"] = action
+	params["node"] = ep.Node
+	params["endpoint"] = ep.Name
+	params["id"] = id
+	return a.approvalGate(w, r, approval.EntryDockerWrite, "", true, &approval.Request{
+		Node:   ep.Node,
+		Params: params,
+		Title:  label + " " + id + " @" + ep.Node + "/" + ep.Name,
+		Reason: strings.TrimSpace(r.URL.Query().Get("reason")),
+	})
+}
+
 // dockerBoolParam 读一个布尔查询参数（缺省为 def）。
 func dockerBoolParam(r *http.Request, key string, def bool) (bool, bool) {
 	raw := strings.TrimSpace(r.URL.Query().Get(key))
@@ -337,6 +361,15 @@ func (a *API) dockerLifecycle(w http.ResponseWriter, r *http.Request, action, la
 		return
 	}
 
+	// 审批：开启双人复核时先登记审批单，**不执行**（参数已校验完，进审批的一定是能执行的动作）。
+	params := map[string]string{}
+	if action != "start" {
+		params["timeout"] = strconv.Itoa(timeout)
+	}
+	if a.dockerWriteApproval(w, r, ep, action, label, id, params) {
+		return
+	}
+
 	var (
 		res *model.ContainerQueryResult
 		err error
@@ -371,6 +404,9 @@ func (a *API) handleDockerContainerRemove(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "force 参数只接受 true / false"})
 		return
 	}
+	if a.dockerWriteApproval(w, r, ep, "rm", "删除容器", id, map[string]string{"force": strconv.FormatBool(force)}) {
+		return
+	}
 	res, err := dockerproxy.RemoveContainer(r.Context(), ep, id, force)
 	a.recordDockerWrite(r, ep, "rm", "删除容器 "+id+"（未删卷）", err)
 	a.writeDockerResult(w, ep, res, err)
@@ -391,7 +427,45 @@ func (a *API) handleDockerImageRemove(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "force 参数只接受 true / false"})
 		return
 	}
+	if a.dockerWriteApproval(w, r, ep, "image.rm", "删除镜像", id, map[string]string{"force": strconv.FormatBool(force)}) {
+		return
+	}
 	res, err := dockerproxy.RemoveImage(r.Context(), ep, id, force)
 	a.recordDockerWrite(r, ep, "image.rm", "删除镜像 "+id, err)
 	a.writeDockerResult(w, ep, res, err)
 }
+
+// executeApprovedDocker 执行一条已批准（双人复核）的 Docker 写操作。
+//
+// 与 ops 类审批的区别：不创建下行任务——Server 自己就是执行点（与 K8s 写审批同形态）。
+// 端点**按审批单里的 (node, name) 重新解析**：审批期间 Agent 可能下线或改了端点名，
+// 这时宁可报"端点不存在"，也不要拿一个猜测的地址去执行。
+func (a *API) executeApprovedDocker(req *approval.Request) (string, error) {
+	p := req.Params
+	ep, ok := dockerproxy.Resolve(p["node"], p["endpoint"])
+	if !ok {
+		return "", fmt.Errorf("Docker 端点不存在：%s/%s（Agent 可能已下线，或端点名已变更）", p["node"], p["endpoint"])
+	}
+	timeout, _ := strconv.Atoi(p["timeout"])
+	force, _ := strconv.ParseBool(p["force"])
+	ctx := approvedContext()
+
+	var err error
+	switch p["action"] {
+	case "start":
+		_, err = dockerproxy.Start(ctx, ep, p["id"])
+	case "stop":
+		_, err = dockerproxy.Stop(ctx, ep, p["id"], timeout)
+	case "restart":
+		_, err = dockerproxy.Restart(ctx, ep, p["id"], timeout)
+	case "rm":
+		_, err = dockerproxy.RemoveContainer(ctx, ep, p["id"], force)
+	case "image.rm":
+		_, err = dockerproxy.RemoveImage(ctx, ep, p["id"], force)
+	default:
+		return "", errDockerUnknownAction
+	}
+	return "docker-" + strconv.FormatInt(time.Now().UnixMilli(), 36), err
+}
+
+var errDockerUnknownAction = errors.New("未知的 Docker 写动作")

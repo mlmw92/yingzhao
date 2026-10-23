@@ -19,6 +19,10 @@
 - **跨机部署**：Server 连不上别的机器上的 unix socket，需要把 daemon 暴露为
   `tcp://<host>:2375`（务必配合防火墙或 TLS，daemon 端口等于 root 权限）。
 - 写操作（启停删）的权限点是 `docker:write`（仅超管）；删除容器**不删卷**。
+- **开启高风险审批时**（入口 `docker:write`），启动 / 停止 / 重启 / 删除容器与删除镜像
+  都会先进入双人复核：接口返回 202 + `pending`，动作**尚未执行**；批准后由 Server
+  按审批单里的端点与参数直连执行。批准人需要同时具备 `approval:approve` 与
+  `docker:write`（只会点批准的角色批不动）。
 
 > 实测（2026-10-23）：同机 unix socket 下，列表 / 详情 / 日志 / 镜像与
 > stop / start / restart / delete 全部正常。停止容器默认给 10 秒宽限期（与 CLI 一致）。

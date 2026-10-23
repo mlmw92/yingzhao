@@ -30,8 +30,10 @@ func TestOpsCatalog_PermKeysExistInPermissionCatalog(t *testing.T) {
 			t.Errorf("动作 %s 要求权限点 %q，但它不在权限目录里（拼错了？）", a.Kind, a.Perm)
 		}
 	}
-	// 防止用例在"目录里一个 Perm 都没有"时静默通过。
+	// 2026-10-23：容器写动作移出下行目录后（改由 Server 直连执行，权限在路由层校验），
+	// 目录里暂时没有带 Perm 的动作。检查循环保留：将来再有动作声明 Perm 时，
+	// 拼错依然会被这条用例挡下——只是今天它没有可检查的对象。
 	if checked == 0 {
-		t.Fatal("动作目录里没有任何带 Perm 的动作，这条守卫失去了意义")
+		t.Log("动作目录当前没有带 Perm 的动作（域权限点已改由路由层校验）")
 	}
 }

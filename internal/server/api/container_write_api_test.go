@@ -7,52 +7,25 @@ import (
 	"testing"
 )
 
-// K8s 写动作的权限点是 container:write，**不能被 container:read 或入口的 ops:exec 顶替**。
+// 2026-10-23：K8s 的读与写动作都改由 Server 直连（Agent 只负责采集），
+// 因此下行动作目录里**不该**再有 container.*。
 //
-// 用户 2026-10-10 拍板：三项写操作（重启工作负载 / 扩缩容 / 删除 Pod）全都只给超管。
-// 这是"两道门独立"的第一道：即使目标机器 guards.ops.containerWrite 放行了，
-// 没有 container:write 的人依然下不了这条动作。
-func TestRoutes_ContainerWriteNeedsContainerWritePermission(t *testing.T) {
+// 这条用例守的是"没人能创建一条永远不会被执行的下行任务"：目录里若重新登记了
+// container.*，这里拿到的会是 403 / 201，而不是 400「未知动作」。
+// 写权限点（container:write，仅超管）的校验现在在直连接口上，见 k8s_write_api_test.go。
+func TestOpsTasks_RejectsContainerKinds(t *testing.T) {
 	a, _ := opsTestAPI(t)
 	mux := newRoutesMux(a)
-	body := `{"node":"web-01","kind":"container.delete","params":{"cluster":"k3s-dev","namespace":"default","name":"web-1"}}`
 
-	// 1) 只有 ops:exec → 403，且说明缺哪个权限点
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, reqWith(globalPrincipal("ops:exec"), http.MethodPost, "/api/v1/ops/tasks", body))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("缺 container:write 应 403，code = %d，body = %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "container:write") {
-		t.Fatalf("应说明缺哪个权限点，实际 %s", rec.Body.String())
-	}
-
-	// 2) container:read 同样不够——"能看"与"能改"是两个权限点
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, reqWith(globalPrincipal("ops:exec", "container:read"), http.MethodPost, "/api/v1/ops/tasks", body))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("container:read 不得顶替 container:write，code = %d，body = %s", rec.Code, rec.Body.String())
-	}
-
-	// 3) 有 container:write 时权限门放行（这里没有 Agent 声明该动作，因此落到 409"节点不支持"，
-	//    而**不是** 403——两者混起来就分不清"没权限"和"机器没放行"）
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, reqWith(globalPrincipal("ops:exec", "container:write"), http.MethodPost, "/api/v1/ops/tasks", body))
-	if rec.Code == http.StatusForbidden {
-		t.Fatalf("有 container:write 不应被权限门拦下，body = %s", rec.Body.String())
-	}
-}
-
-// 只读的 container.* 动作只要求 container:read，**不要求** container:write——
-// 否则"能看"会顺带把"能改"的门槛拉高到不可用。
-func TestRoutes_ContainerReadDoesNotNeedWritePermission(t *testing.T) {
-	a, _ := opsTestAPI(t)
-	mux := newRoutesMux(a)
-	body := `{"node":"web-01","kind":"container.pods","params":{"cluster":"k3s-dev"}}`
-
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, reqWith(globalPrincipal("ops:exec", "container:read"), http.MethodPost, "/api/v1/ops/tasks", body))
-	if rec.Code == http.StatusForbidden {
-		t.Fatalf("只读动作不该要求 container:write，body = %s", rec.Body.String())
+	for _, kind := range []string{"container.delete", "container.restart", "container.scale", "container.pods"} {
+		body := `{"node":"web-01","kind":"` + kind + `","params":{"cluster":"k3s-dev","namespace":"default","name":"web-1"}}`
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, reqWith(globalPrincipal("ops:exec", "container:write"), http.MethodPost, "/api/v1/ops/tasks", body))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s 不在下行目录里，应 400，实际 %d：%s", kind, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "未知动作") {
+			t.Fatalf("%s 的拒绝理由应是未知动作，实际 %s", kind, rec.Body.String())
+		}
 	}
 }

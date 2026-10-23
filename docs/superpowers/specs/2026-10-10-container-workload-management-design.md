@@ -618,3 +618,42 @@ Agent 的理由（集群凭据只存 Agent、逐机护栏）与这条边界冲�
 
 **验证**：k8sproxy 与 API 层单测覆盖请求形状、参数白名单、权限与 501；
 前端 26 项容器页用例通过；dev-server 实机（k3s v1.36）验证三个动作。
+
+---
+
+## 补充（2026-10-23）：Docker 写操作接入双人复核
+
+**决定**：Docker 管理面的写操作（启动 / 停止 / 重启 / 删除容器、删除镜像）在开启
+高风险审批时先进入双人复核，与 K8s 写操作同一形态。
+
+**入口单列**：审批配置新增入口 `docker:write`，而不是并进 `ops:write`。
+
+- 理由：Docker 写操作**不在下行动作目录里**（Server 直连 daemon），批准它需要的是
+  `docker:write` 而不是 `ops:exec`；并进 `ops:write` 会让"只会批 ops 的人"顺带放行
+  一批容器改动。
+- 代价：`RequireFor` 是持久化配置，**升级前就已保存过审批配置的部署**不会自动带上
+  这个入口，需要管理员在「审批配置」里勾一次（默认配置已预填）。
+
+**落地**：
+
+- `internal/server/api/docker_api.go`：`dockerWriteApproval`（登记审批单）、
+  `executeApprovedDocker`（批准后按 `(node, name)` 重新解析端点再执行）；
+- `approval.EntryDockerWrite`：`UnderlyingPerm` → `docker:write`，默认 `requireFor` 含它；
+- 审批单参数：`action` / `node` / `endpoint` / `id` / `timeout` / `force`，标题形如
+  「停止容器 web-1 @web-01/local-docker」；
+- 前端 `DockerPanel` 处理 202 + `pending`：提示"已提交审批"且**不刷新列表**
+  （运行态没变，重拉只会让人以为已经停了）。
+
+**顺带修复**：`dockerproxy.client` 没有处理 `tcp://` 前缀，会把推荐写法
+`tcp://host:2375` 拼成 `http://tcp://host:2375`（永远连不上的地址），而报错被翻译成
+"daemon 不可达"，看起来像部署问题。已改为先去掉 `tcp://` 再补 `http://`。
+
+**验证**：API 层用例覆盖"开启审批时不直连 daemon"「批准后打到 daemon 的正确接口」
+「批准人缺 `docker:write` 被 403」；`dockerproxy` 用例覆盖四种地址写法；
+前端用例覆盖 202 + pending 的提示与"不重拉列表"。
+
+dev-server（1.45.0）实机：临时开启审批后对已停止的 `dm-test` 执行停止，接口返回 202 +
+`pending`，审批单记录 `action=stop / endpoint=dev-docker / id=dm-test / timeout=10`，
+容器状态未变；撤回审批并还原审批配置后再次停止，请求确实打到 daemon（304 → 502
+「目标已处于该状态」）。**未覆盖**：真实的"第二人批准 → 执行成功"整链路——
+环境里只有 admin 一个账号，自批被正确拒绝，故该段由接口层用例覆盖。

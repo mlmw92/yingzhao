@@ -15,14 +15,14 @@ func TestDefaultConfig_Disabled(t *testing.T) {
 		t.Fatal("默认必须关闭审批（否则单管理员部署升级后什么都做不了）")
 	}
 	// 关闭时无论什么入口都不审批——这就是"行为与今天完全一致"的定义
-	for _, kind := range []string{"svc.restart", "file.push", "defense", "system:upgrade", "agent:upgrade"} {
+	for _, kind := range []string{"svc.restart", "file.push", "defense", "system:upgrade", "agent:upgrade", "docker:write"} {
 		if c.RequiresApproval(kind, false) {
 			t.Fatalf("关闭时不该拦 %s", kind)
 		}
 	}
 	// 范围要预先填好：留空 + 打开开关 = "开了但什么都没拦"，那是一种安静的失效
-	if len(c.RequireFor) != 4 {
-		t.Fatalf("默认范围应预填 4 个入口，实际 %v", c.RequireFor)
+	if len(c.RequireFor) != 5 {
+		t.Fatalf("默认范围应预填 5 个入口，实际 %v", c.RequireFor)
 	}
 }
 
@@ -158,8 +158,8 @@ func TestEntryLabel(t *testing.T) {
 	if got := EntryLabel("ops:svc.restart"); got != "ops:svc.restart" {
 		t.Fatalf("未知入口应原样返回，实际 %q", got)
 	}
-	if len(KnownEntries()) != 4 {
-		t.Fatalf("内置入口应为 4 个，实际 %v", KnownEntries())
+	if len(KnownEntries()) != 5 {
+		t.Fatalf("内置入口应为 5 个，实际 %v", KnownEntries())
 	}
 }
 

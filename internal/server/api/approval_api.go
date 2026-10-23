@@ -573,6 +573,9 @@ func (a *API) executeApproved(r *http.Request, req *approval.Request) (string, e
 		return a.executeApprovedSystemUpgrade(req)
 	case approval.EntryAgentUpgrade:
 		return a.executeApprovedAgentUpgrade(req)
+	case approval.EntryDockerWrite:
+		// Docker 写操作同样由 Server 直连 daemon 执行（Agent 只负责采集）。
+		return a.executeApprovedDocker(req)
 	case approval.EntryOpsWrite:
 		// 容器写动作由 Server 直连 apiserver 执行（2026-10-23 起 Agent 不再参与写操作），
 		// 不再创建下行任务。
