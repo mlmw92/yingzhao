@@ -260,3 +260,54 @@ Server 启动时会探测 `SELECT ('' IS NULL)`，命中 Oracle 语义会直接�
 **不需要额外配置**（空串语义、upsert、advisory lock 均正常）。
 注意其 `information_schema.tables` 会返回重复行，人工核对表数量时用
 `SELECT COUNT(DISTINCT table_name)`。
+
+---
+
+## 10. K8s 排障写操作的凭据要求（可选能力）
+
+`container.restart` / `container.scale` / `container.delete` 由 **Agent 本地**执行
+（集群凭据只存 Agent 机器，从不上报）。启用需要两件事：
+
+1. Agent 配置显式同意：
+
+```yaml
+guards:
+  ops:
+    containerWrite: true
+```
+
+2. Agent 的 kubeconfig 具备对应权限。只读采集用的 `k8s-readonly.kubeconfig`
+   **不够**——写操作会以 403 失败。最小权限示例（按命名空间授权）：
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: yingzhao-ops, namespace: <业务命名空间>}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: yingzhao-ops, namespace: <业务命名空间>}
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "patch", "update"]
+# 扩缩容走 /scale 子资源，**必须单独授权**，否则 container.scale 报 403
+- apiGroups: ["apps"]
+  resources: ["deployments/scale", "statefulsets/scale"]
+  verbs: ["get", "patch", "update"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: yingzhao-ops, namespace: <业务命名空间>}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: yingzhao-ops}
+subjects: [{kind: ServiceAccount, name: yingzhao-ops, namespace: <业务命名空间>}]
+```
+
+> 若希望写操作覆盖多个命名空间，把 Role/RoleBinding 换成对应的 ClusterRole/Binding；
+> 但**不要**直接给集群管理员权限——这三个动作是参数化白名单，权限范围应与之匹配。
+>
+> 只读采集还需要集群级的节点/服务/Pod 读取（内置 `view` ClusterRole 不含 nodes）：
+> 额外授权 `nodes` 的 `get/list` 即可。

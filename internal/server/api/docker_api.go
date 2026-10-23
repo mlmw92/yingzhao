@@ -41,6 +41,13 @@ const (
 	// 宽限期必须留在那个预算里，否则会出现"daemon 还在等容器退出、Server 已经报超时"
 	// 的假失败（人看到失败会再点一次，第二次撞 304 更困惑）。
 	dockerMaxStopTimeout = 30
+
+	// dockerDefaultStopTimeout 是不传 timeout 时的宽限期（秒）。
+	//
+	// 不能用 0：Docker **API** 在缺少 t 参数时按 0 处理（立即 SIGKILL），
+	// 而 CLI 默认发 t=10——平台直接透传 0 会让"停止容器"变成"强杀"，
+	// 正在处理请求的服务来不及优雅退出。跟随 CLI 的 10 秒。
+	dockerDefaultStopTimeout = 10
 )
 
 // GET /api/v1/container/docker/endpoints
@@ -322,7 +329,7 @@ func (a *API) dockerLifecycle(w http.ResponseWriter, r *http.Request, action, la
 	}
 	timeout := 0
 	if action != "start" {
-		if timeout, ok = dockerIntParam(w, r, "timeout", 0, 0, dockerMaxStopTimeout); !ok {
+		if timeout, ok = dockerIntParam(w, r, "timeout", dockerDefaultStopTimeout, 0, dockerMaxStopTimeout); !ok {
 			return
 		}
 	} else if strings.TrimSpace(r.URL.Query().Get("timeout")) != "" {

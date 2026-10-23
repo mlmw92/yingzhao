@@ -321,3 +321,25 @@ func TestDockerStop_TimeoutOutOfRangeIsRejected(t *testing.T) {
 		t.Fatalf("start 带 timeout 应 400，code = %d，body = %s", rec.Code, rec.Body.String())
 	}
 }
+
+// 不传 timeout 时不能透传 0：Docker API 把缺省的 t 当作 0（立即 SIGKILL），
+// 而 CLI 默认是 10 秒——平台跟随 CLI，否则"停止容器"会变成"强杀"。
+func TestDockerStopTimeoutDefaultIsGraceful(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/?node=web-01&name=local-docker", nil)
+	rec := httptest.NewRecorder()
+	got, ok := dockerIntParam(rec, req, "timeout", dockerDefaultStopTimeout, 0, dockerMaxStopTimeout)
+	if !ok {
+		t.Fatalf("默认值应被接受，code = %d", rec.Code)
+	}
+	if got != 10 {
+		t.Fatalf("默认宽限期 = %d，want 10（0 会立即 SIGKILL）", got)
+	}
+
+	// 显式 0 仍然允许：那是一次有意的立即强杀。
+	req = httptest.NewRequest(http.MethodPost, "/?timeout=0", nil)
+	rec = httptest.NewRecorder()
+	got, ok = dockerIntParam(rec, req, "timeout", dockerDefaultStopTimeout, 0, dockerMaxStopTimeout)
+	if !ok || got != 0 {
+		t.Fatalf("显式 0 应被接受，got=%d ok=%v", got, ok)
+	}
+}

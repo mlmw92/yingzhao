@@ -557,3 +557,30 @@ Docker 的权限点**不走这条通道**（它现在是直连接口），由路
 | **E** | 改正数据通路：**Server 直连**（Docker 读写 + K8s 读） | 删 15 个动作、投影留在服务端、端点复用上报 | 二版 |
 
 **全程验证**：`go build ./...` 与 `go test ./... -p 1` 通过；前端 `npm test` 由 400 例增至 **416 例**全通过；`npm run build` 通过。
+
+---
+
+## 实机验证记录（2026-10-23，dev-server）
+
+**Docker 管理面**（Server 直连 daemon，`dev-docker` unix socket）：
+
+- 只读：`endpoints` / `info` / `containers` / `inspect` / `logs` / `images` 全部正常，
+  inspect 为白名单投影、日志带条数提示；
+- 写：在一次性容器上验证 `stop` / `start` / `restart` / `delete` 全部生效，
+  删除提示「未删卷」。
+
+**发现并修复一处默认值问题**：`stop` / `restart` 不传 `timeout` 时，原实现透传 0，
+而 **Docker API 把缺省的 `t` 当作 0（立即 SIGKILL）**——CLI 默认发 10 秒。
+实测平台停止一个不响应 SIGTERM 的容器只用了约 1 秒（退出码 137），
+而 `docker stop` 会等满 10 秒。已把默认值改为 10 秒（`dockerDefaultStopTimeout`），
+显式传 `timeout=0` 仍可立即强杀；新增用例钉住默认值。
+
+**K8s 排障写操作**（k3s v1.36，Agent 本地执行）：
+
+- 用最小权限 ServiceAccount 验证 `container.scale`（1→2 副本）、
+  `container.restart`（打 restartedAt 注解）、`container.delete`（删 Pod 后控制器重建）
+  全部成功，任务状态与结构化结果回执正常；
+- **第一次扩容失败并暴露部署前提**：只授权 `deployments` 不够，扩缩容走 `/scale`
+  子资源，需要 `deployments/scale`（`statefulsets/scale`）的 `get/patch/update`。
+  该要求已写入部署指南 §10；
+- 验证后已恢复 Agent 配置（`containerWrite` 移除、kubeconfig 换回只读）并删除测试命名空间。
