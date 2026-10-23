@@ -22,7 +22,7 @@ func (dmDialect) Rewrite(q string) string {
 	// 显式反引号（少数 SQL 直接写了 `key`）在 DM 下改成双引号；
 	// key/schema/rows 是保留字或与系统对象冲突，统一加引号，且 DDL 里同样加。
 	q = strings.ReplaceAll(q, "`", `"`)
-	q = rewriteReservedIdents(q, `"`)
+	q = rewriteIdents(q, `"`, dmQuoted)
 	return dmMerge(q)
 }
 

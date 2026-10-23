@@ -69,7 +69,7 @@ func (mysqlDialect) Name() string         { return "mysql" }
 func (mysqlDialect) Driver() string       { return "mysql" }
 func (mysqlDialect) Bind(q string) string { return q }
 func (mysqlDialect) Rewrite(q string) string {
-	return rewriteReservedIdents(q, "`")
+	return rewriteIdents(q, "`", mysqlQuoted)
 }
 func (mysqlDialect) Upsert(cols, sets string) string {
 	out := excludedRef.ReplaceAllString(sets, "VALUES($1)")
@@ -93,7 +93,7 @@ func (postgresDialect) Rewrite(q string) string {
 	// 项目里少量 SQL 直接写了 MySQL 反引号（例如资产属性的 `key` 列）。
 	// PG 用双引号；SQL 文本里没有含反引号的字符串字面量。
 	q = strings.ReplaceAll(q, "`", `"`)
-	return rewriteReservedIdents(q, `"`)
+	return rewriteIdents(q, `"`, postgresQuoted)
 }
 func (postgresDialect) Upsert(cols, sets string) string {
 	out := strings.ReplaceAll(sets, "MAX(", "GREATEST(")
@@ -108,26 +108,38 @@ func (postgresDialect) FromDual() string { return "" }
 
 var excludedRef = regexp.MustCompile(`excluded\.([a-z_]+)`)
 
-// reservedIdents 是需要按方言加引号的标识符。
+// identRE 是所有需要按方言引用的标识符。
 //
 // 这条正则改写路线只认识这里列出的保留字；新 SQL 优先直接写带引号的标识符。
 // 多数据库支持没有把它换成完整 SQL 解析器：项目里的 SQL 是受控的、数量有限，
 // 表驱动用例覆盖了每条保留字路径。
-var reservedIdents = []struct {
-	name string
-	re   *regexp.Regexp
-}{
-	{"key", regexp.MustCompile("(^|[^`\"\\w])key([^`\"\\w]|$)")},
-	{"rows", regexp.MustCompile("(^|[^`\"\\w])rows([^`\"\\w]|$)")},
+var identRE = map[string]*regexp.Regexp{
+	"key": regexp.MustCompile("(^|[^`\"\\w])key([^`\"\\w]|$)"),
+	// rows：MySQL 8 保留字，达梦也保留。
+	"rows": regexp.MustCompile("(^|[^`\"\\w])rows([^`\"\\w]|$)"),
 	// schema 是 MySQL 8 保留字；schema_version 这种带下划线的名字不会被匹配。
-	{"schema", regexp.MustCompile("(^|[^`\"\\w])schema([^`\"\\w]|$)")},
+	"schema": regexp.MustCompile("(^|[^`\"\\w])schema([^`\"\\w]|$)"),
+	// level 在 PostgreSQL 里是非保留字，但金仓/瀚高把它当保留字
+	// （`CREATE TABLE ... level VARCHAR` 会报语法错误）。
+	"level": regexp.MustCompile("(^|[^`\"\\w])level([^`\"\\w]|$)"),
 }
 
-func rewriteReservedIdents(q, quote string) string {
-	for _, ident := range reservedIdents {
-		repl := "${1}" + quote + ident.name + quote + "${2}"
+// 各方言要引用的标识符。
+//
+// 达梦不引用 level：它的 DDL 里 level 未加引号，而达梦会把裸标识符转成大写，
+// 两边必须一致（引用后是小写，会与已建的表对不上）。
+var (
+	mysqlQuoted    = []string{"key", "rows", "schema"}
+	postgresQuoted = []string{"key", "rows", "schema", "level"}
+	dmQuoted       = []string{"key", "rows", "schema"}
+)
+
+func rewriteIdents(q, quote string, names []string) string {
+	for _, name := range names {
+		re := identRE[name]
+		repl := "${1}" + quote + name + quote + "${2}"
 		for {
-			next := ident.re.ReplaceAllString(q, repl)
+			next := re.ReplaceAllString(q, repl)
 			if next == q {
 				break
 			}

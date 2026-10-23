@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
+	_ "gitee.com/chunanyong/dm" // 达梦 DM8 驱动注册
 	"github.com/go-sql-driver/mysql"
-	_ "github.com/lib/pq"         // PostgreSQL / 瀚高 / 金仓 的驱动注册
-	_ "gitee.com/chunanyong/dm"   // 达梦 DM8 驱动注册
+	_ "github.com/lib/pq" // PostgreSQL / 瀚高 / 金仓 的驱动注册
 )
 
 // Config 是数据库连接参数。
@@ -94,6 +94,17 @@ func Open(ctx context.Context, c Config) (*sql.DB, error) {
 	if err := conn.PingContext(pingCtx); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("连接数据库失败（driver=%s，%s）: %w", driver, RedactDSN(c.Driver, c.DSN), err)
+	}
+	// PostgreSQL 系的兼容库（金仓/瀚高）可能开启 Oracle 兼容模式：空串被当作 NULL。
+	// 我们的表结构依赖「'' 是空串」——这种模式下会静默写错或违反 NOT NULL 约束，
+	// 所以启动时探一次，命中就直接拒绝启动并给出可操作的提示。
+	if driver == "postgres" {
+		var emptyIsNull bool
+		if err := conn.QueryRowContext(pingCtx, "SELECT ('' IS NULL)").Scan(&emptyIsNull); err == nil && emptyIsNull {
+			_ = conn.Close()
+			return nil, errors.New("数据库处于「空串 = NULL」的 Oracle 兼容模式（金仓/瀚高）：" +
+				"请设置 ora_input_emptystr_isnull = off 并重启数据库（或按 PostgreSQL 模式重建库）")
+		}
 	}
 	return conn, nil
 }

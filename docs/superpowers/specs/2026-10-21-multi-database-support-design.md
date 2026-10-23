@@ -204,3 +204,40 @@ TEST_DM_DSN='dm://SYSDBA:<password>@127.0.0.1:5236' \
 - PostgreSQL 没有 `COLLATE NOCASE`；大小写折叠统一用 `LOWER()`。
 - JSON 列在 PostgreSQL 用 `TEXT`（代码只做整份读写，不需要 JSONB 的检索能力，
   也避免 `[]byte` 与 JSONB 的编码差异）。
+
+---
+
+## 23. 金仓实机验证（2026-10-23）
+
+**环境**：KingbaseES V008R003C002B0320（Docker，`renfei/kingbase-es-v8-r3-docker`，
+端口 54321，lib/pq 直连）。瀚高未取得实例，按同一 PG 协议路径推定。
+
+**结果**：六组集成用例全部通过——配置文档契约（含并发创建与版本冲突）、
+资产台账（25 表 / MERGE 之外的 upsert / 关系优先级 / 类型模型）、审计（链初始化 /
+写入 / 裁剪 / 校验）、下行任务（回填 / 序号跨重启）、告警处置回填、节点同步与心跳。
+
+**实测发现的三处差异（均已修复）**：
+
+1. **没有 `pg_try_advisory_lock`**（`function ... does not exist`）。
+   迁移锁改为：先尝试 advisory lock，遇到"函数不存在"自动回退到控制表行锁
+   （与达梦同一实现），不再让服务起不来。
+2. **`level` 是保留字**：`CREATE TABLE ... level VARCHAR(32)` 语法错误。
+   PostgreSQL 方言的标识符引用列表加入 `level`（查询与 DDL 一致加双引号；
+   PostgreSQL 本身加引号也是同一小写标识符，无副作用）。达梦不加（它的 DDL 未引用，
+   裸标识符会被统一大写，引用反而对不上）。
+3. **空串被当作 NULL**（`ora_input_emptystr_isnull = true`，金仓默认的 Oracle 兼容语义）。
+   表结构大量依赖 `DEFAULT ''` 与显式空串，此模式下会违反 NOT NULL。
+   - 部署要求：`ora_input_emptystr_isnull = off` 并重启 + 重建库；
+   - Server 启动时执行 `SELECT ('' IS NULL)` 探测，命中即**拒绝启动**并给出该参数提示
+     （避免静默写错数据）。
+
+**复现**：
+
+```bash
+docker build -t kingbase-v8r3 .          # renfei/kingbase-es-v8-r3-docker + license.dat
+docker run -d --name kingbase-test -p 15433:54321 -e SYSTEM_PWD=<password> \
+  -v $PWD/license.dat:/opt/kingbase/Server/bin/license.dat:ro kingbase-v8r3
+# 启动后按 §23.3 设置 ora_input_emptystr_isnull=off 并重启
+TEST_POSTGRES_DSN='host=127.0.0.1 port=15433 user=SYSTEM password=<password> dbname=yingzhao_test sslmode=disable' \
+  go test -p 1 ./internal/server/... -run Postgres
+```

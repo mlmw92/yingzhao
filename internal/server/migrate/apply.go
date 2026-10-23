@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mlmw92/yingzhao/internal/server/sqlx"
@@ -90,64 +91,18 @@ func Apply(ctx context.Context, pool *sql.DB, d sqlx.Dialect, migrations []Migra
 func acquireMigrationLock(ctx context.Context, pool *sql.DB, conn *sql.Conn, d sqlx.Dialect) (func(), error) {
 	switch d.Name() {
 	case "postgres":
-		deadline := time.Now().Add(30 * time.Second)
-		for {
-			var ok bool
-			if err := conn.QueryRowContext(ctx,
-				d.Bind(d.Rewrite("SELECT pg_try_advisory_lock(?)")), advisoryLockKey).Scan(&ok); err != nil {
-				return nil, fmt.Errorf("获取迁移锁失败: %w", err)
-			}
-			if ok {
-				return func() {
-					_, _ = conn.ExecContext(context.Background(),
-						d.Bind(d.Rewrite("SELECT pg_advisory_unlock(?)")), advisoryLockKey)
-				}, nil
-			}
-			if time.Now().After(deadline) {
-				return nil, errors.New("获取迁移锁超时：另一个实例正在迁移")
-			}
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(500 * time.Millisecond):
-			}
+		unlock, supported, err := acquireAdvisoryLock(ctx, conn, d)
+		if err != nil {
+			return nil, err
 		}
+		if supported {
+			return unlock, nil
+		}
+		// 瀚高/金仓的部分版本没有 pg_try_advisory_lock：回退到控制表行锁。
+		return acquireTableLock(ctx, pool)
 	case "dm":
-		// 达梦没有 GET_LOCK/advisory lock：用一张控制表的行锁。
-		// 锁必须持在**另一条连接**上（迁移本身要用当前连接执行语句）。
-		lockConn, err := pool.Conn(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("获取迁移锁连接失败: %w", err)
-		}
-		if _, err := lockConn.ExecContext(ctx,
-			`CREATE TABLE IF NOT EXISTS migration_lock(id INT PRIMARY KEY, holder VARCHAR(64))`); err != nil {
-			_ = lockConn.Close()
-			return nil, fmt.Errorf("创建迁移锁表失败: %w", err)
-		}
-		var n int
-		if err := lockConn.QueryRowContext(ctx, `SELECT COUNT(*) FROM migration_lock WHERE id = 1`).Scan(&n); err != nil {
-			_ = lockConn.Close()
-			return nil, fmt.Errorf("读取迁移锁表失败: %w", err)
-		}
-		if n == 0 {
-			// 并发初始化时另一方可能刚插入；主键冲突忽略即可。
-			_, _ = lockConn.ExecContext(ctx, `INSERT INTO migration_lock(id, holder) VALUES(1, '')`)
-		}
-		tx, err := lockConn.BeginTx(ctx, nil)
-		if err != nil {
-			_ = lockConn.Close()
-			return nil, fmt.Errorf("开启迁移锁事务失败: %w", err)
-		}
-		var id int
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM migration_lock WHERE id = 1 FOR UPDATE`).Scan(&id); err != nil {
-			_ = tx.Rollback()
-			_ = lockConn.Close()
-			return nil, fmt.Errorf("获取迁移锁失败: %w", err)
-		}
-		return func() {
-			_ = tx.Rollback()
-			_ = lockConn.Close()
-		}, nil
+		// 达梦没有 GET_LOCK/advisory lock：用控制表行锁。
+		return acquireTableLock(ctx, pool)
 	default:
 		var got sql.NullInt64
 		if err := conn.QueryRowContext(ctx,
@@ -163,4 +118,84 @@ func acquireMigrationLock(ctx context.Context, pool *sql.DB, conn *sql.Conn, d s
 				d.Bind(d.Rewrite("SELECT RELEASE_LOCK(?)")), advisoryLockName)
 		}, nil
 	}
+}
+
+// acquireAdvisoryLock 尝试 PostgreSQL 咨询锁。
+//
+// supported=false 表示目标库没有 pg_try_advisory_lock（瀚高/金仓的部分版本），
+// 调用方应回退到控制表行锁——不能因为"函数不存在"就让服务起不来。
+func acquireAdvisoryLock(ctx context.Context, conn *sql.Conn, d sqlx.Dialect) (unlock func(), supported bool, err error) {
+	deadline := time.Now().Add(30 * time.Second)
+	lockSQL := d.Bind(d.Rewrite("SELECT pg_try_advisory_lock(?)"))
+	unlockSQL := d.Bind(d.Rewrite("SELECT pg_advisory_unlock(?)"))
+	for {
+		var ok bool
+		if err := conn.QueryRowContext(ctx, lockSQL, advisoryLockKey).Scan(&ok); err != nil {
+			if advisoryUnsupported(err) {
+				return nil, false, nil
+			}
+			return nil, true, fmt.Errorf("获取迁移锁失败: %w", err)
+		}
+		if ok {
+			return func() {
+				_, _ = conn.ExecContext(context.Background(), unlockSQL, advisoryLockKey)
+			}, true, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, true, errors.New("获取迁移锁超时：另一个实例正在迁移")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, true, ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+// advisoryUnsupported 判断错误是否是「函数不存在」。
+//
+// 用文本匹配而不是驱动错误码：同一段代码要跑在 PostgreSQL / 瀚高 / 金仓上，
+// 后两者的错误码未必与 PostgreSQL 一致。
+func advisoryUnsupported(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "advisory") && strings.Contains(msg, "does not exist")
+}
+
+// acquireTableLock 用控制表的一行做迁移锁（达梦与无 advisory lock 的 PG 兼容库）。
+//
+// 锁必须持在**另一条连接**上（迁移本身要用当前连接执行语句）。
+func acquireTableLock(ctx context.Context, pool *sql.DB) (func(), error) {
+	lockConn, err := pool.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("获取迁移锁连接失败: %w", err)
+	}
+	if _, err := lockConn.ExecContext(ctx,
+		`CREATE TABLE IF NOT EXISTS migration_lock(id INT PRIMARY KEY, holder VARCHAR(64))`); err != nil {
+		_ = lockConn.Close()
+		return nil, fmt.Errorf("创建迁移锁表失败: %w", err)
+	}
+	var n int
+	if err := lockConn.QueryRowContext(ctx, `SELECT COUNT(*) FROM migration_lock WHERE id = 1`).Scan(&n); err != nil {
+		_ = lockConn.Close()
+		return nil, fmt.Errorf("读取迁移锁表失败: %w", err)
+	}
+	if n == 0 {
+		// 并发初始化时另一方可能刚插入；主键冲突忽略即可。
+		_, _ = lockConn.ExecContext(ctx, `INSERT INTO migration_lock(id, holder) VALUES(1, '')`)
+	}
+	tx, err := lockConn.BeginTx(ctx, nil)
+	if err != nil {
+		_ = lockConn.Close()
+		return nil, fmt.Errorf("开启迁移锁事务失败: %w", err)
+	}
+	var id int
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM migration_lock WHERE id = 1 FOR UPDATE`).Scan(&id); err != nil {
+		_ = tx.Rollback()
+		_ = lockConn.Close()
+		return nil, fmt.Errorf("获取迁移锁失败: %w", err)
+	}
+	return func() {
+		_ = tx.Rollback()
+		_ = lockConn.Close()
+	}, nil
 }

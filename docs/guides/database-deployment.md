@@ -200,6 +200,29 @@ sudo tar -czf yingzhao-keys-$(date +%F).tar.gz \
 4. 资产台账、审计列表、审批配置页面能正常读写；
 5. 重启后数据完整（分组、显示名、审批开关、安全事件）。
 
+**金仓的必调参数（`ora_input_emptystr_isnull`）**
+
+金仓默认开启 Oracle 兼容语义：**空串被当作 NULL**。本平台的表结构大量依赖
+`DEFAULT ''` 与显式写入的空串，这种模式下会违反 `NOT NULL` 或静默写错。
+
+```ini
+# kingbase.conf
+ora_input_emptystr_isnull = off
+```
+
+修改后重启数据库，并**重建一次库**（已建表的列默认值在 DDL 时就被记成了 NULL）。
+Server 启动时会探测 `SELECT ('' IS NULL)`，命中 Oracle 语义会直接拒绝启动并提示这个参数。
+
+**已实测（2026-10-23）**：金仓 KingbaseES V008R003C002B0320（Docker，PG 协议）上，
+配置文档契约、资产台账、审计裁剪与校验、下行任务、告警处置、节点同步六组集成用例全部通过。
+过程中确认了三处差异，均已处理：
+
+| 差异 | 处理 |
+|---|---|
+| 无 `pg_try_advisory_lock` | 自动回退到控制表行锁（`migration_lock`） |
+| `level` 是保留字 | PostgreSQL 方言统一加双引号（查询与 DDL） |
+| 空串 = NULL（Oracle 模式） | 启动探测 + 拒绝启动，要求 `ora_input_emptystr_isnull = off` |
+
 **达梦**：已在 DM8 容器上跑通六组集成用例与完整启动，现场仍建议按上面 5 条复核。
 
 ---

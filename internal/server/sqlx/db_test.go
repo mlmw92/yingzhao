@@ -43,6 +43,18 @@ func TestRewriteQuotesReservedIdents(t *testing.T) {
 			want: "SELECT value FROM ops_meta WHERE `key`='seq' AND `rows`=1",
 		},
 		{
+			name: "PostgreSQL level（金仓保留字）",
+			d:    Postgres(),
+			in:   "SELECT level FROM inspect_findings WHERE level=?",
+			want: `SELECT "level" FROM inspect_findings WHERE "level"=?`,
+		},
+		{
+			name: "MySQL 不引用 level",
+			d:    MySQL(),
+			in:   "SELECT level FROM inspect_findings",
+			want: "SELECT level FROM inspect_findings",
+		},
+		{
 			name: "PostgreSQL key/rows/schema",
 			d:    Postgres(),
 			in:   "SELECT key, schema, rows FROM t WHERE key=?",
