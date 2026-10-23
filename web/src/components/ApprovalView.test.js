@@ -83,6 +83,30 @@ describe('审批中心', () => {
     expect(w.text()).toContain('文件分发 @ web-02') // 自己那条仍在列表里
   })
 
+  it('目标列：K8s 写显示集群/命名空间，Docker 写显示节点/端点，而不是"系统级动作"', async () => {
+    listApprovals.mockResolvedValue({
+      enabled: true,
+      approvals: [
+        {
+          id: 'ap-3', title: '重启工作负载 Deployment/web @k3s-dev', node: '',
+          params: { cluster: 'k3s-dev', namespace: 'default', kind: 'Deployment', name: 'web' },
+          state: 'pending', requester: 'ops1', mine: false, createdAt: 1791000002000,
+        },
+        {
+          id: 'ap-4', title: '停止容器 web-1 @web-01/local-docker', node: 'web-01',
+          params: { action: 'stop', node: 'web-01', endpoint: 'local-docker', id: 'web-1' },
+          state: 'pending', requester: 'ops1', mine: false, createdAt: 1791000003000,
+        },
+      ],
+    })
+    const w = await mountView()
+    // K8s 写的目标是集群：node 为空不代表"系统级动作"
+    expect(w.text()).toContain('k3s-dev/default')
+    // Docker 写：节点 + 端点才有辨识度（同名端点可能出现在多台机器上）
+    expect(w.text()).toContain('web-01/local-docker')
+    expect(w.text()).not.toContain('系统级动作')
+  })
+
   it('批准前的确认框写明"立即执行"，并把理由发给服务端', async () => {
     ElMessageBox.confirm.mockResolvedValue('confirm')
     approveApproval.mockResolvedValue({ approval: { state: 'executed', taskId: 'ops-9' } })

@@ -310,11 +310,24 @@ function fmtTime(ms) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+// targetsText 是审批单的"目标"一句话。
+//
+// 三种形态必须分开说，否则审批人会按错的印象放行：
+//   - 有节点（ops / 处置 / Agent 升级）：节点清单；Docker 写再加上端点——
+//     同名端点可能出现在多台机器上，只给节点名对不上是哪台 daemon；
+//   - 无节点但有集群（K8s 写操作，Server 直连 apiserver）：集群/命名空间。
+//     **不能显示成"系统级动作"**——那会让人以为改的是平台自己；
+//   - 都没有（Server 升级 / 回滚）：才是系统级动作。
 function targetsText(row) {
   const ns = row.nodes && row.nodes.length ? row.nodes : (row.node ? [row.node] : [])
-  if (!ns.length) return '系统级动作'
-  if (ns.length <= 3) return ns.join(', ')
-  return `${ns.slice(0, 3).join(', ')} 等 ${ns.length} 个`
+  const params = row.params || {}
+  if (ns.length) {
+    if (params.endpoint && ns.length === 1) return `${ns[0]}/${params.endpoint}`
+    if (ns.length <= 3) return ns.join(', ')
+    return `${ns.slice(0, 3).join(', ')} 等 ${ns.length} 个`
+  }
+  if (params.cluster) return params.namespace ? `${params.cluster}/${params.namespace}` : params.cluster
+  return '系统级动作'
 }
 
 // 高风险参数：批准即执行，这些键的值会被原样下发到机器上，必须一眼可见

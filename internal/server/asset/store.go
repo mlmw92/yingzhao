@@ -400,35 +400,8 @@ func (s *Store) migrate() error {
 	// 存量库补列：CREATE TABLE IF NOT EXISTS 不会给已有的表加列，因此显式补齐
 	// （新库在建表那一步就带着这些列，这里全是 no-op）。顺序不能颠倒——
 	// 表还不存在时 PRAGMA 查不到列名，会去 ALTER 一张不存在的表。
-	//
-	// v1 存量库的 asset_links 没有 source 列。存量边一律视为采集所得——
-	// 它们确实都是采集建的，语义上没有任何变化。
-	if err := s.ensureColumn("asset_links", "source",
-		`ALTER TABLE asset_links ADD COLUMN source TEXT NOT NULL DEFAULT 'discovery'`); err != nil {
-		return err
-	}
-	// 「变更 ↔ 审计」的关联 id。存量行留空，不按时间与操作人回填：那会造出
-	// 看着像证据、实际靠猜的关联，比没有关联更糟。
-	if err := s.ensureColumn("asset_changes", "request_id",
-		`ALTER TABLE asset_changes ADD COLUMN request_id TEXT NOT NULL DEFAULT ''`); err != nil {
-		return err
-	}
-	if err := s.ensureColumn("audit_events", "request_id",
-		`ALTER TABLE audit_events ADD COLUMN request_id TEXT NOT NULL DEFAULT ''`); err != nil {
-		return err
-	}
-	// 链式 HMAC 的三列（见 audit_events 建表处的说明）。存量行一律 seq=0、
-	// 两个 hash 为空——**不回填**：链是"从启用那一刻起"的，给历史行补算 hash
-	// 等于把"我算的"伪装成"当时算的"，那比没有链更糟。
-	for _, c := range []struct{ name, alter string }{
-		{"seq", `ALTER TABLE audit_events ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`},
-		{"prev_hash", `ALTER TABLE audit_events ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''`},
-		{"hash", `ALTER TABLE audit_events ADD COLUMN hash TEXT NOT NULL DEFAULT ''`},
-		// key_fp 记下**这一行由哪个密钥签的**。换了密钥（恢复备份、换机器）时，
-		// 没有它就只能报"第 N 条 hash 不匹配"——那是**假警报**，会被当成有人改过审计。
-		{"key_fp", `ALTER TABLE audit_events ADD COLUMN key_fp TEXT NOT NULL DEFAULT ''`},
-	} {
-		if err := s.ensureColumn("audit_events", c.name, c.alter); err != nil {
+	for _, c := range sqliteAddedColumns {
+		if err := s.ensureColumn(c.table, c.column, c.alter); err != nil {
 			return err
 		}
 	}
@@ -550,6 +523,31 @@ func (s *Store) ensureIndexDM(name, ddl string) error {
 		return fmt.Errorf("创建索引 %s 失败: %w", name, err)
 	}
 	return nil
+}
+
+// sqliteAddedColumns 是给**存量** SQLite 库补的列：新库在建表那一步就带着它们，
+// 补列在那边全是 no-op。
+//
+// 单列成表而不是散在 migrate() 里，是为了让 schema_consistency_test.go 能自动校验
+// 「补的列确实在建表语句里」——只写 ALTER、漏改 schemaStatements 会让新库与老库的
+// 结构从此不一致，而这条错误平时看不出来。
+var sqliteAddedColumns = []struct{ table, column, alter string }{
+	// v1 存量库的 asset_links 没有 source 列。存量边一律视为采集所得——
+	// 它们确实都是采集建的，语义上没有任何变化。
+	{"asset_links", "source", `ALTER TABLE asset_links ADD COLUMN source TEXT NOT NULL DEFAULT 'discovery'`},
+	// 「变更 ↔ 审计」的关联 id。存量行留空，不按时间与操作人回填：那会造出
+	// 看着像证据、实际靠猜的关联，比没有关联更糟。
+	{"asset_changes", "request_id", `ALTER TABLE asset_changes ADD COLUMN request_id TEXT NOT NULL DEFAULT ''`},
+	{"audit_events", "request_id", `ALTER TABLE audit_events ADD COLUMN request_id TEXT NOT NULL DEFAULT ''`},
+	// 链式 HMAC 的三列（见 audit_events 建表处的说明）。存量行一律 seq=0、
+	// 两个 hash 为空——**不回填**：链是"从启用那一刻起"的，给历史行补算 hash
+	// 等于把"我算的"伪装成"当时算的"，那比没有链更糟。
+	{"audit_events", "seq", `ALTER TABLE audit_events ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`},
+	{"audit_events", "prev_hash", `ALTER TABLE audit_events ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''`},
+	{"audit_events", "hash", `ALTER TABLE audit_events ADD COLUMN hash TEXT NOT NULL DEFAULT ''`},
+	// key_fp 记下**这一行由哪个密钥签的**。换了密钥（恢复备份、换机器）时，
+	// 没有它就只能报"第 N 条 hash 不匹配"——那是**假警报**，会被当成有人改过审计。
+	{"audit_events", "key_fp", `ALTER TABLE audit_events ADD COLUMN key_fp TEXT NOT NULL DEFAULT ''`},
 }
 
 // ensureColumn 为存量库补一列（新库建表时已含该列，这里是 no-op）。
