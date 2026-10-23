@@ -655,5 +655,13 @@ Agent 的理由（集群凭据只存 Agent、逐机护栏）与这条边界冲�
 dev-server（1.45.0）实机：临时开启审批后对已停止的 `dm-test` 执行停止，接口返回 202 +
 `pending`，审批单记录 `action=stop / endpoint=dev-docker / id=dm-test / timeout=10`，
 容器状态未变；撤回审批并还原审批配置后再次停止，请求确实打到 daemon（304 → 502
-「目标已处于该状态」）。**未覆盖**：真实的"第二人批准 → 执行成功"整链路——
-环境里只有 admin 一个账号，自批被正确拒绝，故该段由接口层用例覆盖。
+「目标已处于该状态」）。
+
+**完整链路（临时账号）**：建了一个一次性容器 `yz-approval-test`（`alpine:3.19`，
+`docker create` 后处于 Created）与临时账号 `yz-approver`（超级管理员角色）：
+
+- admin 提交 `start` → 202 `ap-18`；`yz-approver` 登录后能在「待我审批」里看到它，
+  批准后审批单落成 `executed`，容器真的跑了一次并以 `Exited (0)` 结束；
+- admin 提交删除 → 202 `ap-19`；批准后容器被真实删除；
+- `yz-approver` 提交后**自己批自己 → 403**「不能批准自己提交的申请」；
+- 收尾：撤回审批、还原审批配置（`enabled=false`）、删除临时账号与临时容器。
